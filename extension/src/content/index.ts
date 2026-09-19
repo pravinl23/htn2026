@@ -1,11 +1,14 @@
 // Content script entry: capture -> predict -> controller -> overlay + execute.
-import type { FormPredictRequest, GhostSettings, Profile } from "@ghost/shared";
+import type { AgentDecisionRequest, AgentDecisionResponse, FormPredictRequest, GhostSettings, Profile } from "@ghost/shared";
 import { ghostEvents } from "../lib/events";
 import { readCachedForm, saveCachedForm } from "../lib/formCache";
-import { isGhostMessage, isServerResult, parseFormPrediction } from "../lib/messages";
+import { isGhostMessage, isServerResult, parseAgentDecision, parseFormPrediction } from "../lib/messages";
 import type { FormPrediction, GhostMessage, ServerResult } from "../lib/messages";
 import { getMetrics, getProfile, getSettings, onStorageChanged } from "../lib/storage";
 import { GhostController } from "./controller";
+import { createBrowserAgentObserver } from "./agentBrowser";
+import { AgentPanel } from "./agentPanel";
+import { AgentRunner } from "./agentRunner";
 import { DraftScheduler, openTextPort } from "./freeText";
 import { Learner } from "./learning";
 import { LearnToast } from "./learnToast";
@@ -25,6 +28,7 @@ interface Session {
   settings: GhostSettings;
   overlay: Overlay;
   controller: GhostController;
+  agentPanel?: AgentPanel;
   running: boolean;
 }
 
@@ -64,11 +68,20 @@ async function askWorker(request: FormPredictRequest): Promise<ServerResult<Form
   return data ? { ok: true, data } : { ok: false, error: "bad-reply" };
 }
 
+async function askAgentWorker(request: AgentDecisionRequest): Promise<AgentDecisionResponse | null> {
+  if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) return null;
+  const message: GhostMessage = { type: "ghost:agent-next", request };
+  const reply: unknown = await chrome.runtime.sendMessage(message);
+  if (!isServerResult(reply) || !reply.ok) return null;
+  return parseAgentDecision(reply.data);
+}
+
 function apply(session: Session): void {
   const wasRunning = session.running;
   session.running = session.settings.enabled;
   syncLoopCapture(session.running); // action trace + page facts (docs/loops.md section 1), only while Ghost is enabled
   if (!session.running) {
+    session.agentPanel?.hide();
     session.controller.stop();
     session.overlay.destroy(); // the constructor mounts the host; a disabled Ghost leaves no trace on the page
   } else if (wasRunning) {
@@ -120,6 +133,7 @@ async function boot(): Promise<void> {
   const [profile, settings] = await Promise.all([getProfile(), getSettings()]);
   const overlay = new Overlay();
   const ledger = createServedLedger();
+  const drafts = new DraftScheduler({ open: openTextPort });
   const session: Session = {
     profile,
     settings,
@@ -132,7 +146,7 @@ async function boot(): Promise<void> {
       getSettings: () => (isTopFrame() ? session.settings : { ...session.settings, showHud: false }),
       predictForm: observePredictions(createFormPredictor({ readCache: readCachedForm, saveCache: saveCachedForm, askServer: askWorker }), ledger),
       // Essay drafts stream through the worker too, one `ghost:text` port per field, at most three at a time.
-      drafts: new DraftScheduler({ open: openTextPort }),
+      drafts,
     }),
   };
   onStorageChanged((changes) => {
@@ -148,11 +162,29 @@ async function boot(): Promise<void> {
   });
   apply(session);
   startLoopContent({ overlay, isEnabled: () => session.running, pauseGhosts: (paused) => (paused ? session.controller.stop() : void (session.running && session.controller.start())) }); // loop sheet + executor (docs/loops.md 3.4, 3.5)
+  if (isTopFrame()) {
+    let panel: AgentPanel;
+    const runner = new AgentRunner({
+      observe: createBrowserAgentObserver({ getProfile: () => session.profile, getSettings: () => session.settings, drafts }),
+      decide: askAgentWorker,
+      confidenceThreshold: () => session.settings.confidenceThreshold,
+      onUpdate: (update) => panel.update(update),
+    });
+    panel = new AgentPanel({
+      overlay,
+      runner,
+      isEnabled: () => session.running,
+      pauseGhosts: (paused) => session.controller.setInteractive(!paused),
+    });
+    session.agentPanel = panel;
+    panel.start();
+  }
 }
 
 /** The extension was reloaded or updated under us: hand the page back and let a fresh injection claim it. */
 function retire(session: Session): void {
   session.running = false;
+  session.agentPanel?.stop();
   syncLoopCapture(false);
   session.controller.stop();
   session.overlay.destroy();

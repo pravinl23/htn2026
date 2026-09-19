@@ -1,4 +1,15 @@
-import type { CapturedField, FieldKind, FieldOption, FormPredictRequest } from "@ghost/shared";
+import {
+  AGENT_OPERATIONS,
+  type AgentCandidate,
+  type AgentDecisionRequest,
+  type AgentExecutableOperation,
+  type AgentHistoryEntry,
+  type AgentOperation,
+  type CapturedField,
+  type FieldKind,
+  type FieldOption,
+  type FormPredictRequest,
+} from "@ghost/shared";
 import { COUNTER_NAMES, type CalibrationPair, type Counters } from "../lib/metrics";
 import { isRecord } from "./errors";
 import type { EpisodicPair, NextCandidate, NextPredictRequest, TraceEvent } from "./nextQuestions";
@@ -6,6 +17,7 @@ import type { EpisodicPair, NextCandidate, NextPredictRequest, TraceEvent } from
 export const LIMITS = {
   formBodyBytes: 512_000,
   nextBodyBytes: 128_000,
+  agentBodyBytes: 192_000,
   metricsBodyBytes: 32_000,
   // Every question repeats the full criteria, so fields x factKeys bounds the model call a request can trigger.
   fields: 100,
@@ -14,6 +26,8 @@ export const LIMITS = {
   recentActions: 20,
   candidates: 60,
   memory: 5,
+  agentCandidates: 80,
+  agentHistory: 20,
   calibrationPairs: 500,
 } as const;
 
@@ -21,6 +35,8 @@ const FIELD_KINDS: ReadonlySet<string> = new Set<FieldKind>([
   "text", "email", "tel", "url", "number", "date", "month", "textarea", "select", "radio", "checkbox", "file", "button", "link", "other",
 ]);
 const CANDIDATE_KINDS: ReadonlySet<string> = new Set<NextCandidate["kind"]>(["button", "link", "field"]);
+const AGENT_OPERATION_SET: ReadonlySet<string> = new Set<AgentOperation>(AGENT_OPERATIONS);
+const AGENT_EXECUTABLE_SET: ReadonlySet<string> = new Set<AgentExecutableOperation>(["FILL", "SELECT", "CHECK", "CLICK"]);
 const FACT_KEY = /^[A-Za-z][\w.-]{0,63}$/;
 const ZERO_RECT = { x: 0, y: 0, width: 0, height: 0 };
 
@@ -183,6 +199,62 @@ export function parseNextRequest(body: unknown): NextPredictRequest {
     recentActions: actions.map((e, i) => parseEvent(e, `recentActions[${i}]`)),
     candidates,
     memory: memory.map((m, i) => parseMemory(m, `memory[${i}]`)),
+  };
+}
+
+function parseAgentCandidate(raw: unknown, path: string): AgentCandidate {
+  const candidate = object(raw, path);
+  if (typeof candidate.kind !== "string" || !CANDIDATE_KINDS.has(candidate.kind)) throw new BadRequest(`${path}.kind must be button, link or field`);
+  if (typeof candidate.required !== "boolean") throw new BadRequest(`${path}.required must be a boolean`);
+  if (typeof candidate.locked !== "boolean") throw new BadRequest(`${path}.locked must be a boolean`);
+  if (typeof candidate.filled !== "boolean") throw new BadRequest(`${path}.filled must be a boolean`);
+  const operations = array(candidate.operations, `${path}.operations`, 4).map((operation, i) => {
+    if (typeof operation !== "string" || !AGENT_EXECUTABLE_SET.has(operation)) throw new BadRequest(`${path}.operations[${i}] is not executable`);
+    return operation as AgentExecutableOperation;
+  });
+  if (new Set(operations).size !== operations.length) throw new BadRequest(`${path}.operations must be unique`);
+  return defined<AgentCandidate>({
+    id: id(candidate.id, `${path}.id`, 300),
+    kind: candidate.kind as AgentCandidate["kind"],
+    label: text(candidate.label, `${path}.label`, 200),
+    context: optionalText(candidate.context, `${path}.context`, 300),
+    required: candidate.required as boolean,
+    locked: candidate.locked,
+    filled: candidate.filled,
+    operations,
+  });
+}
+
+function parseAgentHistory(raw: unknown, path: string): AgentHistoryEntry {
+  const entry = object(raw, path);
+  if (typeof entry.operation !== "string" || !AGENT_OPERATION_SET.has(entry.operation)) throw new BadRequest(`${path}.operation is not known`);
+  if (typeof entry.ok !== "boolean" || typeof entry.changed !== "boolean") throw new BadRequest(`${path}.ok and changed must be booleans`);
+  return defined<AgentHistoryEntry>({
+    operation: entry.operation as AgentOperation,
+    targetId: optionalText(entry.targetId, `${path}.targetId`, 300),
+    targetLabel: optionalText(entry.targetLabel, `${path}.targetLabel`, 200),
+    ok: entry.ok,
+    changed: entry.changed,
+    error: optionalText(entry.error, `${path}.error`, 80),
+  });
+}
+
+export function parseAgentRequest(body: unknown): AgentDecisionRequest {
+  const req = object(body, "body");
+  const page = object(req.page, "page");
+  const candidates = array(req.candidates, "candidates", LIMITS.agentCandidates).map((candidate, i) => parseAgentCandidate(candidate, `candidates[${i}]`));
+  const ids = new Set(candidates.map((candidate) => candidate.id));
+  if (ids.size !== candidates.length) throw new BadRequest("candidates[].id must be unique");
+  const history = array(req.recentActions, "recentActions", Number.MAX_SAFE_INTEGER).slice(-LIMITS.agentHistory);
+  return {
+    goal: id(req.goal, "goal", 2000),
+    page: {
+      origin: id(page.origin, "page.origin", 300),
+      url: stripQuery(text(page.url, "page.url", 2000)),
+      title: text(page.title, "page.title", 300),
+    },
+    candidates,
+    recentActions: history.map((entry, i) => parseAgentHistory(entry, `recentActions[${i}]`)),
   };
 }
 

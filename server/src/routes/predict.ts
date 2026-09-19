@@ -3,14 +3,16 @@ import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { ServerConfig } from "../config";
 import { getMetrics, type Metrics } from "../lib/metrics";
+import { createAgentPredictor } from "../providers/agentPredict";
 import { createFormPredictor } from "../providers/formPredict";
 import { createDecisionProvider, providerModel, textModel } from "../providers/index";
 import { createNextPredictor } from "../providers/nextPredict";
-import { BadRequest, LIMITS, parseFormRequest, parseNextRequest, readJsonBody } from "../providers/validation";
+import { BadRequest, LIMITS, parseAgentRequest, parseFormRequest, parseNextRequest, readJsonBody } from "../providers/validation";
 
 const VERSION = process.env.npm_package_version ?? "0.1.0";
 const FORM_ROUTE = "/v1/predict/form";
 const NEXT_ROUTE = "/v1/predict/next";
+const AGENT_ROUTE = "/v1/agent/next";
 
 export interface PredictDeps {
   /** Injected in tests. Defaults to the provider chosen by the config precedence. */
@@ -42,6 +44,7 @@ export function registerPredictRoutes(app: Hono, config: ServerConfig, deps: Pre
 
   const predictForm = createFormPredictor({ provider, fastPath: config.fastPath, timeoutMs: deps.timeoutMs, onModelCall: modelCallLogger(FORM_ROUTE) });
   const predictNext = createNextPredictor({ provider, timeoutMs: deps.timeoutMs, onModelCall: modelCallLogger(NEXT_ROUTE) });
+  const predictAgent = createAgentPredictor({ provider, timeoutMs: deps.timeoutMs, onModelCall: modelCallLogger(AGENT_ROUTE) });
 
   app.get("/v1/health", (c) =>
     c.json({
@@ -75,6 +78,17 @@ export function registerPredictRoutes(app: Hono, config: ServerConfig, deps: Pre
       const req = parseNextRequest(await readJsonBody(c.req, LIMITS.nextBodyBytes));
       const prediction = await predictNext(req);
       metrics.recordRequest(NEXT_ROUTE, prediction, recordedPerCall);
+      return c.json(prediction);
+    } catch (err) {
+      return badRequest(c, err);
+    }
+  });
+
+  app.post(AGENT_ROUTE, bodyLimit({ maxSize: LIMITS.agentBodyBytes, onError: tooLarge }), async (c) => {
+    try {
+      const req = parseAgentRequest(await readJsonBody(c.req, LIMITS.agentBodyBytes));
+      const prediction = await predictAgent(req);
+      metrics.recordRequest(AGENT_ROUTE, prediction, recordedPerCall);
       return c.json(prediction);
     } catch (err) {
       return badRequest(c, err);

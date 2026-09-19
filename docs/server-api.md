@@ -1,6 +1,6 @@
 # Ghost prediction server API (`server/`, http://localhost:8787)
 
-Keys stay on the server. The Chrome extension now calls form prediction, ghost text, profile extraction, metrics, presence and loop/executor routes while retaining instant local fallback; it still does not call `/v1/predict/next`. Ghost Desktop calls form/free-text/health/presence. The atomic workflow lab calls `/v1/workflows/*` directly, while the tested native `GHWorkflowCoordinator` seam is not yet connected to the desktop pipeline. All non-SSE bodies are JSON. CORS allows `chrome-extension://*` and `http://localhost:*` only.
+Keys stay on the server. The Chrome extension now calls form prediction, the autonomous `/v1/agent/next` decision route, ghost text, profile extraction, metrics, presence and loop/executor routes while retaining instant local fallback; it still does not call `/v1/predict/next` as a separate passive click-ghost feature. Ghost Desktop calls form/free-text/health/presence. The atomic workflow lab calls `/v1/workflows/*` directly, while the tested native `GHWorkflowCoordinator` seam is not yet connected to the desktop pipeline. All non-SSE bodies are JSON. CORS allows `chrome-extension://*` and `http://localhost:*` only.
 
 Browserbase and Composio paths are unit/mock-tested and fall back to simulated executors without credentials. On the audited developer machine, direct TypeSafe/Jev is configured: a live 12-field decision and the three-action atomic workflow passed with calibrated Jev choices. Browserbase credentials are present but its executor has not been live-verified, and Composio is not configured. The ignored `.env` must never be committed.
 
@@ -117,6 +117,43 @@ Request: `{ origin, url, recentActions: TraceEvent[] (max 20), candidates: NextC
 One `choice` question over candidate ids plus `none`. Heuristic provider: prefer the candidate that followed the same previous action in `memory`, else `none`.
 Sensitive candidates (password, card, government ID labels), and recent actions or memories that touch one, are dropped on the server before the heuristic or any model sees them, so they can never be the prediction.
 Response: `{ candidateId: string | "none", confidence, provider, calibrated, latencyMs }`.
+
+### `POST /v1/agent/next`
+
+One autonomous computer-use step. Request:
+
+```ts
+{
+  goal: string;
+  page: { origin: string; url: string; title: string };
+  candidates: Array<{
+    id: string; kind: "button" | "link" | "field"; label: string; context?: string;
+    required: boolean; locked: boolean; filled: boolean;
+    operations: Array<"FILL" | "SELECT" | "CHECK" | "CLICK">;
+  }>;
+  recentActions: Array<{ operation: string; targetId?: string; targetLabel?: string; ok: boolean; changed: boolean; error?: string }>;
+}
+```
+
+The extension worker rebuilds this body from an allowlist and replaces `page.origin`/`page.url` with Chrome's `MessageSender` identity. The server strips URL queries/fragments, sensitive candidates/history and opaque target ids before the provider call. Values are not part of this contract.
+
+The provider receives one `operation` choice question plus speculative compatible target heads. Only the current DOM-order value frontier is offered for `FILL`/`SELECT`/`CHECK`; page clicks are deferred while that value frontier exists. A selected target alias is mapped back to the opaque id after the provider returns. The response is:
+
+```ts
+{
+  operation: "FILL" | "SELECT" | "CHECK" | "CLICK" | "WAIT" | "DONE" | "BLOCKED";
+  targetId?: string;
+  confidence: number;
+  operationConfidence: number;
+  targetConfidence?: number;
+  provider: string;
+  calibrated: boolean;
+  latencyMs: number;
+  fallbackFrom?: string;
+}
+```
+
+Malformed, unoffered or provider-failed decisions return `BLOCKED`; they never widen the action space. With the explicitly configured `heuristic` provider, the deterministic test/demo policy can only apply the first local field action and otherwise returns `DONE`/`BLOCKED`; it never clicks. This route decides only. The extension performs freshness checks, lock/sensitivity checks, execution and post-action verification.
 
 ### `POST /v1/ghost-text`
 Request: `{ fieldLabel, fieldSignature, maxChars?, pageContext: { company?, role?, description? (<= 2000 chars) }, facts: Record<string,string> (only the relevant, non-sensitive ones), pastAnswers: PastAnswer[] (<= 3) }`.

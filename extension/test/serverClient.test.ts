@@ -1,7 +1,7 @@
 import { DEMO_PROFILE } from "@ghost/shared";
-import type { CapturedField } from "@ghost/shared";
+import type { AgentDecisionRequest, CapturedField } from "@ghost/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { REQUEST_TIMEOUT_MS, checkHealth, handleServerMessage, isServerMessage, predictForm } from "../src/background/serverClient";
+import { REQUEST_TIMEOUT_MS, checkHealth, handleServerMessage, isServerMessage, predictAgent, predictForm } from "../src/background/serverClient";
 import type { FetchLike } from "../src/background/serverClient";
 import { sanitizeFormRequest, toWireField } from "../src/lib/messages";
 import { resetMemoryStorage } from "../src/lib/storage";
@@ -128,8 +128,9 @@ describe("checkHealth", () => {
 });
 
 describe("handleServerMessage", () => {
-  it("recognises its two message types only", () => {
+  it("recognises its three message types only", () => {
     expect(isServerMessage({ type: "ghost:predict-form", request: {} })).toBe(true);
+    expect(isServerMessage({ type: "ghost:agent-next", request: {} })).toBe(true);
     expect(isServerMessage({ type: "ghost:health" })).toBe(true);
     expect(isServerMessage({ type: "ghost:debugger-fill" })).toBe(false);
     expect(isServerMessage(null)).toBe(false);
@@ -153,6 +154,47 @@ describe("handleServerMessage", () => {
     const fetchMock = jsonFetch({ ok: true, provider: "llm", calibrated: false, textProvider: "openai" });
     const result = await handleServerMessage({ type: "ghost:health" }, {}, deps(fetchMock));
     expect(result).toEqual({ ok: true, data: { provider: "llm", calibrated: false, textProvider: "openai" } });
+  });
+});
+
+describe("predictAgent", () => {
+  const agentRequest: AgentDecisionRequest = {
+    goal: "Fill safe fields and stop before Submit",
+    page: { origin: "https://spoofed.example", url: "https://spoofed.example/apply?token=secret", title: "Apply" },
+    candidates: [
+      { id: "first-id", kind: "field", label: "First name", required: true, locked: false, filled: false, operations: ["FILL"] },
+      { id: "submit-id", kind: "button", label: "Submit", required: false, locked: true, filled: false, operations: ["CLICK"] },
+    ],
+    recentActions: [],
+  };
+  const agentReply = {
+    operation: "FILL", targetId: "first-id", confidence: 0.91, operationConfidence: 0.95,
+    targetConfidence: 0.91, provider: "typesafe", calibrated: true, latencyMs: 42,
+  };
+
+  it("POSTs the value-free request to /v1/agent/next", async () => {
+    const fetchMock = jsonFetch(agentReply);
+    expect(await predictAgent(agentRequest, deps(fetchMock))).toEqual({ ok: true, data: agentReply });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${BASE}/v1/agent/next`);
+    expect(sentBody(fetchMock)).toEqual(agentRequest);
+  });
+
+  it("uses Chrome's page identity and strips its query string", async () => {
+    const fetchMock = jsonFetch(agentReply);
+    const result = await handleServerMessage(
+      { type: "ghost:agent-next", request: agentRequest },
+      { origin: "http://localhost:5173", url: "http://localhost:5173/apply?private=yes#form" },
+      deps(fetchMock),
+    );
+    expect(result).toEqual({ ok: true, data: agentReply });
+    expect((sentBody(fetchMock).page as Record<string, unknown>)).toMatchObject({ origin: "http://localhost:5173", url: "http://localhost:5173/apply" });
+  });
+
+  it("drops widened operations before network", async () => {
+    const fetchMock = jsonFetch(agentReply);
+    const request = { ...agentRequest, candidates: [{ ...agentRequest.candidates[0], operations: ["DELETE"] }] };
+    expect((await predictAgent(request, deps(fetchMock))).ok).toBe(true);
+    expect((sentBody(fetchMock).candidates as Array<{ operations: string[] }>)[0]?.operations).toEqual([]);
   });
 });
 

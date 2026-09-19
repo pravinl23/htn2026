@@ -4,7 +4,7 @@ This file is the contract between modules. If you change a signature here, chang
 
 ## Current integration boundary — 2026-09-19
 
-The browser extension currently implements the offline form walk only: `capture -> buildGhostsOffline -> controller -> overlay/execute`. It does not fetch the server, stream free text, record traces, predict next actions or orchestrate loops. The server and shared packages contain those later-stage services/pure engines, and Ghost Desktop independently consumes form prediction and ghost text. Read contracts below as implemented only where a corresponding source module exists; `docs/loops.md` marks the planned extension pieces explicitly.
+The browser extension implements the complete assisted form walk, server prediction/cache, streamed drafts, opt-in learning/metrics, trace capture, loop preview/execution, presence coordination, and the Jev computer-use loop described below. `/v1/predict/next` is still not a separate user-facing click-ghost path; autonomous decisions use `/v1/agent/next` instead. Browserbase and Composio execution exist behind the loop/workflow boundaries, but real external-account effects are not part of the Jev form proof. Ghost Desktop independently consumes form prediction and ghost text; its atomic workflow coordinator remains a tested seam rather than the main native capture pipeline.
 
 ## Packages
 
@@ -148,6 +148,23 @@ Rescans: a `MutationObserver` on `documentElement` (childList + an attribute all
 ### `index.ts`
 
 Loads settings and profile from `chrome.storage.local` (through `src/lib/storage.ts`), starts the controller when `settings.enabled`, reacts to `chrome.storage.onChanged` (enable/disable starts/stops; any other settings or profile change rescans) and to the `ghost:toggle` runtime message (re-reads settings from storage, which is the source of truth; the background currently relies on storage alone and does not broadcast). Skips pages where `location.protocol` is not http/https and guards against double injection with a global flag in the isolated world. A disabled Ghost removes its overlay host from the page entirely.
+
+### Jev computer-use loop (`agentRunner.ts`, `agentBrowser.ts`, `agentPanel.ts`)
+
+`Alt+Shift+J` opens a panel inside the existing closed shadow root. A run is:
+
+```text
+capture value-free candidates -> one Jev operation/target decision -> confidence/risk gate
+-> capture again and compare fingerprint -> execute one local Ghost -> capture and verify change -> repeat
+```
+
+- `agentBrowser.ts` owns the DOM adapter. It calls `captureFields`, prepares local Ghost actions with `planForm`, and exposes only labels, required/filled/locked state and supported operations. Profile values and generated drafts remain inside `LocalAction.ghost` and never enter the request.
+- `agentRunner.ts` is provider- and DOM-independent. Its closed operation set is `FILL | SELECT | CHECK | CLICK | WAIT | DONE | BLOCKED`, with a 40-step budget, a freshness read before every mutation, target/operation revalidation and a three-strike no-progress stop.
+- The server keeps one DOM-order value frontier. This avoids treating several equally correct form-field orders as uncertainty and defers page clicks until local value work is complete. Jev still decides whether to act, wait, finish or report a block. `CLICK` retains the strict confidence gate; calibrated local-value actions rely on the existing local mapping and independently verified writer. Uncalibrated mutations retain the user's full threshold.
+- `GhostController.setInteractive(false)` makes the Tab walk passive without destroying its overlay or draft scheduler. The panel restores it after every terminal state.
+- The top frame owns the panel; eligible embedded application frames still retain their ordinary Ghost walks.
+
+The loaded-extension contract is `e2e/tests/agent-demo.spec.ts`: all safe profile fields and at least the required generated essay are filled, consent and sensitive/file inputs remain untouched, and Submit receives zero attempts. See [`jev-agent.md`](jev-agent.md) for the design rationale and live run command.
 
 The content script runs in every frame (`all_frames: true`): embedded application forms (Greenhouse, Lever, Ashby) live in iframes. Each frame has its own controller and overlay, frames smaller than 200x80 (ad slots, tracking pixels) are skipped, and only the top document shows the HUD. The debugger fallback stays top-frame only (its guards run in the top document and refuse anything else). Known gap: fields inside shadow roots (web-component forms such as Salesforce LWC) are not captured yet.
 

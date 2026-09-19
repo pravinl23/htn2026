@@ -14,7 +14,7 @@ export function createApp(config: ServerConfig = loadConfig()): Hono {
   const app = new Hono();
   app.use("*", localOnly(config.host));
   app.use("*", cors({ origin: (origin) => (ALLOWED_ORIGIN.test(origin) ? origin : null) }));
-  registerPredictRoutes(app, config); // /v1/health, /v1/predict/form, /v1/predict/next
+  registerPredictRoutes(app, config); // /v1/health, /v1/predict/form, /v1/predict/next, /v1/agent/next
   registerTextRoutes(app, config); // /v1/ghost-text, /v1/profile/extract
   registerMetricsRoutes(app, config); // /v1/metrics
   registerPresenceRoutes(app, config); // /v1/presence (extension and desktop heartbeats)

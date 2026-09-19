@@ -9,3 +9,4 @@ export * from "./trace";
 export * from "./loop";
 export * from "./memory";
 export * from "./workflow";
+export * from "./agent";

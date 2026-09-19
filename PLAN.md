@@ -6,10 +6,11 @@ This is the implementation ledger. Check a box only when the item works on its i
 
 - **Demoable now:** browser form capture, offline prediction, ghost overlay, Tab/Escape/hold-Tab interaction, verified React-safe writes, sensitive-field exclusion, locked actions, settings/profile editing, and the `/apply` walkthrough.
 - **Connected extension path:** server-upgraded form prediction, per-form cache, HUD, streamed ghost text, resume import, learning, metrics, trace/page-fact capture, loop proposal/preview and confirmed execution are implemented.
+- **Jev computer use:** `Alt+Shift+J` now runs a value-private observe/decide/verify loop through `/v1/agent/next`. The loaded-extension `/apply` proof passes keyless and with direct TypeSafe/Jev (8.3 s live): safe fields filled, consent untouched, zero Submit attempts.
 - **Workflow showcase:** `/workflow/index.html` runs meeting coordination and Slack → GitHub issue stories through one Jev choice per step and simulated Composio execution.
 - **Native:** the stable Objective-C host, hot-swappable library, Accessibility harness and 201 tests exist; the atomic `GHWorkflowCoordinator` seam is not connected to the main desktop pipeline.
 - **Top priority:** prove the canonical invoice loop in loaded-extension e2e: two demonstrations, preview 48, flag one intentional exception, explicitly confirm once, execute/verify 47, then record the fallback video.
-- **Verified baseline:** frozen install, build and typecheck pass; 2,016 JS/TS unit tests, 201 desktop tests and 33 browser e2e tests pass. The prior 95-check demo smoke run was not repeated after this merge.
+- **Verified baseline:** build and typecheck pass; 2,029 JS/TS unit tests, 201 desktop tests and 34 browser e2e tests pass. The prior 95-check demo smoke run was not repeated after this integration.
 
 Demo profile (fictional, use everywhere, never real data):
 Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University of Waterloo, BCS Computer Science, expected graduation April 2028, github.com/alexchen-dev, linkedin.com/in/alexchen-dev, alexchen.dev, authorized to work in Canada: yes, requires sponsorship: no.
@@ -76,6 +77,17 @@ Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University o
 - [x] Connect episodic memory to recorded extension actions. Retrieval is implemented, but `/v1/predict/next` is not yet requested by the extension.
 - [x] `demo/mail` and `demo/calendar`: an email asks "can we meet Thursday afternoon?"; a user can open the calendar, pick the free Thursday slot, return to the email, fill the React-controlled reply, and reach locked Send. Ghost orchestration/drafting is not part of this checkbox.
 - [ ] E2E for that cross-page flow using only Tab presses (and a final explicit confirm that the test does NOT press).
+
+### Stage 5A: Jev computer-use runner
+
+- [x] Shared closed operation/candidate/history contract and strict server/extension validation.
+- [x] `POST /v1/agent/next`: one Jev call chooses an operation and compatible target; opaque ids and values are withheld from the provider.
+- [x] Browser adapter and runner: observe, freshness-check, execute through the existing writer, verify state change, stop on no progress/step budget/invalid target.
+- [x] Closed-shadow command panel on **Alt+Shift+J**, with provider, latency, confidence and stop reason.
+- [x] Loaded-extension e2e for the full safe `/apply` run; deterministic and live TypeSafe/Jev paths both pass.
+- [ ] Add a second action-heavy/page-changing scenario so `CLICK`, navigation and `WAIT` are demonstrated, not just value operations.
+- [ ] Send redacted agent failure/outcome envelopes to Sentry and turn recurring failures into a replay/eval corpus. Do not let production failures rewrite prompts or policy automatically.
+- [ ] Record a fallback video of the live Jev run and add it to the judging script.
 
 ## Stage 6: Do it twice, Ghost does the rest
 

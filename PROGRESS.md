@@ -29,3 +29,12 @@ Format:
 - Audit tests at 18:10 UTC: build and typecheck pass; shared 354, extension 254, server 325 passed + 2 skipped, demo 74, e2e 19, demo smoke 95, desktop 167. Tracked secret-pattern scan clean.
 - Audit findings: frozen install fails because the lockfile still lists extension `pdfjs-dist`; desktop presence/extension heartbeat is documented but not implemented; `DEMO.md` and the Stage 6 loop video are missing; several planning documents overstated integration.
 - Next: implement the canonical invoice-loop vertical slice in the extension (record two runs -> detect/synthesize -> preview 48 with one exception -> confirm -> execute/verify 47 -> result screen), then add e2e, fallback video and one visible OpenAI-powered step.
+
+## Run 3: 2026-09-19 Jev computer-use integration [DONE]
+- Added a shared value-free computer-use contract and strict `/v1/agent/next` route. One Jev call selects a closed operation plus a compatible opaque target; the provider never receives profile values or target ids.
+- Added the extension browser adapter, provider-independent observe/freshness-check/execute/verify runner, and closed-shadow `Alt+Shift+J` panel. The existing verified writer remains the only mutation path.
+- Added a risk-aware frontier: one DOM-order local value target at a time, clicks deferred while safe value work remains, no-key policy forbidden from clicks, locked/sensitive targets refused again at execution.
+- Added server, message-boundary, runner, browser-adapter and loaded-extension tests.
+- Live verification: direct TypeSafe/Jev + Baseten drafting completed `/apply` in 8.3 s; deterministic keyless run completed in 2.0 s. Both left consent untouched and recorded zero Submit attempts.
+- Verification: build and all workspace typechecks pass; 2,029 JS/TS unit tests and all 34 loaded-extension browser tests pass.
+- Next: record the live proof, add Sentry outcome/failure capture feeding replay/evals, then add a second page-changing `CLICK`/`WAIT` scenario before returning to the canonical invoice-loop video.

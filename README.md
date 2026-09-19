@@ -8,6 +8,8 @@ Built at Hack the North 2026. Instructions for the autonomous builder live in `C
 
 The browser form-filling path is complete and verified: Ghost can walk the React and plain-HTML job applications with Tab, preserve native keyboard behavior outside the walk, refuse sensitive fields, verify writes, and stop on the locked Submit action. The extension now upgrades its instant local predictions from the server, caches per form, streams free-text drafts, imports resumes, learns opt-in facts, reports metrics, records safe action traces, detects repeated loops, previews them and runs confirmed visible/background/Browserbase/Composio modes.
 
+The extension also has a working Jev computer-use loop. Press **Alt+Shift+J**, give it a goal, and it repeatedly observes a value-free page state, asks Jev for one closed-vocabulary operation, freshness-checks the page, executes through Ghost's existing local verified writer, and observes again. Profile values remain local. The loaded-extension proof fills every safe field on `/apply`, including generated prose, leaves consent alone and stops before Submit. It passes both with the deterministic no-key policy and with the configured direct TypeSafe/Jev provider; the live browser scenario completed in 8.3 seconds during the 2026-09-19 verification. See [`docs/jev-agent.md`](docs/jev-agent.md).
+
 The canonical invoice loop is heavily unit-tested, including preview, explicit confirmation, verified background execution and failure handling, but still needs one loaded-extension Playwright run covering the full “do two, preview 48, complete 47, hold one” judging path and its fallback video. The separate atomic workflow lab demonstrates two Jev-selected stories—meeting coordination and Slack → GitHub issue—with simulated Composio execution. Real Composio accounts are not configured, and the native workflow coordinator is a tested seam rather than part of the desktop app’s live pipeline. See `PLAN.md` for the exact boundary.
 
 ## Run it
@@ -28,6 +30,12 @@ Then load the extension in Chrome:
 4. Open http://localhost:5173/apply and press **Tab**.
 
 Toggle Ghost with **Alt+Shift+G** or the toolbar button.
+
+For the autonomous Jev demo, press **Alt+Shift+J** and run:
+
+> Fill every field that has a safe local value; leave consent untouched and stop before Submit application
+
+The ordinary Tab walk becomes passive during the run and resumes afterward. Ghost never supplies consent and never activates the locked Submit action.
 
 For the atomic macOS/Composio workflow demo, keep the server and demo running and open
 `http://localhost:5173/workflow/index.html`. It is side-effect-free and simulated until

@@ -1,5 +1,18 @@
 import { isSensitive } from "@ghost/shared";
-import type { CapturedField, FieldAssignment, FieldKind, FieldOption, FormPredictRequest } from "@ghost/shared";
+import { AGENT_OPERATIONS } from "@ghost/shared";
+import type {
+  AgentCandidate,
+  AgentDecisionRequest,
+  AgentDecisionResponse,
+  AgentExecutableOperation,
+  AgentHistoryEntry,
+  AgentOperation,
+  CapturedField,
+  FieldAssignment,
+  FieldKind,
+  FieldOption,
+  FormPredictRequest,
+} from "@ghost/shared";
 
 /**
  * Runtime messages between the content script and the background worker. `target` is a one-shot token
@@ -12,6 +25,7 @@ export type GhostMessage =
   | { type: "ghost:debugger-fill"; value: string; target: string }
   | { type: "ghost:debugger-click"; x: number; y: number; target: string }
   | { type: "ghost:predict-form"; request: FormPredictRequest }
+  | { type: "ghost:agent-next"; request: AgentDecisionRequest }
   | { type: "ghost:health" }
   | { type: "ghost:metrics"; batch: MetricsBatch };
 
@@ -25,7 +39,7 @@ export interface DebuggerReply {
 }
 
 const TYPES: ReadonlySet<string> = new Set([
-  "ghost:toggle", "ghost:debugger-fill", "ghost:debugger-click", "ghost:predict-form", "ghost:health", "ghost:metrics",
+  "ghost:toggle", "ghost:debugger-fill", "ghost:debugger-click", "ghost:predict-form", "ghost:agent-next", "ghost:health", "ghost:metrics",
 ]);
 
 export function isGhostMessage(msg: unknown): msg is GhostMessage {
@@ -279,6 +293,78 @@ export function parseHealth(raw: unknown): ServerHealth | null {
   if (typeof raw.model === "string") health.model = raw.model.slice(0, 80);
   if (typeof raw.version === "string") health.version = raw.version.slice(0, 40);
   return health;
+}
+
+// ---------- Jev computer-use decisions ----------
+
+export const AGENT_LIMITS = { goal: 2000, title: 300, candidates: 80, history: 20, label: 200, context: 300 } as const;
+const AGENT_OPERATION_SET: ReadonlySet<string> = new Set<AgentOperation>(AGENT_OPERATIONS);
+const AGENT_EXECUTABLE_SET: ReadonlySet<string> = new Set<AgentExecutableOperation>(["FILL", "SELECT", "CHECK", "CLICK"]);
+
+function cleanAgentCandidate(raw: unknown): AgentCandidate | null {
+  if (!isObject(raw) || (raw.kind !== "button" && raw.kind !== "link" && raw.kind !== "field")) return null;
+  const id = identifier(raw.id);
+  const label = clip(raw.label, AGENT_LIMITS.label);
+  if (!id || !label || isSensitive({ label, placeholder: typeof raw.context === "string" ? raw.context : undefined })) return null;
+  if (typeof raw.required !== "boolean" || typeof raw.locked !== "boolean" || typeof raw.filled !== "boolean" || !Array.isArray(raw.operations)) return null;
+  const operations = [...new Set(raw.operations.filter((operation): operation is AgentExecutableOperation => typeof operation === "string" && AGENT_EXECUTABLE_SET.has(operation)))];
+  const candidate: AgentCandidate = { id, kind: raw.kind, label, required: raw.required, locked: raw.locked, filled: raw.filled, operations };
+  const context = clip(raw.context, AGENT_LIMITS.context);
+  if (context) candidate.context = context;
+  return candidate;
+}
+
+function cleanAgentHistory(raw: unknown): AgentHistoryEntry | null {
+  if (!isObject(raw) || typeof raw.operation !== "string" || !AGENT_OPERATION_SET.has(raw.operation)) return null;
+  if (typeof raw.ok !== "boolean" || typeof raw.changed !== "boolean") return null;
+  const entry: AgentHistoryEntry = { operation: raw.operation as AgentOperation, ok: raw.ok, changed: raw.changed };
+  const targetId = identifier(raw.targetId);
+  const targetLabel = clip(raw.targetLabel, AGENT_LIMITS.label);
+  const error = clip(raw.error, 80);
+  if (targetId) entry.targetId = targetId;
+  if (targetLabel && !isSensitive({ label: targetLabel })) entry.targetLabel = targetLabel;
+  if (error) entry.error = error;
+  return entry;
+}
+
+/** Rebuilds the value-free request before it leaves the extension process. */
+export function sanitizeAgentRequest(raw: unknown): AgentDecisionRequest | null {
+  if (!isObject(raw) || !isObject(raw.page)) return null;
+  const goal = clip(raw.goal, AGENT_LIMITS.goal);
+  const origin = identifier(raw.page.origin);
+  const url = clip(raw.page.url, 2000);
+  const title = typeof raw.page.title === "string" ? raw.page.title.slice(0, AGENT_LIMITS.title) : null;
+  if (!goal || !origin || !url || title === null) return null;
+  const candidates = (Array.isArray(raw.candidates) ? raw.candidates : []).slice(0, AGENT_LIMITS.candidates).map(cleanAgentCandidate).filter((item): item is AgentCandidate => item !== null);
+  const ids = new Set(candidates.map((candidate) => candidate.id));
+  if (candidates.length === 0 || ids.size !== candidates.length) return null;
+  const recentActions = (Array.isArray(raw.recentActions) ? raw.recentActions : []).slice(-AGENT_LIMITS.history).map(cleanAgentHistory).filter((item): item is AgentHistoryEntry => item !== null);
+  return { goal, page: { origin, url, title }, candidates, recentActions };
+}
+
+export function parseAgentDecision(raw: unknown): AgentDecisionResponse | null {
+  if (!isObject(raw) || typeof raw.operation !== "string" || !AGENT_OPERATION_SET.has(raw.operation)) return null;
+  if (typeof raw.confidence !== "number" || typeof raw.operationConfidence !== "number" || typeof raw.provider !== "string" || typeof raw.calibrated !== "boolean") return null;
+  if (typeof raw.latencyMs !== "number" || !Number.isFinite(raw.latencyMs)) return null;
+  const targetId = identifier(raw.targetId);
+  const executable = AGENT_EXECUTABLE_SET.has(raw.operation);
+  if (executable !== Boolean(targetId)) return null;
+  const answer: AgentDecisionResponse = {
+    operation: raw.operation as AgentOperation,
+    confidence: clampConfidence(raw.confidence),
+    operationConfidence: clampConfidence(raw.operationConfidence),
+    provider: raw.provider.slice(0, 40),
+    calibrated: raw.calibrated,
+    latencyMs: Math.max(0, raw.latencyMs),
+  };
+  if (targetId) answer.targetId = targetId;
+  if (typeof raw.targetConfidence === "number") answer.targetConfidence = clampConfidence(raw.targetConfidence);
+  if (typeof raw.fallbackFrom === "string") answer.fallbackFrom = raw.fallbackFrom.slice(0, 40);
+  return answer;
+}
+
+function clampConfidence(value: number): number {
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
 }
 
 export function isServerResult(msg: unknown): msg is ServerResult<unknown> {

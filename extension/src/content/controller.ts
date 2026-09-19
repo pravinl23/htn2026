@@ -129,6 +129,8 @@ export class GhostController {
   private lastUrl = "";
   private lastLatencyMs: number | null = null;
   private observer: MutationObserver | null = null;
+  /** The agent can temporarily own execution while capture, prediction and rendering keep running. */
+  private interactive = true;
 
   constructor(private readonly deps: ControllerDeps) {
     this.doc = deps.doc ?? document;
@@ -145,6 +147,10 @@ export class GhostController {
     this.observe();
     this.urlTimer = setInterval(this.onUrlMaybeChanged, URL_POLL_MS);
     this.rescan();
+  }
+
+  setInteractive(interactive: boolean): void {
+    this.interactive = interactive;
   }
 
   stop(): void {
@@ -424,7 +430,7 @@ export class GhostController {
   // ---------- keys ----------
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (event.isComposing || event.keyCode === 229 || !this.isUserEvent(event)) return;
+    if (!this.interactive || event.isComposing || event.keyCode === 229 || !this.isUserEvent(event)) return;
     if (event.key === "Tab") this.onTab(event);
     else if (event.key === "Escape") this.onEscape(event);
   };

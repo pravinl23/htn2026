@@ -1,7 +1,8 @@
 // The only place the extension talks to the prediction server. Runs in the service worker, so a page's
 // CSP cannot block the request and the page can neither observe nor forge it.
 import { getProfile, getSettings } from "../lib/storage";
-import { parseFormPrediction, parseHealth, sanitizeFormRequest } from "../lib/messages";
+import { parseAgentDecision, parseFormPrediction, parseHealth, sanitizeAgentRequest, sanitizeFormRequest } from "../lib/messages";
+import type { AgentDecisionResponse } from "@ghost/shared";
 import type { FormPrediction, GhostMessage, GhostTextRequest, ServerHealth, ServerResult } from "../lib/messages";
 
 export type FetchLike = typeof fetch;
@@ -39,7 +40,7 @@ export function openGhostText(base: string, request: GhostTextRequest, signal: A
 /** A slow server must never hold a form back: past this the page simply stays on the offline ghosts. */
 export const REQUEST_TIMEOUT_MS = 3000;
 
-export type ServerMessage = Extract<GhostMessage, { type: "ghost:predict-form" | "ghost:health" }>;
+export type ServerMessage = Extract<GhostMessage, { type: "ghost:predict-form" | "ghost:agent-next" | "ghost:health" }>;
 
 export interface ServerClientDeps {
   fetch?: FetchLike;
@@ -57,7 +58,7 @@ export interface SenderFrame {
 
 export function isServerMessage(msg: unknown): msg is ServerMessage {
   const type = (msg as { type?: unknown } | null)?.type;
-  return type === "ghost:predict-form" || type === "ghost:health";
+  return type === "ghost:predict-form" || type === "ghost:agent-next" || type === "ghost:health";
 }
 
 /** One JSON round trip with a deadline. Errors are short codes: they travel to a content script and its HUD. */
@@ -106,6 +107,12 @@ export function checkHealth(deps: ServerClientDeps = {}): Promise<ServerResult<S
   return callServer("/v1/health", undefined, parseHealth, deps);
 }
 
+export function predictAgent(rawRequest: unknown, deps: ServerClientDeps = {}): Promise<ServerResult<AgentDecisionResponse>> {
+  const request = sanitizeAgentRequest(rawRequest);
+  if (!request) return Promise.resolve({ ok: false, error: "bad-request" });
+  return callServer("/v1/agent/next", request, parseAgentDecision, deps);
+}
+
 function originOf(sender: SenderFrame): string | null {
   if (sender.origin) return sender.origin;
   try {
@@ -116,10 +123,13 @@ function originOf(sender: SenderFrame): string | null {
 }
 
 /** The origin is the asking frame's as Chrome reports it, not whatever the message claims. */
-export function handleServerMessage(message: ServerMessage, sender: SenderFrame, deps: ServerClientDeps = {}): Promise<ServerResult<FormPrediction | ServerHealth>> {
+export function handleServerMessage(message: ServerMessage, sender: SenderFrame, deps: ServerClientDeps = {}): Promise<ServerResult<FormPrediction | AgentDecisionResponse | ServerHealth>> {
   if (message.type === "ghost:health") return checkHealth(deps);
   const request: unknown = message.request;
   const origin = originOf(sender);
   if (!origin || typeof request !== "object" || request === null) return Promise.resolve({ ok: false, error: "bad-request" });
-  return predictForm({ ...request, origin }, deps);
+  if (message.type === "ghost:predict-form") return predictForm({ ...request, origin }, deps);
+  const url = sender.url?.split(/[?#]/)[0] ?? "";
+  const page = typeof (request as { page?: unknown }).page === "object" && (request as { page?: unknown }).page !== null ? (request as { page: object }).page : {};
+  return predictAgent({ ...request, page: { ...page, origin, url } }, deps);
 }
