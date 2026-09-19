@@ -34,7 +34,11 @@ describe("Composio workflow v3.1 client", () => {
     expect(await client.ensureSession("u1")).toBe("trs_demo");
     expect(await client.ensureSession("u1")).toBe("trs_demo");
     expect(fake.calls.filter((call) => call.url.endsWith("/tool_router/session"))).toHaveLength(1);
-    expect(fake.calls[0]?.body).toMatchObject({ user_id: "u1", toolkits: { enabled: expect.arrayContaining(["gmail", "googlecalendar"]) } });
+    expect(fake.calls[0]?.body).toMatchObject({
+      user_id: "u1",
+      toolkits: { enable: expect.arrayContaining(["gmail", "googlecalendar"]) },
+      manage_connections: { enable: true, enable_wait_for_connections: false },
+    });
 
     expect(await client.listConnectedToolkits("u1")).toEqual([{ toolkit: "gmail", accountId: "ca_1", status: "ACTIVE", alias: "work" }]);
     expect(client.peekConnectedToolkits("u1")).toEqual([{ toolkit: "gmail", accountId: "ca_1", status: "ACTIVE", alias: "work" }]);

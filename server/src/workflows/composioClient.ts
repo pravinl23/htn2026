@@ -82,7 +82,7 @@ export class ComposioWorkflowClient {
       method: "POST",
       body: JSON.stringify({
         user_id: userId,
-        toolkits: { enabled: SESSION_TOOLKITS },
+        toolkits: { enable: SESSION_TOOLKITS },
         manage_connections: { enable: true, enable_wait_for_connections: false, enable_connection_removal: true },
         search: { enable: true },
         execute: { enable_multi_execute: false },
