@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "ghost.agent-replay.v1",
+  "count": 1,
+  "fixtures": [
+    {
+      "schemaVersion": "ghost.agent-replay.v1",
+      "caseId": "55555555-5555-4555-8555-555555555555",
+      "observed": {
+        "schemaVersion": "ghost.agent-run.v1",
+        "runId": "55555555-5555-4555-8555-555555555555",
+        "state": "blocked",
+        "reason": "low-confidence",
+        "duration": "250-999ms",
+        "steps": 1,
+        "decisions": [
+          {
+            "step": 1,
+            "operation": "CLICK",
+            "provider": "typesafe",
+            "calibrated": true,
+            "fallback": false,
+            "confidence": "55-69",
+            "latency": "100-249ms",
+            "candidates": {
+              "total": 2,
+              "locked": 1,
+              "filled": 0,
+              "requiredOpen": 1,
+              "availableOperations": ["FILL", "CLICK"]
+            }
+          }
+        ],
+        "actions": []
+      },
+      "expected": {
+        "state": "blocked",
+        "reason": "low-confidence",
+        "maxSteps": 1,
+        "decisionOperations": ["CLICK"],
+        "actionOperations": []
+      }
+    }
+  ]
+}

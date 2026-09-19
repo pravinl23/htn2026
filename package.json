@@ -11,7 +11,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r --workspace-concurrency=1 test",
     "e2e": "pnpm build && pnpm --filter @ghost/e2e e2e",
-    "test:live": "node scripts/test-live.mjs"
+    "test:live": "node scripts/test-live.mjs",
+    "eval:agent-replays": "pnpm --filter @ghost/server eval:agent-replays"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

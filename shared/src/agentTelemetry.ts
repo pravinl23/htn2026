@@ -199,6 +199,31 @@ export function createAgentReplayFixture(outcome: AgentRunOutcome): AgentReplayF
   };
 }
 
+/** Rebuild a reviewed fixture so Sentry/API exports cannot widen what an eval loads. */
+export function sanitizeAgentReplayFixture(raw: unknown): AgentReplayFixture | null {
+  if (!isObject(raw) || raw.schemaVersion !== AGENT_REPLAY_SCHEMA || typeof raw.caseId !== "string" || !UUID.test(raw.caseId)) return null;
+  const observed = sanitizeAgentRunOutcome(raw.observed);
+  if (!observed || observed.runId !== raw.caseId.toLowerCase() || !isObject(raw.expected)) return null;
+  const expected = raw.expected;
+  if (typeof expected.state !== "string" || !STATES.has(expected.state) || typeof expected.reason !== "string" || !REASONS.has(expected.reason)) return null;
+  if (!boundedInteger(expected.maxSteps, 0, MAX_STEPS)) return null;
+  const decisionOperations = sanitizeOperations(expected.decisionOperations);
+  const actionOperations = sanitizeOperations(expected.actionOperations);
+  if (!decisionOperations || !actionOperations) return null;
+  return {
+    schemaVersion: AGENT_REPLAY_SCHEMA,
+    caseId: raw.caseId.toLowerCase(),
+    observed,
+    expected: {
+      state: expected.state as AgentOutcomeState,
+      reason: expected.reason as AgentOutcomeReason,
+      maxSteps: expected.maxSteps,
+      decisionOperations,
+      actionOperations,
+    },
+  };
+}
+
 /** Compare a new redacted outcome with a reviewed replay expectation. Timing/provider variance is intentionally ignored. */
 export function evaluateAgentReplay(fixture: AgentReplayFixture, actual: AgentRunOutcome = fixture.observed): AgentReplayEvaluation {
   const failures: string[] = [];
@@ -273,4 +298,14 @@ function strictlyIncreasing(values: number[]): boolean {
 
 function sameOperations(left: AgentOperation[], right: AgentOperation[]): boolean {
   return left.length === right.length && left.every((operation, index) => operation === right[index]);
+}
+
+function sanitizeOperations(raw: unknown): AgentOperation[] | null {
+  if (!Array.isArray(raw) || raw.length > MAX_STEPS) return null;
+  const operations: AgentOperation[] = [];
+  for (const operation of raw) {
+    if (typeof operation !== "string" || !OPERATIONS.has(operation)) return null;
+    operations.push(operation as AgentOperation);
+  }
+  return operations;
 }

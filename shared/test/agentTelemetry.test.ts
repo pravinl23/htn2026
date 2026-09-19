@@ -5,6 +5,7 @@ import {
   agentLatencyBucket,
   createAgentReplayFixture,
   evaluateAgentReplay,
+  sanitizeAgentReplayFixture,
   sanitizeAgentRunOutcome,
 } from "../src/agentTelemetry";
 import type { AgentRunOutcome } from "../src/agentTelemetry";
@@ -68,6 +69,8 @@ describe("agent run telemetry", () => {
 
   it("turns reviewed outcomes into deterministic regression expectations", () => {
     const fixture = createAgentReplayFixture(OUTCOME);
+    expect(sanitizeAgentReplayFixture({ ...fixture, private: "drop-me" })).toEqual(fixture);
+    expect(sanitizeAgentReplayFixture({ ...fixture, expected: { ...fixture.expected, decisionOperations: ["SHELL"] } })).toBeNull();
     expect(evaluateAgentReplay(fixture)).toEqual({ passed: true, failures: [] });
     expect(evaluateAgentReplay(fixture, { ...OUTCOME, state: "done", reason: "completed", steps: 2 }))
       .toEqual({ passed: false, failures: ["state:done", "reason:completed", "steps:2>1"] });
