@@ -9,5 +9,5 @@ step typecheck; pnpm typecheck
 step unit;      pnpm test
 if [ "${1:-}" != "--no-e2e" ]; then step e2e; pnpm --filter @ghost/e2e e2e; fi
 step "secrets scan"
-if git grep -nE 'xai-[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{30,}|vck_[A-Za-z0-9]{20,}' -- . ':!pnpm-lock.yaml' ; then echo "possible secret in tracked files"; exit 1; fi
+if git grep -nE 'xai-[A-Za-z0-9]{20,}|bb_live_[A-Za-z0-9_-]{10,}|[A-Za-z0-9]{8}\.[A-Za-z0-9]{32}|sk-[A-Za-z0-9_-]{30,}|vck_[A-Za-z0-9]{20,}' -- . ':!pnpm-lock.yaml' ; then echo "possible secret in tracked files"; exit 1; fi
 echo "verify: all green"

@@ -8,7 +8,8 @@ Keys stay on the server. The extension only ever talks to this API. All bodies a
 - Every `POST` MUST send `Content-Type: application/json`, otherwise `415`. This forces a CORS preflight, so no web page can reach a handler with a "simple" request.
 - A request whose `Origin` header is present and is not `chrome-extension://*` or `http://localhost:*` / `http://127.0.0.1:*` gets `403` (not just missing CORS headers).
 - A request whose `Host` is not `localhost`, `127.0.0.1` or `[::1]` gets `403` (DNS rebinding).
-- Body limits count streamed bytes too: form 512 KB, next 128 KB, metrics 32 KB, ghost-text 64 KB, extract 128 KB (`413`).
+- Body limits count streamed bytes too: form 512 KB, next 128 KB, metrics 32 KB, ghost-text 64 KB, extract 128 KB, loop synthesize / preview / execute 1 MB, loop compile 256 KB (`413`).
+- The loop execution routes (`/v1/loop/compile`, `/v1/loop/preview`, `/v1/loop/execute`, `DELETE /v1/loop/execute/:runId`) are stricter, because they send mail, write sheets and open billed cloud browsers from the user's own accounts. See "Loop execution: access and confirmation" below.
 - Limits on `/v1/predict/form`: at most 100 fields and 64 fact keys (`400` above that).
 
 ## Configuration (`server/src/config.ts`)
@@ -21,6 +22,20 @@ Decision provider precedence (first match wins), reported by `/v1/health`:
 4. nothing: `heuristic`
 
 Text provider: `openai` if `OPENAI_API_KEY`, else `xai` if `XAI_API_KEY` (OpenAI-compatible, base `https://api.x.ai/v1`, default model `grok-4.20-non-reasoning`), else `template`.
+
+Loop execution (Stage 8):
+
+| Variable | Meaning |
+| --- | --- |
+| `GHOST_EXTENSION_ID` | The Ghost extension's id from `chrome://extensions` (32 letters a to p, anything else is ignored). Only `chrome-extension://<this id>` may run REAL batches. |
+| `GHOST_EXECUTE_TOKEN` | Per-install secret, at least 16 characters (shorter is ignored). A caller without an `Origin` (the desktop daemon, a script) sends it as `X-Ghost-Token`. Never logged. |
+| `BROWSERBASE_API_KEY` + `BROWSERBASE_PROJECT_ID` | Enable `parallel` mode. Both are required. |
+| `BROWSERBASE_CONCURRENCY` | Cloud browsers open at once, default 5, clamped to 10. The cap is process-wide, not per request. |
+| `BROWSERBASE_CONTEXT_ID` | A Browserbase context the user logged in to once. Loaded read-only (`persist: false`) so every cloud browser starts logged in. Without it they start logged out. |
+| `GHOST_PUBLIC_DEMO_URL` | Public URL serving the same site as a PRIVATE `baseUrl` (localhost demo behind a tunnel). Never applied to a public `baseUrl`. Use the final `https://` URL: a redirect to another origin fails the step. |
+| `COMPOSIO_API_KEY`, `COMPOSIO_USER_ID`, `COMPOSIO_GMAIL_ACCOUNT_ID`, `COMPOSIO_GOOGLESHEETS_ACCOUNT_ID`, `COMPOSIO_SPREADSHEET_ID`, `COMPOSIO_SHEET_RANGE` | Enable and configure `api` mode. |
+
+With `GHOST_PROVIDER=heuristic` (e2e) both server executors stay simulated even when their keys exist.
 
 Overrides used by tests and e2e so they never need keys: `GHOST_DECISION_PROVIDER=heuristic`, `GHOST_TEXT_PROVIDER=template`. `GHOST_PROVIDER=heuristic` is shorthand for both. `GHOST_FAST_PATH=0` disables the heuristic fast path.
 
@@ -82,7 +97,100 @@ Template fallback (no key): a deterministic 2 to 4 sentence draft built from fac
 Request: `{ resumeText: string (<= 20000 chars) }`. Response: `{ facts: Record<string,string>, pastAnswers: [], provider, latencyMs }` using the canonical fact keys in `shared/src/profile.ts` (`FACT_DESCRIPTIONS`). LLM path: JSON-mode chat completion, validated and filtered to known keys plus `extra.*`. No key: regex extraction (email, phone, URLs for github/linkedin/website, first line as name, school and degree keywords, graduation date parsed in code into `YYYY-MM`).
 
 ### `POST /v1/loop/synthesize`
-Stage 6. Request `{ runs: TraceEvent[][] , pageSamples?: ... }`, response `{ program, provider }`. LLM is used only when heuristics fail. (Stub returning 501 until Stage 6.)
+Stage 6. The extension runs the shared heuristic (`synthesizeProgram`) itself; it calls this route only to get help with the fills the heuristic left `unresolved`.
+
+Request (1 MB; at most 200 events per run, 40 urls, 80 facts per url; typed values over 500 chars are rejected, page text is clipped to 200):
+```json
+{ "candidate": { "runA": [TraceEvent], "runB": [TraceEvent] }, "factsByUrl": { "<origin + path>": [{ "locator": { "by": "data-field", "value": "vendor" }, "label": "Vendor", "text": "Thistledown Textiles" }] }, "unresolved": [] }
+```
+`runA` and `runB` must have the same length. Query strings and fragments are stripped from every url. `unresolved` is a hint only: the server recomputes it with the same shared code.
+
+Response:
+```json
+{ "program": LoopProgram | null, "provider": "heuristic" | "llm", "resolvedByModel": 0, "unresolved": [UnresolvedStep], "latencyMs": 3, "modelCalls": 0, "model": "…", "cache": "hit" | "miss", "fallbackFrom": "llm" }
+```
+- The server first runs the same `synthesizeProgram` as the extension. With nothing unresolved, or no LLM configured, that result is returned (`provider: "heuristic"`, `modelCalls: 0`). `program: null` means the two runs do not generalize.
+- Otherwise ONE chat call asks, for all open fills at once, which labeled page value explains both typed values. The model may only pick a candidate index and one transform from the closed list `trim | number | date-iso | lowercase | uppercase | first-word | last-word | digits-only`. Code then verifies that the pick reproduces BOTH typed values; anything else is dropped. A verified pick becomes an `extract` step, so `extract.from.transform` can be any of those eight (wider than the shared `ValueTransform`).
+- Prompt hygiene: page text only appears as JSON string values inside `<untrusted_page_data>`; no urls, locators, constants, resolved values or profile data are sent. Sensitive-looking facts (by label or locator name) are dropped at validation. Page text shaped like an SSN, or a SIN / 13 to 19 digit number with a valid Luhn check digit, is dropped at validation too (the heuristic never sees it, so Ghost never copies it). In front of the prompt the broader shape test applies to typed values AND candidate text: any SSN shape, SIN shape or 13 to 19 digit run is left out, whatever its label says, before the prompt and the cache key are built.
+- Identical questions are answered from an LRU cache (100 entries). Model timeout 8 s; on any model failure the heuristic program is returned with `fallbackFrom: "llm"`.
+
+### Loop execution: access and confirmation
+
+Applies to `/v1/loop/compile`, `/v1/loop/preview`, `/v1/loop/execute` and `DELETE /v1/loop/execute/:runId`, on top of the global access rules.
+
+1. **Who may call.** An `Origin` that is not `chrome-extension://<id>` gets `403`, `http://localhost:*` included: a web page never reaches these routes. With `GHOST_EXTENSION_ID` set, any other extension id gets `403`. An `X-Ghost-Token` header that does not equal `GHOST_EXECUTE_TOKEN` gets `401`.
+2. **Trusted callers.** A caller is trusted when its origin is the pinned extension, or when it sent the right `X-Ghost-Token`. REAL executors (keys configured) only run for trusted callers; everyone else gets `403` with the variable to set. The SIMULATED executors (no keys, touch nothing) run for any extension and for a local caller without an `Origin`, so the demo works unconfigured.
+3. **Confirmation is a server-issued ticket, not a field.** `confirmIrreversible` in a body is ignored. `POST /v1/loop/preview` returns the list the UI must show plus a random single-use `confirmToken` bound to a SHA-256 of the parsed `(mode, program, items, baseUrl)`. `POST /v1/loop/execute` needs that token with the same job. A changed program or item list, a second use, and a token older than 5 minutes are refused with `409`. At most 50 tokens are outstanding. EVERY execute needs a token, also for programs with no irreversible step. The ticket binds what runs to what was previewed; it cannot prove a human looked, which is why rule 1 and 2 exist.
+4. **Every click is irreversible here.** The server only sees a label, not the button type, the form or `data-ghost-lock`, so in a server-run batch every `click` step (and every `fill` with `locked: true`) is listed in `irreversible` and needs the confirmation, whatever the client's `locked` flag says. `open-item` is navigation and stays free.
+5. **One run at a time, no repeats.** A second execute while a run is active gets `409 { error, runId }` (its token is not consumed). Items that reached a writing step in a REAL run are remembered per `(program.id, item.index)` for the lifetime of the process and refused with `409 { error, alreadyRun: [index] }` at preview and at execute. A failed or cancelled item is never retried by the server.
+6. **A run can always be stopped.** `DELETE /v1/loop/execute/:runId`, a client that disconnects, and the 15 minute job deadline all stop the run: no new item starts and an item in flight stops before its next step (an API call already in flight is not aborted, because its effect would be unknown).
+
+### `GET /v1/executors`
+```json
+[
+  { "mode": "visible", "available": true },
+  { "mode": "background", "available": true },
+  { "mode": "parallel", "available": false, "reason": "Add BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID to enable parallel cloud execution", "simulated": true, "authorized": true },
+  { "mode": "api", "available": false, "reason": "Add COMPOSIO_API_KEY to enable API execution", "simulated": true, "authorized": true }
+]
+```
+`visible` and `background` run inside the extension. `simulated: true` means the mode answers with a fake all-ok report and touches nothing. `authorized` tells THIS caller whether preview/execute would accept it for that mode (false for a real executor until the caller is trusted).
+
+### `POST /v1/loop/compile`
+Request `{ "program": LoopProgram }` (256 KB). Pure: nothing is called. Response:
+```json
+{
+  "tools": [
+    { "tool": "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND", "argsTemplate": { "spreadsheet_id": "{{spreadsheetId}}", "range": "{{sheetRange}}", "value_input_option": "USER_ENTERED", "values": "[[\"{{vendor}}\",\"{{invoiceNumber}}\",\"{{date}}\",\"{{total}}\"]]" }, "steps": [6, 7, 8, 9], "irreversible": false, "columns": ["Vendor", "Invoice #", "Date", "Total"] },
+    { "tool": "GMAIL_REPLY_TO_THREAD", "argsTemplate": { "thread_id": "{{threadId}}", "recipient_email": "{{senderEmail}}", "message_body": "Received" }, "steps": [10], "irreversible": true }
+  ],
+  "uncovered": []
+}
+```
+- Consecutive grid-cell fills on one page become one append-row call; a reply/send click in an email context, plus the To / Subject / Message fills right before it, becomes `GMAIL_REPLY_TO_THREAD` or `GMAIL_SEND_EMAIL`. `uncovered` lists fill/click steps no tool covers; `api` mode refuses a job with any.
+- `{{var}}` is an item var, or a configured default (`spreadsheetId`, `sheetRange`). Only own properties count: a var nobody supplied is "no value", never something inherited. Text the user typed (`const` values) and button labels are data, not templates: a literal `{{` in them is written `{{{{` in `argsTemplate` and rendered back as `{{`, so it is never expanded. `values` is JSON text that is parsed BEFORE substitution.
+
+### `POST /v1/loop/preview` and `POST /v1/loop/execute`
+Both take the same job (1 MB). `execute` adds `confirmToken`:
+```json
+{
+  "mode": "parallel" | "api",
+  "baseUrl": "https://billing.example.com",
+  "program": LoopProgram,
+  "items": [{ "index": 2, "url": "https://billing.example.com/invoices/INV-1003", "vars": { "vendor": "…", "total": "1003.50" } }],
+  "confirmToken": "<from preview; execute only>"
+}
+```
+Validation (`400`, messages name the path, never a value): at most 200 items and 100 steps; item `index` unique; item urls on `baseUrl`; `program.iterator.origin` must be `baseUrl`; a fill/click `at.origin` must be `baseUrl` or the origin of one of the program's `goto` steps; urls are http(s) and lose their query string and fragment; at most 50 vars per item, 2000 chars each; var names match `^[A-Za-z][\w.-]{0,63}$` and must not be a name every object inherits (`constructor`, `toString`, `valueOf`, `hasOwnProperty`, ...); sensitive-looking var names are dropped; a fill on a sensitive-looking label, or on a button / link / file input, is rejected; `extract.from.transform` is one of the eight transforms above.
+
+`preview` response (`200`):
+```json
+{ "runId": "<uuid>", "confirmToken": "<43 chars>", "expiresAt": 1800000300000, "mode": "parallel", "simulated": false, "items": 48, "irreversible": [{ "stepIndex": 10, "description": "Reply: received", "count": 48 }], "origins": ["https://billing.example.com", "https://docs.google.com"] }
+```
+The UI shows `irreversible` (with counts) and `origins` (every site the run may touch) next to its ONE confirmation control, and sends `confirmToken` only after the user pressed it. `runId` is known before the run starts, so Esc can cancel it. Everything that can be refused without side effects is refused here with `400`: a site a cloud browser cannot or must not reach, steps `api` mode does not cover.
+
+`execute` response (`200`): `{ "runId": "<uuid>", "report": ExecuteReport }`
+```json
+{ "mode": "parallel", "simulated": false, "startedAt": 1800000000000, "finishedAt": 1800000042000, "durability": "verified", "stopped": "cancelled",
+  "results": [{ "index": 2, "ok": true, "steps": 11, "touched": true }, { "index": 3, "ok": false, "steps": 7, "touched": true, "error": "step 7 (fill): the value did not stick" }, { "index": 4, "ok": false, "steps": 0, "error": "skipped: the run stopped after item 3 failed" }] }
+```
+- The run stops at the first failed item: items in flight finish, the rest are `skipped`. `error` names the step and the reason, never a value. `touched` means the item reached a writing step (it may be half done) and will not be run again by the server.
+- `stopped` is `"cancelled" | "disconnected" | "deadline"` when the run was stopped from outside; absent otherwise.
+- With `?stream=1` the answer is `text/event-stream`: `data: {"runId","total"}`, then one `data: {"progress":{"index","ok","done","total"}}` per item, then `data: {"done":true,"runId","report"}` (or `{"done":true,"runId","error"}`).
+- Status codes: `400` validation, missing `confirmToken` (the body then carries `items`, `irreversible`, `origins`), executor refusal; `401` wrong `X-Ghost-Token`; `403` caller not allowed or not trusted; `409` token unknown / used / expired / for another job, another run active, items already run; `413`; `415`.
+- Log line, counts only: `[ghost] browserbase /v1/loop/execute 42000ms mode=parallel items=48 failed=0 irreversible=1 [stopped=cancelled]`.
+
+`parallel` mode (Browserbase, one cloud browser per item):
+- SSRF guard. A cloud browser is only ever sent to public addresses. Hosts are canonicalised by the URL parser (`2130706433`, `0x7f.1`, `127.1`) and IP literals are parsed numerically: loopback, RFC 1918, link-local incl. `169.254.169.254`, CGNAT `100.64/10`, `0/8`, multicast and reserved ranges, and for IPv6 `::`, `::1`, IPv4-mapped / compatible / NAT64 / 6to4 forms of those, `fc00::/7`, `fe80::/10`, `fec0::/10`, `ff00::/8`. Names: a trailing dot is ignored; single-label names, `.localhost`, `.local`, `.internal`, `.intranet`, `.lan`, `.home`, `.corp`, `.private`, `.home.arpa` and wildcard-DNS services (`nip.io`, `sslip.io`, `xip.io`, `localtest.me`, `lvh.me`, `vcap.me`) are private. Every remaining hostname is resolved once: a private address in the answer, or no answer, refuses the job. All item urls, `goto` urls and `at` pages are checked before the first session is created.
+- A private `baseUrl` is moved onto `GHOST_PUBLIC_DEMO_URL` or refused; a public `baseUrl` is never rewritten.
+- After every navigation the landing page must have the target's origin AND path pattern ("landed on a different site" otherwise). Before every extract, fill and click the current page must be on one of the confirmed `origins`.
+- Durability check. The first item runs alone. Before its first irreversible step, the grid cells it wrote are read back from a SECOND cloud browser (3 attempts, 500 ms apart). If they are not there, the run stops with no irreversible step executed: the site keeps its state inside the browser (the bundled localStorage demo does), or the session is logged out. `durability` is `"verified"` then, `"unverified"` when the program writes no grid cell the server can read back.
+- Extracts apply the closed transform list exactly as it was verified at synthesis time; an unknown transform yields no value, never a guess.
+
+`api` mode (Composio): compiles the program as above, renders every call of an item first (a missing value fails the item before its first call), then executes sequentially in item order. No call is ever retried.
+
+### `DELETE /v1/loop/execute/:runId`
+`200 { "runId": "…", "cancelled": true }` for the active run, `404 { "error": "no active run with this id" }` otherwise. Same caller rules as execute.
 
 ### `GET /v1/metrics` and `POST /v1/metrics/event`
 In-memory latency log per route/provider with `count, failures, p50, p95, last`, cache hit rate, plus client-reported counters (`ghostsShown`, `ghostsAccepted`, `keystrokesSaved`, calibration pairs `(confidence, accepted)`).

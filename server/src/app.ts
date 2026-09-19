@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { loadConfig, type ServerConfig } from "./config";
 import { ALLOWED_ORIGIN, localOnly } from "./lib/guard";
+import { registerExecuteRoutes } from "./routes/execute";
+import { registerLoopRoutes } from "./routes/loop";
 import { registerMetricsRoutes } from "./routes/metrics";
 import { registerPredictRoutes } from "./routes/predict";
 import { registerTextRoutes } from "./routes/text";
@@ -13,5 +15,7 @@ export function createApp(config: ServerConfig = loadConfig()): Hono {
   registerPredictRoutes(app, config); // /v1/health, /v1/predict/form, /v1/predict/next
   registerTextRoutes(app, config); // /v1/ghost-text, /v1/profile/extract
   registerMetricsRoutes(app, config); // /v1/metrics
+  registerLoopRoutes(app, config); // /v1/loop/synthesize
+  registerExecuteRoutes(app, config); // /v1/executors, /v1/loop/compile, /v1/loop/preview, /v1/loop/execute (+ DELETE /v1/loop/execute/:runId)
   return app;
 }
