@@ -115,7 +115,7 @@ afterEach(() => {
 });
 
 describe("episodic memory answers first, with zero network", () => {
-  it("proposes Open calendar after it was done once in the same state (0.75), and more firmly after twice (0.9)", async () => {
+  it("learns the action the user actually chose instead of its unseen-state guess", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = makeClient({ fetch: fetchMock });
 

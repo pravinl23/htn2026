@@ -70,6 +70,22 @@ function preventNavigation(event: Event): void {
 }
 
 describe("clicks", () => {
+  it("records ARIA and custom app controls with the same kinds used by prediction", () => {
+    mount(`
+      <div role="tab" aria-label="Activity"></div>
+      <div role="link" aria-label="Open dashboard"></div>
+      <div onclick="void 0" aria-label="Custom action"></div>`, "/app");
+    start();
+    click(el('[role="tab"]'));
+    click(el('[role="link"]'));
+    click(el("[onclick]"));
+    expect(sent.map((event) => [event.target?.label, event.target?.kind])).toEqual([
+      ["Activity", "button"],
+      ["Open dashboard", "link"],
+      ["Custom action", "button"],
+    ]);
+  });
+
   it("records an inbox row click with its list position, never the row's values in the shape", () => {
     mount(inboxHtml(), "/invoices");
     start();

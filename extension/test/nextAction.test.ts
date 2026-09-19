@@ -129,6 +129,27 @@ describe("collectCandidates", () => {
     expect(JSON.stringify(collectCandidates(document))).not.toContain("2:30");
   });
 
+  it("covers app-style controls beyond native forms", () => {
+    document.body.innerHTML = `
+      <div role="tab" aria-label="Activity"></div>
+      <div role="menuitem" aria-label="Move to folder"></div>
+      <div role="switch" aria-label="Dark mode"></div>
+      <div role="treeitem" aria-label="Projects"></div>
+      <div role="link" aria-label="Open dashboard"></div>
+      <div onclick="void 0" aria-label="Custom action"></div>
+      <details><summary>Advanced settings</summary></details>`;
+    const candidates = collectCandidates(document).candidates;
+    expect(candidates.map((candidate) => [candidate.label, candidate.kind])).toEqual([
+      ["Activity", "button"],
+      ["Move to folder", "button"],
+      ["Dark mode", "button"],
+      ["Projects", "button"],
+      ["Open dashboard", "link"],
+      ["Custom action", "button"],
+      ["Advanced settings", "button"],
+    ]);
+  });
+
   it("keeps at most 60, in DOM order", () => {
     document.body.innerHTML = Array.from({ length: 80 }, (_, i) => `<button type="button">Action ${i}</button>`).join("");
     const { candidates } = collectCandidates(document);

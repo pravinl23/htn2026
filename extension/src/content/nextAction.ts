@@ -1,6 +1,6 @@
 // Next-action ghosts beyond forms (docs/loops.md section 2, PLAN.md Stage 5). After a user action settles and the
-// form walk has nothing to offer, the visible buttons, links and fields near the viewport go to the worker as
-// candidates ("ghost:next-candidates"). A confident answer becomes a click ghost: the ghost cursor glides onto the
+// form walk has nothing to offer, the visible controls near the viewport go to the worker as candidates
+// ("ghost:next-candidates"). The best answer becomes a click ghost: the ghost cursor glides onto the
 // element, Tab clicks it (a locked one is only focused), Escape dismisses it, and any other user action takes it away.
 import { NONE, isSensitive, normalizeUrl } from "@ghost/shared";
 import type { FieldKind, Ghost, GhostSettings, NextCandidate, Rect } from "@ghost/shared";
@@ -80,7 +80,7 @@ function offscreenBy(rect: Rect, width: number, height: number): number {
 }
 
 /**
- * Visible, enabled, non-sensitive buttons, links and fields in or near the viewport, closest first when there are
+ * Visible, enabled, non-sensitive controls in or near the viewport, closest first when there are
  * more than `max`, handed out in DOM order. Ids are capture signatures: the same ones the trace recorder reports,
  * so a remembered action finds its element again. Nothing inside Ghost's own UI, never a value.
  */
