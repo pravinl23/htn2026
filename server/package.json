@@ -12,7 +12,7 @@
     "test:live": "vitest run --config vitest.live.config.ts",
     "baseten:models": "node ../scripts/bench-providers.mjs --models",
     "bench:providers": "node ../scripts/bench-providers.mjs",
-    "eval:agent-replays": "tsx scripts/agentReplays.ts"
+    "eval:walk-replays": "tsx scripts/walkReplays.ts"
   },
   "dependencies": {
     "@ghost/shared": "workspace:*",

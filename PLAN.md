@@ -6,7 +6,7 @@ This is the implementation ledger. Check a box only when the item works on its i
 
 - **Demoable now:** browser form capture, offline prediction, ghost overlay, Tab/Escape/hold-Tab interaction, verified React-safe writes, sensitive-field exclusion, locked actions, settings/profile editing, and the `/apply` walkthrough.
 - **Connected extension path:** server-upgraded form prediction, per-form cache, HUD, streamed ghost text, resume import, learning, metrics, trace/page-fact capture, loop proposal/preview and confirmed execution are implemented.
-- **Jev computer use:** `Alt+Shift+J` now runs a value-private observe/decide/verify loop through `/v1/agent/next`. The loaded-extension `/apply` proof passes keyless and with direct TypeSafe/Jev (8.3 s live): safe fields filled, consent untouched, zero Submit attempts.
+- **Learning loop:** every Tab walk emits one strictly value-free outcome (extension -> worker -> server), reviewable walks become replay fixtures, and `pnpm eval:walk-replays` gates them. Live Sentry delivery still needs a DSN.
 - **Workflow showcase:** `/workflow/index.html` runs meeting coordination and Slack → GitHub issue stories through one Jev choice per step and simulated Composio execution.
 - **Native:** the stable Objective-C host, hot-swappable library, Accessibility harness and 201 tests exist; the atomic `GHWorkflowCoordinator` seam is not connected to the main desktop pipeline.
 - **Top priority:** prove the canonical invoice loop in loaded-extension e2e: two demonstrations, preview 48, flag one intentional exception, explicitly confirm once, execute/verify 47, then record the fallback video.
@@ -72,22 +72,24 @@ Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University o
 - [x] Shared normalized trace types, filtering/shape logic, and episodic-memory retrieval.
 - [x] Action trace recorder in the extension/background worker (clicks, typing, navigation, tab switches); sensitive values masked.
 - [x] Server `POST /v1/predict/next`: recent actions plus up to 60 candidate elements; one choice question over candidates plus `none`; returns candidate and confidence.
-- [ ] Extension client for `/v1/predict/next` and candidate capture.
-- [ ] Ghost cursor for clicks on buttons and links; Tab clicks unless locked.
-- [x] Connect episodic memory to recorded extension actions. Retrieval is implemented, but `/v1/predict/next` is not yet requested by the extension.
+- [x] Extension client for `/v1/predict/next` and candidate capture.
+- [x] Ghost cursor for clicks on buttons and links; Tab clicks unless locked.
+- [x] Connect episodic memory to recorded extension actions, and request `/v1/predict/next` from the extension.
 - [x] `demo/mail` and `demo/calendar`: an email asks "can we meet Thursday afternoon?"; a user can open the calendar, pick the free Thursday slot, return to the email, fill the React-controlled reply, and reach locked Send. Ghost orchestration/drafting is not part of this checkbox.
 - [ ] E2E for that cross-page flow using only Tab presses (and a final explicit confirm that the test does NOT press).
 
-### Stage 5A: Jev computer-use runner
+### Stage 5A: Walk outcome learning loop
 
-- [x] Shared closed operation/candidate/history contract and strict server/extension validation.
-- [x] `POST /v1/agent/next`: one Jev call chooses an operation and compatible target; opaque ids and values are withheld from the provider.
-- [x] Browser adapter and runner: observe, freshness-check, execute through the existing writer, verify state change, stop on no progress/step budget/invalid target.
-- [x] Closed-shadow command panel on **Alt+Shift+J**, with provider, latency, confidence and stop reason.
-- [x] Loaded-extension e2e for the full safe `/apply` run; deterministic and live TypeSafe/Jev paths both pass.
-- [ ] Add a second action-heavy/page-changing scenario so `CLICK`, navigation and `WAIT` are demonstrated, not just value operations.
-- [x] Send strictly redacted agent failure/outcome envelopes through an opt-in Sentry sink and turn blocked outcomes into reviewable replay/eval cases. The no-DSN path and scrubber are tested; live delivery awaits a project DSN. Production failures never rewrite prompts or policy automatically.
-- [ ] Record a fallback video of the live Jev run and add it to the judging script.
+The autonomous `Alt+Shift+J` runner (`/v1/agent/next`) was removed on 2026-09-19: Pravin's form walk is the
+product, so the learning loop now hangs off that walk instead of a second, parallel agent path.
+
+- [x] Versioned value-free `ghost.walk-outcome.v1` contract with adversarial sanitization on both sides.
+- [x] Content-script collector on the existing controller event bus; the user's accept/escape/type-over is the label.
+- [x] `POST /v1/walk/outcomes` + `GET /v1/walk/replays`: validate again, opt-in Sentry sink, bounded review queue.
+- [x] Reviewable-walk rule (locked proposal accepted, confident calibrated proposal rejected, walk abandoned), replay fixtures and the `pnpm eval:walk-replays` regression gate. Reviewed learning only; nothing rewrites prompts or policy automatically.
+- [x] Loaded-extension e2e proving a real walk reaches the server redacted and that a healthy walk stays out of the queue.
+- [ ] Add a Sentry DSN and confirm one live scrubbed event plus its replay attachment.
+- [ ] Emit the same envelope from Ghost Desktop, which drives the identical `/v1/predict/form` walk.
 
 ## Stage 6: Do it twice, Ghost does the rest
 

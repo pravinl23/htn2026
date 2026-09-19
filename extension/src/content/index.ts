@@ -1,15 +1,11 @@
 // Content script entry: capture -> predict -> controller -> overlay + execute.
-import type { AgentDecisionRequest, AgentDecisionResponse, AgentRunOutcome, FormPredictRequest, GhostSettings, Profile } from "@ghost/shared";
+import type { FormPredictRequest, GhostSettings, GhostWalkOutcome, Profile } from "@ghost/shared";
 import { ghostEvents } from "../lib/events";
 import { readCachedForm, saveCachedForm } from "../lib/formCache";
-import { isGhostMessage, isServerResult, parseAgentDecision, parseFormPrediction } from "../lib/messages";
+import { isGhostMessage, isServerResult, parseFormPrediction } from "../lib/messages";
 import type { FormPrediction, GhostMessage, ServerResult } from "../lib/messages";
 import { getMetrics, getProfile, getSettings, onStorageChanged } from "../lib/storage";
 import { GhostController } from "./controller";
-import { createBrowserAgentObserver } from "./agentBrowser";
-import { AgentPanel } from "./agentPanel";
-import { AgentRunner } from "./agentRunner";
-import { AgentOutcomeReporter } from "./agentTelemetry";
 import { DraftScheduler, openTextPort } from "./freeText";
 import { Learner } from "./learning";
 import { LearnToast } from "./learnToast";
@@ -20,6 +16,7 @@ import { startNextAction } from "./nextAction";
 import { Overlay } from "./overlay";
 import { createFormPredictor } from "./predict";
 import { createServedLedger, observePredictions } from "./servedLedger";
+import { WalkOutcomeReporter, observeWalkProvider } from "./walkTelemetry";
 import type { ServedLedger } from "./servedLedger";
 import { syncLoopCapture } from "./trace";
 
@@ -30,7 +27,6 @@ interface Session {
   settings: GhostSettings;
   overlay: Overlay;
   controller: GhostController;
-  agentPanel?: AgentPanel;
   running: boolean;
 }
 
@@ -70,17 +66,9 @@ async function askWorker(request: FormPredictRequest): Promise<ServerResult<Form
   return data ? { ok: true, data } : { ok: false, error: "bad-reply" };
 }
 
-async function askAgentWorker(request: AgentDecisionRequest): Promise<AgentDecisionResponse | null> {
-  if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) return null;
-  const message: GhostMessage = { type: "ghost:agent-next", request };
-  const reply: unknown = await chrome.runtime.sendMessage(message);
-  if (!isServerResult(reply) || !reply.ok) return null;
-  return parseAgentDecision(reply.data);
-}
-
-async function reportAgentOutcome(outcome: AgentRunOutcome): Promise<void> {
+async function reportWalkOutcome(outcome: GhostWalkOutcome): Promise<void> {
   if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) return;
-  const message: GhostMessage = { type: "ghost:agent-outcome", outcome };
+  const message: GhostMessage = { type: "ghost:walk-outcome", outcome };
   await chrome.runtime.sendMessage(message);
 }
 
@@ -89,7 +77,6 @@ function apply(session: Session): void {
   session.running = session.settings.enabled;
   syncLoopCapture(session.running); // action trace + page facts (docs/loops.md section 1), only while Ghost is enabled
   if (!session.running) {
-    session.agentPanel?.hide();
     session.controller.stop();
     session.overlay.destroy(); // the constructor mounts the host; a disabled Ghost leaves no trace on the page
   } else if (wasRunning) {
@@ -112,7 +99,7 @@ function listenForToggle(session: Session): void {
 }
 
 /** Learning (opt-in) and metrics listen to the controller's events; neither is known to the controller. Returns the stop function. */
-function startSubscribers(session: Session, ledger: ServedLedger): () => void {
+function startSubscribers(session: Session, ledger: ServedLedger, walk: WalkOutcomeReporter): () => void {
   const toast = new LearnToast({ root: () => (session.running ? session.overlay.shadow : null) });
   const learner = new Learner({
     events: ghostEvents,
@@ -130,9 +117,11 @@ function startSubscribers(session: Session, ledger: ServedLedger): () => void {
   });
   learner.start();
   reporter.start();
+  walk.start();
   return () => {
     learner.stop();
     reporter.stop();
+    walk.stop();
     toast.hide();
   };
 }
@@ -142,6 +131,13 @@ async function boot(): Promise<void> {
   const overlay = new Overlay();
   const ledger = createServedLedger();
   const drafts = new DraftScheduler({ open: openTextPort });
+  // The learning loop: one redacted outcome per walk (docs/agent-learning.md). Best-effort, never blocking.
+  const walkReporter = new WalkOutcomeReporter({
+    events: ghostEvents,
+    send: reportWalkOutcome,
+    remaining: () => session.controller.state.ghosts,
+    isCalibrated: (signature) => ledger.get(signature)?.calibrated === true,
+  });
   const session: Session = {
     profile,
     settings,
@@ -152,7 +148,7 @@ async function boot(): Promise<void> {
       getProfile: () => session.profile,
       // One HUD per tab: frames keep their ghosts but leave the status chip to the top document.
       getSettings: () => (isTopFrame() ? session.settings : { ...session.settings, showHud: false }),
-      predictForm: observePredictions(createFormPredictor({ readCache: readCachedForm, saveCache: saveCachedForm, askServer: askWorker }), ledger),
+      predictForm: observeWalkProvider(observePredictions(createFormPredictor({ readCache: readCachedForm, saveCache: saveCachedForm, askServer: askWorker }), ledger), walkReporter),
       // Essay drafts stream through the worker too, one `ghost:text` port per field, at most three at a time.
       drafts,
     }),
@@ -163,7 +159,7 @@ async function boot(): Promise<void> {
     apply(session);
   });
   listenForToggle(session);
-  const stopSubscribers = startSubscribers(session, ledger);
+  const stopSubscribers = startSubscribers(session, ledger, walkReporter);
   watchForOrphan(() => {
     stopSubscribers();
     retire(session);
@@ -171,33 +167,11 @@ async function boot(): Promise<void> {
   apply(session);
   startLoopContent({ overlay, isEnabled: () => session.running, pauseGhosts: (paused) => (paused ? session.controller.stop() : void (session.running && session.controller.start())) }); // loop sheet + executor (docs/loops.md 3.4, 3.5)
   startNextAction({ formGhosts: () => session.controller.state.ghosts.length, isEnabled: () => session.running, getSettings: () => session.settings }); // click ghosts beyond forms (docs/loops.md 2)
-  if (isTopFrame()) {
-    let panel: AgentPanel;
-    const outcomes = new AgentOutcomeReporter({ send: reportAgentOutcome });
-    const runner = new AgentRunner({
-      observe: createBrowserAgentObserver({ getProfile: () => session.profile, getSettings: () => session.settings, drafts }),
-      decide: askAgentWorker,
-      confidenceThreshold: () => session.settings.confidenceThreshold,
-      onUpdate: (update) => {
-        panel.update(update);
-        outcomes.onUpdate(update);
-      },
-    });
-    panel = new AgentPanel({
-      overlay,
-      runner,
-      isEnabled: () => session.running,
-      pauseGhosts: (paused) => session.controller.setInteractive(!paused),
-    });
-    session.agentPanel = panel;
-    panel.start();
-  }
 }
 
 /** The extension was reloaded or updated under us: hand the page back and let a fresh injection claim it. */
 function retire(session: Session): void {
   session.running = false;
-  session.agentPanel?.stop();
   syncLoopCapture(false);
   session.controller.stop();
   session.overlay.destroy();

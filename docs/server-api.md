@@ -1,6 +1,6 @@
 # Ghost prediction server API (`server/`, http://localhost:8787)
 
-Keys stay on the server. The Chrome extension now calls form prediction, the autonomous `/v1/agent/next` decision route, ghost text, profile extraction, metrics, presence and loop/executor routes while retaining instant local fallback; it still does not call `/v1/predict/next` as a separate passive click-ghost feature. Ghost Desktop calls form/free-text/health/presence. The atomic workflow lab calls `/v1/workflows/*` directly, while the tested native `GHWorkflowCoordinator` seam is not yet connected to the desktop pipeline. All non-SSE bodies are JSON. CORS allows `chrome-extension://*` and `http://localhost:*` only.
+Keys stay on the server. The Chrome extension calls form prediction, next-action prediction, ghost text, profile extraction, metrics, presence, walk telemetry and loop/executor routes while retaining instant local fallback. Ghost Desktop calls form/free-text/health/presence. The atomic workflow lab calls `/v1/workflows/*` directly, while the tested native `GHWorkflowCoordinator` seam is not yet connected to the desktop pipeline. All non-SSE bodies are JSON. CORS allows `chrome-extension://*` and `http://localhost:*` only.
 
 Browserbase and Composio paths are unit/mock-tested and fall back to simulated executors without credentials. On the audited developer machine, direct TypeSafe/Jev is configured: a live 12-field decision and the three-action atomic workflow passed with calibrated Jev choices. Browserbase and Composio keys are present, but their real executor/account effects have not been live-verified. Sentry has no DSN yet. The ignored `.env` must never be committed.
 
@@ -10,7 +10,7 @@ Browserbase and Composio paths are unit/mock-tested and fall back to simulated e
 - Every `POST` MUST send `Content-Type: application/json`, otherwise `415`. This forces a CORS preflight, so no web page can reach a handler with a "simple" request.
 - A request whose `Origin` header is present and is not `chrome-extension://*` or `http://localhost:*` / `http://127.0.0.1:*` gets `403` (not just missing CORS headers).
 - A request whose `Host` is not `localhost`, `127.0.0.1` or `[::1]` gets `403` (DNS rebinding).
-- Body limits count streamed bytes too: form 512 KB, next 128 KB, agent outcomes 64 KB, metrics 32 KB, presence 2 KB, ghost-text 64 KB, extract 128 KB, loop synthesize / preview / execute 1 MB, loop compile 256 KB (`413`).
+- Body limits count streamed bytes too: form 512 KB, next 128 KB, walk outcomes 64 KB, metrics 32 KB, presence 2 KB, ghost-text 64 KB, extract 128 KB, loop synthesize / preview / execute 1 MB, loop compile 256 KB (`413`).
 - The loop execution routes (`/v1/loop/compile`, `/v1/loop/preview`, `/v1/loop/execute`, `DELETE /v1/loop/execute/:runId`) are stricter, because they send mail, write sheets and open billed cloud browsers from the user's own accounts. See "Loop execution: access and confirmation" below.
 - Limits on `/v1/predict/form`: at most 100 fields and 64 fact keys (`400` above that).
 
@@ -58,7 +58,7 @@ Sentry outcome capture:
 
 | Variable | Meaning |
 | --- | --- |
-| `SENTRY_DSN` | Enables manual `ghost.agent_run.*` capture. Without it the sink is a no-op. A malformed DSN is ignored. |
+| `SENTRY_DSN` | Enables manual `ghost.walk.*` capture. Without it the sink is a no-op. A malformed DSN is ignored. |
 | `SENTRY_ENVIRONMENT` | Optional safe label, default `development`. |
 | `SENTRY_RELEASE` | Optional safe release label. |
 
@@ -128,52 +128,15 @@ One `choice` question over candidate ids plus `none`. Heuristic provider: prefer
 Sensitive candidates (password, card, government ID labels), and recent actions or memories that touch one, are dropped on the server before the heuristic or any model sees them, so they can never be the prediction.
 Response: `{ candidateId: string | "none", confidence, provider, calibrated, latencyMs }`.
 
-### `POST /v1/agent/next`
+### `POST /v1/walk/outcomes`
 
-One autonomous computer-use step. Request:
+Accepts the value-free `GhostWalkOutcome` contract from `@ghost/shared` (64 KB maximum): one redacted outcome per Tab walk. The extension and server both reconstruct this object from an allowlist. Unknown properties are dropped; invalid or widened actions, sources, verdicts, counts, buckets or IDs return `400`, as does a summary that contradicts the proposals it describes.
 
-```ts
-{
-  goal: string;
-  page: { origin: string; url: string; title: string };
-  candidates: Array<{
-    id: string; kind: "button" | "link" | "field"; label: string; context?: string;
-    required: boolean; locked: boolean; filled: boolean;
-    operations: Array<"FILL" | "SELECT" | "CHECK" | "CLICK">;
-  }>;
-  recentActions: Array<{ operation: string; targetId?: string; targetLabel?: string; ok: boolean; changed: boolean; error?: string }>;
-}
-```
+Response: `{ accepted: true, captured: boolean, replayId?: string }`. `captured` means a configured Sentry SDK accepted the event for delivery; telemetry failures never fail, delay or change a walk. `replayId` is present when the walk was reviewable (a locked proposal was accepted, a confident calibrated proposal was rejected, or the walk was abandoned) and was added to the review queue.
 
-The extension worker rebuilds this body from an allowlist and replaces `page.origin`/`page.url` with Chrome's `MessageSender` identity. The server strips URL queries/fragments, sensitive candidates/history and opaque target ids before the provider call. Values are not part of this contract.
+### `GET /v1/walk/replays`
 
-The provider receives one `operation` choice question plus speculative compatible target heads. Only the current DOM-order value frontier is offered for `FILL`/`SELECT`/`CHECK`; page clicks are deferred while that value frontier exists. A selected target alias is mapped back to the opaque id after the provider returns. The response is:
-
-```ts
-{
-  operation: "FILL" | "SELECT" | "CHECK" | "CLICK" | "WAIT" | "DONE" | "BLOCKED";
-  targetId?: string;
-  confidence: number;
-  operationConfidence: number;
-  targetConfidence?: number;
-  provider: string;
-  calibrated: boolean;
-  latencyMs: number;
-  fallbackFrom?: string;
-}
-```
-
-Malformed, unoffered or provider-failed decisions return `BLOCKED`; they never widen the action space. With the explicitly configured `heuristic` provider, the deterministic test/demo policy can only apply the first local field action and otherwise returns `DONE`/`BLOCKED`; it never clicks. This route decides only. The extension performs freshness checks, lock/sensitivity checks, execution and post-action verification.
-
-### `POST /v1/agent/outcomes`
-
-Accepts the value-free `AgentRunOutcome` contract from `@ghost/shared` (64 KB maximum). The extension and server both reconstruct this object from an allowlist. Unknown properties are dropped; invalid/widened operations, counts, buckets, IDs or arrays return `400`.
-
-Response: `{ accepted: true, captured: boolean, replayId?: string }`. `captured` means a configured Sentry SDK accepted the event for delivery; telemetry failures never fail or change the agent run. `replayId` is present for blocked outcomes added to the review queue.
-
-### `GET /v1/agent/replays`
-
-Returns `{ schemaVersion, count, fixtures }` for the newest 100 blocked outcomes in this server process. The queue is volatile and exists for immediate review/export; configured Sentry events and their redacted JSON attachments are the durable inbox. Use `pnpm eval:agent-replays export`, then review and commit appropriate cases under `evals/agent-replays/`.
+Returns `{ schemaVersion, count, fixtures }` for the newest 100 reviewable walks in this server process. The queue is volatile and exists for immediate review/export; configured Sentry events and their redacted JSON attachments are the durable inbox. Use `pnpm eval:walk-replays export`, then review and commit appropriate cases under `evals/walk-replays/`. See [`learning-loop.md`](learning-loop.md).
 
 ### `POST /v1/ghost-text`
 Request: `{ fieldLabel, fieldSignature, maxChars?, pageContext: { company?, role?, description? (<= 2000 chars) }, facts: Record<string,string> (only the relevant, non-sensitive ones), pastAnswers: PastAnswer[] (<= 3) }`.

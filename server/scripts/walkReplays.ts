@@ -1,11 +1,11 @@
-import { createAgentReplayFixture, evaluateAgentReplay, sanitizeAgentReplayFixture, sanitizeAgentRunOutcome } from "@ghost/shared";
-import type { AgentReplayFixture } from "@ghost/shared";
+import { createGhostWalkReplayFixture, evaluateGhostWalkReplay, sanitizeGhostWalkReplayFixture, sanitizeGhostWalkOutcome } from "@ghost/shared";
+import type { GhostWalkReplayFixture } from "@ghost/shared";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const DEFAULT_DIR = join(REPO, "evals/agent-replays");
+const DEFAULT_DIR = join(REPO, "evals/walk-replays");
 
 async function main(): Promise<void> {
   const [command = "eval", ...args] = process.argv.slice(2);
@@ -24,24 +24,24 @@ async function evaluateFiles(args: string[]): Promise<void> {
     const fixtures = await fixturesFromFile(path);
     for (const fixture of fixtures) {
       cases++;
-      const result = evaluateAgentReplay(fixture);
+      const result = evaluateGhostWalkReplay(fixture);
       if (!result.passed) failures.push(`${fixture.caseId}: ${result.failures.join(", ")}`);
     }
   }
   if (failures.length > 0) {
     for (const failure of failures) console.error(`FAIL ${failure}`);
-    throw new Error(`${failures.length}/${cases} agent replay evals failed`);
+    throw new Error(`${failures.length}/${cases} walk replay evals failed`);
   }
-  console.log(`agent replay evals: ${cases} passed from ${paths.length} file(s)`);
+  console.log(`walk replay evals: ${cases} passed from ${paths.length} file(s)`);
 }
 
 async function exportLocal(args: string[]): Promise<void> {
   const server = option(args, "--server") ?? "http://127.0.0.1:8787";
-  const output = repoPath(option(args, "--out") ?? "evals/agent-replays/captured.json");
-  const response = await fetch(`${server.replace(/\/$/, "")}/v1/agent/replays`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(3_000) });
+  const output = repoPath(option(args, "--out") ?? "evals/walk-replays/captured.json");
+  const response = await fetch(`${server.replace(/\/$/, "")}/v1/walk/replays`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(3_000) });
   if (!response.ok) throw new Error(`replay export failed: HTTP ${response.status}`);
   const fixtures = extractFixtures(await response.json());
-  if (fixtures.length === 0) throw new Error("the server has no blocked agent replays to export");
+  if (fixtures.length === 0) throw new Error("the server has no reviewable walk replays to export");
   await writeBundle(output, fixtures);
   console.log(`exported ${fixtures.length} reviewed-pending replay(s) to ${relative(output)}`);
 }
@@ -49,32 +49,32 @@ async function exportLocal(args: string[]): Promise<void> {
 async function promote(args: string[]): Promise<void> {
   const input = args.find((arg) => !arg.startsWith("--") && arg !== option(args, "--out"));
   if (!input) usage("promote needs an input JSON file");
-  const output = repoPath(option(args, "--out") ?? `evals/agent-replays/promoted-${Date.now()}.json`);
+  const output = repoPath(option(args, "--out") ?? `evals/walk-replays/promoted-${Date.now()}.json`);
   const fixtures = await fixturesFromFile(repoPath(input));
   if (fixtures.length === 0) throw new Error("no valid redacted replay fixtures found in the input");
   await writeBundle(output, fixtures);
   console.log(`promoted ${fixtures.length} replay(s) to ${relative(output)}; review expected outcomes before committing`);
 }
 
-async function fixturesFromFile(path: string): Promise<AgentReplayFixture[]> {
+async function fixturesFromFile(path: string): Promise<GhostWalkReplayFixture[]> {
   return extractFixtures(JSON.parse(await readFile(path, "utf8")) as unknown);
 }
 
-function extractFixtures(raw: unknown): AgentReplayFixture[] {
+function extractFixtures(raw: unknown): GhostWalkReplayFixture[] {
   const candidates: unknown[] = [];
   if (Array.isArray(raw)) candidates.push(...raw);
   else if (isObject(raw) && Array.isArray(raw.fixtures)) candidates.push(...raw.fixtures);
-  else if (isObject(raw) && isObject(raw.extra) && raw.extra.agent_replay !== undefined) candidates.push(raw.extra.agent_replay);
-  else if (isObject(raw) && isObject(raw.extra) && raw.extra.agent_outcome !== undefined) {
-    const outcome = sanitizeAgentRunOutcome(raw.extra.agent_outcome);
-    if (outcome) candidates.push(createAgentReplayFixture(outcome));
+  else if (isObject(raw) && isObject(raw.extra) && raw.extra.walk_replay !== undefined) candidates.push(raw.extra.walk_replay);
+  else if (isObject(raw) && isObject(raw.extra) && raw.extra.walk_outcome !== undefined) {
+    const outcome = sanitizeGhostWalkOutcome(raw.extra.walk_outcome);
+    if (outcome) candidates.push(createGhostWalkReplayFixture(outcome));
   } else candidates.push(raw);
-  return candidates.map(sanitizeAgentReplayFixture).filter((fixture): fixture is AgentReplayFixture => fixture !== null);
+  return candidates.map(sanitizeGhostWalkReplayFixture).filter((fixture): fixture is GhostWalkReplayFixture => fixture !== null);
 }
 
-async function writeBundle(path: string, fixtures: AgentReplayFixture[]): Promise<void> {
+async function writeBundle(path: string, fixtures: GhostWalkReplayFixture[]): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ schemaVersion: "ghost.agent-replay.v1", count: fixtures.length, fixtures }, null, 2)}\n`, "utf8");
+  await writeFile(path, `${JSON.stringify({ schemaVersion: "ghost.walk-replay.v1", count: fixtures.length, fixtures }, null, 2)}\n`, "utf8");
 }
 
 function option(args: string[], name: string): string | undefined {
@@ -95,7 +95,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function usage(error: string): never {
-  throw new Error(`${error}\nusage:\n  pnpm eval:agent-replays\n  pnpm eval:agent-replays export [--server URL] [--out FILE]\n  pnpm eval:agent-replays promote INPUT [--out FILE]`);
+  throw new Error(`${error}\nusage:\n  pnpm eval:walk-replays\n  pnpm eval:walk-replays export [--server URL] [--out FILE]\n  pnpm eval:walk-replays promote INPUT [--out FILE]`);
 }
 
 main().catch((error: unknown) => {

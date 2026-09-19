@@ -1,9 +1,8 @@
 // The only place the extension talks to the prediction server. Runs in the service worker, so a page's
 // CSP cannot block the request and the page can neither observe nor forge it.
-import { sanitizeAgentRunOutcome } from "@ghost/shared";
+import { sanitizeGhostWalkOutcome } from "@ghost/shared";
 import { getProfile, getSettings } from "../lib/storage";
-import { parseAgentDecision, parseFormPrediction, parseHealth, sanitizeAgentRequest, sanitizeFormRequest } from "../lib/messages";
-import type { AgentDecisionResponse } from "@ghost/shared";
+import { parseFormPrediction, parseHealth, sanitizeFormRequest } from "../lib/messages";
 import type { FormPrediction, GhostMessage, GhostTextRequest, ServerHealth, ServerResult } from "../lib/messages";
 
 export type FetchLike = typeof fetch;
@@ -41,9 +40,9 @@ export function openGhostText(base: string, request: GhostTextRequest, signal: A
 /** A slow server must never hold a form back: past this the page simply stays on the offline ghosts. */
 export const REQUEST_TIMEOUT_MS = 3000;
 
-export type ServerMessage = Extract<GhostMessage, { type: "ghost:predict-form" | "ghost:agent-next" | "ghost:agent-outcome" | "ghost:health" }>;
+export type ServerMessage = Extract<GhostMessage, { type: "ghost:predict-form" | "ghost:walk-outcome" | "ghost:health" }>;
 
-export interface AgentOutcomeReceipt {
+export interface WalkOutcomeReceipt {
   accepted: true;
   captured: boolean;
   replayId?: string;
@@ -65,7 +64,7 @@ export interface SenderFrame {
 
 export function isServerMessage(msg: unknown): msg is ServerMessage {
   const type = (msg as { type?: unknown } | null)?.type;
-  return type === "ghost:predict-form" || type === "ghost:agent-next" || type === "ghost:agent-outcome" || type === "ghost:health";
+  return type === "ghost:predict-form" || type === "ghost:walk-outcome" || type === "ghost:health";
 }
 
 /** One JSON round trip with a deadline. Errors are short codes: they travel to a content script and its HUD. */
@@ -114,16 +113,10 @@ export function checkHealth(deps: ServerClientDeps = {}): Promise<ServerResult<S
   return callServer("/v1/health", undefined, parseHealth, deps);
 }
 
-export function predictAgent(rawRequest: unknown, deps: ServerClientDeps = {}): Promise<ServerResult<AgentDecisionResponse>> {
-  const request = sanitizeAgentRequest(rawRequest);
-  if (!request) return Promise.resolve({ ok: false, error: "bad-request" });
-  return callServer("/v1/agent/next", request, parseAgentDecision, deps);
-}
-
-export function reportAgentOutcome(raw: unknown, deps: ServerClientDeps = {}): Promise<ServerResult<AgentOutcomeReceipt>> {
-  const outcome = sanitizeAgentRunOutcome(raw);
+export function reportWalkOutcome(raw: unknown, deps: ServerClientDeps = {}): Promise<ServerResult<WalkOutcomeReceipt>> {
+  const outcome = sanitizeGhostWalkOutcome(raw);
   if (!outcome) return Promise.resolve({ ok: false, error: "bad-request" });
-  return callServer("/v1/agent/outcomes", outcome, parseOutcomeReceipt, deps);
+  return callServer("/v1/walk/outcomes", outcome, parseOutcomeReceipt, deps);
 }
 
 function originOf(sender: SenderFrame): string | null {
@@ -136,19 +129,16 @@ function originOf(sender: SenderFrame): string | null {
 }
 
 /** The origin is the asking frame's as Chrome reports it, not whatever the message claims. */
-export function handleServerMessage(message: ServerMessage, sender: SenderFrame, deps: ServerClientDeps = {}): Promise<ServerResult<FormPrediction | AgentDecisionResponse | AgentOutcomeReceipt | ServerHealth>> {
+export function handleServerMessage(message: ServerMessage, sender: SenderFrame, deps: ServerClientDeps = {}): Promise<ServerResult<FormPrediction | WalkOutcomeReceipt | ServerHealth>> {
   if (message.type === "ghost:health") return checkHealth(deps);
-  if (message.type === "ghost:agent-outcome") return reportAgentOutcome(message.outcome, deps);
+  if (message.type === "ghost:walk-outcome") return reportWalkOutcome(message.outcome, deps);
   const request: unknown = message.request;
   const origin = originOf(sender);
   if (!origin || typeof request !== "object" || request === null) return Promise.resolve({ ok: false, error: "bad-request" });
-  if (message.type === "ghost:predict-form") return predictForm({ ...request, origin }, deps);
-  const url = sender.url?.split(/[?#]/)[0] ?? "";
-  const page = typeof (request as { page?: unknown }).page === "object" && (request as { page?: unknown }).page !== null ? (request as { page: object }).page : {};
-  return predictAgent({ ...request, page: { ...page, origin, url } }, deps);
+  return predictForm({ ...request, origin }, deps);
 }
 
-function parseOutcomeReceipt(raw: unknown): AgentOutcomeReceipt | null {
+function parseOutcomeReceipt(raw: unknown): WalkOutcomeReceipt | null {
   if (typeof raw !== "object" || raw === null) return null;
   const value = raw as Record<string, unknown>;
   if (value.accepted !== true || typeof value.captured !== "boolean") return null;

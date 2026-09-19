@@ -55,20 +55,21 @@ describe("background message router", () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ accepted: true, captured: false })));
     const { listener } = await loadWorker(fetchMock);
     const outcome = {
-      schemaVersion: "ghost.agent-run.v1",
+      schemaVersion: "ghost.walk-outcome.v1",
       runId: "44444444-4444-4444-8444-444444444444",
-      state: "done",
-      reason: "completed",
+      state: "exhausted",
+      reason: "no-ghosts-left",
       duration: "under-250ms",
-      steps: 0,
-      decisions: [],
-      actions: [],
+      provider: "heuristic",
+      latency: "none",
+      proposals: [{ index: 1, action: "fill", source: "offline", calibrated: false, confidence: "70-84", locked: false, outcome: "accepted" }],
+      summary: { shown: 1, accepted: 1, dismissed: 0, locked: 0 },
     };
     const reply = await new Promise((resolve) => {
-      expect(listener({ type: "ghost:agent-outcome", outcome }, { id: EXTENSION_ID }, resolve)).toBe(true);
+      expect(listener({ type: "ghost:walk-outcome", outcome }, { id: EXTENSION_ID }, resolve)).toBe(true);
     });
     expect(reply).toEqual({ ok: true, data: { accepted: true, captured: false } });
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8788/v1/agent/outcomes");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8788/v1/walk/outcomes");
   });
 
   it("leaves unknown messages unanswered and registers exactly one port listener", async () => {

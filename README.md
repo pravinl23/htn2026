@@ -8,9 +8,7 @@ Built at Hack the North 2026. Instructions for the autonomous builder live in `C
 
 The browser form-filling path is complete and verified: Ghost can walk the React and plain-HTML job applications with Tab, preserve native keyboard behavior outside the walk, refuse sensitive fields, verify writes, and stop on the locked Submit action. The extension now upgrades its instant local predictions from the server, caches per form, streams free-text drafts, imports resumes, learns opt-in facts, reports metrics, records safe action traces, detects repeated loops, previews them and runs confirmed visible/background/Browserbase/Composio modes.
 
-The extension also has a working Jev computer-use loop. Press **Alt+Shift+J**, give it a goal, and it repeatedly observes a value-free page state, asks Jev for one closed-vocabulary operation, freshness-checks the page, executes through Ghost's existing local verified writer, and observes again. Profile values remain local. The loaded-extension proof fills every safe field on `/apply`, including generated prose, leaves consent alone and stops before Submit. It passes both with the deterministic no-key policy and with the configured direct TypeSafe/Jev provider; the live browser scenario completed in 8.3 seconds during the 2026-09-19 verification. See [`docs/jev-agent.md`](docs/jev-agent.md).
-
-Terminal Jev runs now feed a privacy-safe learning loop: the extension emits a value-free outcome, the server can send it to Sentry, blocked runs become versioned replay fixtures, and `pnpm eval:agent-replays` checks reviewed expectations. There is no automatic self-modification. Live Sentry delivery is opt-in through `SENTRY_DSN` and is not configured in the current `.env`; see [`docs/agent-learning.md`](docs/agent-learning.md).
+Every Tab walk feeds a privacy-safe learning loop. The user's own accept, escape or type-over is the ground truth: the extension emits one value-free outcome per walk, the server can send it to Sentry, walks that went wrong become versioned replay fixtures, and `pnpm eval:walk-replays` checks reviewed expectations. Labels, values, signatures and page identity never cross the wire, and there is no automatic self-modification. Live Sentry delivery is opt-in through `SENTRY_DSN` and is not configured in the current `.env`; see [`docs/learning-loop.md`](docs/learning-loop.md).
 
 The canonical invoice loop is heavily unit-tested, including preview, explicit confirmation, verified background execution and failure handling, but still needs one loaded-extension Playwright run covering the full “do two, preview 48, complete 47, hold one” judging path and its fallback video. The separate atomic workflow lab demonstrates two Jev-selected stories—meeting coordination and Slack → GitHub issue—with simulated Composio execution. Real Composio accounts are not configured, and the native workflow coordinator is a tested seam rather than part of the desktop app’s live pipeline. See `PLAN.md` for the exact boundary.
 
@@ -33,11 +31,6 @@ Then load the extension in Chrome:
 
 Toggle Ghost with **Alt+Shift+G** or the toolbar button.
 
-For the autonomous Jev demo, press **Alt+Shift+J** and run:
-
-> Fill every field that has a safe local value; leave consent untouched and stop before Submit application
-
-The ordinary Tab walk becomes passive during the run and resumes afterward. Ghost never supplies consent and never activates the locked Submit action.
 
 For the atomic macOS/Composio workflow demo, keep the server and demo running and open
 `http://localhost:5173/workflow/index.html`. It is side-effect-free and simulated until
@@ -50,7 +43,7 @@ stories ready for the hackathon demo. See [`docs/workflows.md`](docs/workflows.m
 pnpm test         # all pnpm-workspace unit tests (no keys needed; excludes desktop/)
 pnpm e2e          # Playwright: loads the built extension into Chromium and drives the demo sites
 pnpm test:live    # only runs when real provider keys are present; prints real latency
-pnpm eval:agent-replays  # validate every reviewed redacted Jev outcome fixture
+pnpm eval:walk-replays  # validate every reviewed redacted walk outcome fixture
 make -C desktop test  # native macOS agent unit tests (not included in pnpm test)
 ```
 

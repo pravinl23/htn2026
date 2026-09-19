@@ -9,5 +9,4 @@ export * from "./trace";
 export * from "./loop";
 export * from "./memory";
 export * from "./workflow";
-export * from "./agent";
-export * from "./agentTelemetry";
+export * from "./walkTelemetry";

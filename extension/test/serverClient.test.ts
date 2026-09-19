@@ -1,7 +1,7 @@
 import { DEMO_PROFILE } from "@ghost/shared";
-import type { AgentDecisionRequest, AgentRunOutcome, CapturedField } from "@ghost/shared";
+import type { CapturedField, GhostWalkOutcome } from "@ghost/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { REQUEST_TIMEOUT_MS, checkHealth, handleServerMessage, isServerMessage, predictAgent, predictForm, reportAgentOutcome } from "../src/background/serverClient";
+import { REQUEST_TIMEOUT_MS, checkHealth, handleServerMessage, isServerMessage, predictForm, reportWalkOutcome } from "../src/background/serverClient";
 import type { FetchLike } from "../src/background/serverClient";
 import { sanitizeFormRequest, toWireField } from "../src/lib/messages";
 import { resetMemoryStorage } from "../src/lib/storage";
@@ -12,19 +12,16 @@ const PREDICTION = {
   assignments: [{ signature: "first", factKey: "firstName", confidence: 0.97, source: "jev-gateway", calibrated: true }],
   provider: "jev-gateway", calibrated: true, latencyMs: 120, cache: "miss",
 };
-const OUTCOME: AgentRunOutcome = {
-  schemaVersion: "ghost.agent-run.v1",
+const OUTCOME: GhostWalkOutcome = {
+  schemaVersion: "ghost.walk-outcome.v1",
   runId: "33333333-3333-4333-8333-333333333333",
-  state: "blocked",
-  reason: "low-confidence",
+  state: "parked",
+  reason: "locked-action",
   duration: "250-999ms",
-  steps: 1,
-  decisions: [{
-    step: 1, operation: "CLICK", provider: "typesafe", calibrated: true, fallback: false,
-    confidence: "55-69", latency: "100-249ms",
-    candidates: { total: 2, locked: 1, filled: 0, requiredOpen: 1, availableOperations: ["FILL", "CLICK"] },
-  }],
-  actions: [],
+  provider: "typesafe",
+  latency: "100-249ms",
+  proposals: [{ index: 1, action: "fill", source: "server", calibrated: true, confidence: "95-plus", locked: false, outcome: "typed-over" }],
+  summary: { shown: 1, accepted: 0, dismissed: 1, locked: 0 },
 };
 
 function field(signature: string, partial: Partial<CapturedField> = {}): CapturedField {
@@ -144,8 +141,7 @@ describe("checkHealth", () => {
 describe("handleServerMessage", () => {
   it("recognises its four server message types only", () => {
     expect(isServerMessage({ type: "ghost:predict-form", request: {} })).toBe(true);
-    expect(isServerMessage({ type: "ghost:agent-next", request: {} })).toBe(true);
-    expect(isServerMessage({ type: "ghost:agent-outcome", outcome: {} })).toBe(true);
+    expect(isServerMessage({ type: "ghost:walk-outcome", outcome: {} })).toBe(true);
     expect(isServerMessage({ type: "ghost:health" })).toBe(true);
     expect(isServerMessage({ type: "ghost:debugger-fill" })).toBe(false);
     expect(isServerMessage(null)).toBe(false);
@@ -172,62 +168,21 @@ describe("handleServerMessage", () => {
   });
 });
 
-describe("reportAgentOutcome", () => {
+describe("reportWalkOutcome", () => {
   it("sanitizes again and POSTs the outcome without requiring page identity", async () => {
     const fetchMock = jsonFetch({ accepted: true, captured: false, replayId: OUTCOME.runId });
     const dirty = { ...OUTCOME, goal: "private goal", url: "https://private.example", profile: { email: "sam@example.com" } };
-    expect(await handleServerMessage({ type: "ghost:agent-outcome", outcome: dirty }, {}, deps(fetchMock)))
+    expect(await handleServerMessage({ type: "ghost:walk-outcome", outcome: dirty as never }, {}, deps(fetchMock)))
       .toEqual({ ok: true, data: { accepted: true, captured: false, replayId: OUTCOME.runId } });
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${BASE}/v1/agent/outcomes`);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${BASE}/v1/walk/outcomes`);
     expect(sentBody(fetchMock)).toEqual(OUTCOME);
   });
 
   it("rejects a widened envelope before network", async () => {
     const fetchMock = jsonFetch({ accepted: true, captured: false });
-    const widened = { ...OUTCOME, decisions: [{ ...OUTCOME.decisions[0], operation: "SHELL" }] };
-    expect(await reportAgentOutcome(widened, deps(fetchMock))).toEqual({ ok: false, error: "bad-request" });
+    const widened = { ...OUTCOME, proposals: [{ ...OUTCOME.proposals[0], action: "navigate" }] };
+    expect(await reportWalkOutcome(widened, deps(fetchMock))).toEqual({ ok: false, error: "bad-request" });
     expect(fetchMock).not.toHaveBeenCalled();
-  });
-});
-
-describe("predictAgent", () => {
-  const agentRequest: AgentDecisionRequest = {
-    goal: "Fill safe fields and stop before Submit",
-    page: { origin: "https://spoofed.example", url: "https://spoofed.example/apply?token=secret", title: "Apply" },
-    candidates: [
-      { id: "first-id", kind: "field", label: "First name", required: true, locked: false, filled: false, operations: ["FILL"] },
-      { id: "submit-id", kind: "button", label: "Submit", required: false, locked: true, filled: false, operations: ["CLICK"] },
-    ],
-    recentActions: [],
-  };
-  const agentReply = {
-    operation: "FILL", targetId: "first-id", confidence: 0.91, operationConfidence: 0.95,
-    targetConfidence: 0.91, provider: "typesafe", calibrated: true, latencyMs: 42,
-  };
-
-  it("POSTs the value-free request to /v1/agent/next", async () => {
-    const fetchMock = jsonFetch(agentReply);
-    expect(await predictAgent(agentRequest, deps(fetchMock))).toEqual({ ok: true, data: agentReply });
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${BASE}/v1/agent/next`);
-    expect(sentBody(fetchMock)).toEqual(agentRequest);
-  });
-
-  it("uses Chrome's page identity and strips its query string", async () => {
-    const fetchMock = jsonFetch(agentReply);
-    const result = await handleServerMessage(
-      { type: "ghost:agent-next", request: agentRequest },
-      { origin: "http://localhost:5173", url: "http://localhost:5173/apply?private=yes#form" },
-      deps(fetchMock),
-    );
-    expect(result).toEqual({ ok: true, data: agentReply });
-    expect((sentBody(fetchMock).page as Record<string, unknown>)).toMatchObject({ origin: "http://localhost:5173", url: "http://localhost:5173/apply" });
-  });
-
-  it("drops widened operations before network", async () => {
-    const fetchMock = jsonFetch(agentReply);
-    const request = { ...agentRequest, candidates: [{ ...agentRequest.candidates[0], operations: ["DELETE"] }] };
-    expect((await predictAgent(request, deps(fetchMock))).ok).toBe(true);
-    expect((sentBody(fetchMock).candidates as Array<{ operations: string[] }>)[0]?.operations).toEqual([]);
   });
 });
 

@@ -4,7 +4,7 @@ import { loadConfig, type ServerConfig } from "./config";
 import { ALLOWED_ORIGIN, localOnly } from "./lib/guard";
 import { registerCommandRoutes } from "./routes/command";
 import { registerExecuteRoutes } from "./routes/execute";
-import { registerAgentTelemetryRoutes } from "./routes/agentTelemetry";
+import { registerWalkTelemetryRoutes } from "./routes/walkTelemetry";
 import { registerLoopRoutes } from "./routes/loop";
 import { registerMetricsRoutes } from "./routes/metrics";
 import { registerPredictRoutes } from "./routes/predict";
@@ -17,8 +17,8 @@ export function createApp(config: ServerConfig = loadConfig()): Hono {
   const app = new Hono();
   app.use("*", localOnly(config.host));
   app.use("*", cors({ origin: (origin) => (ALLOWED_ORIGIN.test(origin) ? origin : null) }));
-  registerPredictRoutes(app, config); // /v1/health, /v1/predict/form, /v1/predict/next, /v1/agent/next
-  registerAgentTelemetryRoutes(app, config); // /v1/agent/outcomes, /v1/agent/replays
+  registerPredictRoutes(app, config); // /v1/health, /v1/predict/form, /v1/predict/next
+  registerWalkTelemetryRoutes(app, config); // /v1/walk/outcomes, /v1/walk/replays
   registerTextRoutes(app, config); // /v1/ghost-text, /v1/profile/extract
   registerMetricsRoutes(app, config); // /v1/metrics
   registerPresenceRoutes(app, config); // /v1/presence (extension and desktop heartbeats)
