@@ -60,6 +60,50 @@ describe("resolveFieldValue", () => {
   });
 });
 
+describe("matchOption never guesses", () => {
+  it("matches whole words, never substrings (the state code AR is not inside Ontario)", () => {
+    expect(matchOption(opts("AL", "AK", "AZ", "AR", "RI"), "Ontario")).toBeNull();
+    expect(matchOption(opts("Yes", "No"), "Hack the North")).toBeNull();
+  });
+
+  it("does not take a generic word for the whole fact", () => {
+    expect(matchOption(opts("High school", "College", "University"), "University of Waterloo")).toBeNull();
+    expect(matchOption(opts("Computer Science", "Mathematics"), "BCS Computer Science")?.option.label).toBe("Computer Science");
+  });
+
+  it("does not confuse two schools that share filler words", () => {
+    expect(matchOption(opts("University of Toronto", "University of Ottawa"), "University of Waterloo")).toBeNull();
+    expect(matchOption(opts("University of Toronto", "Waterloo University"), "University of Waterloo")?.option.label).toBe("Waterloo University");
+  });
+
+  it("returns null when two options fit equally well", () => {
+    expect(matchOption(opts("Yes, I am a citizen", "Yes, I hold a work permit", "No"), "yes")).toBeNull();
+    expect(matchOption(opts("Inside Canada", "Outside Canada"), "Canada")).toBeNull();
+    expect(matchOption(opts("Canada", "Outside Canada"), "Canada")?.option.label).toBe("Canada");
+  });
+
+  it("reads yes/no from the first word or a 1/0 value, not from a leading number", () => {
+    expect(matchOption(opts("1-2 years", "3-5 years"), "yes")).toBeNull();
+    expect(matchOption([{ value: "1", label: "Oui" }, { value: "0", label: "Non" }], "no")?.option.value).toBe("0");
+    expect(matchOption(opts("Not sure", "No"), "no")?.option.label).toBe("No");
+  });
+
+  it("cannot choose between two terms of the same graduation year", () => {
+    expect(resolveFieldValue(field("Graduation", "select", opts("Spring 2028", "Fall 2028")), "graduationDate", "2028-04")).toBeNull();
+  });
+});
+
+describe("resolveFieldValue respects the input type", () => {
+  it("refuses values that cannot belong in an email, tel or url input (assignments may come from a model)", () => {
+    expect(resolveFieldValue(field("Email", "email"), "firstName", "Alex")).toBeNull();
+    expect(resolveFieldValue(field("Phone", "tel"), "email", "alex.chen.dev@example.com")).toBeNull();
+    expect(resolveFieldValue(field("Site", "url"), "school", "University of Waterloo")).toBeNull();
+    expect(resolveFieldValue(field("Email", "email"), "email", "alex.chen.dev@example.com")?.value).toBe("alex.chen.dev@example.com");
+    expect(resolveFieldValue(field("Phone", "tel"), "phone", "+1 519 555 0142")?.value).toBe("+1 519 555 0142");
+    expect(resolveFieldValue(field("Site", "url"), "github", "https://github.com/alexchen-dev")?.value).toBe("https://github.com/alexchen-dev");
+  });
+});
+
 describe("parseIsoDate", () => {
   it("parses month and full dates and rejects junk", () => {
     expect(parseIsoDate("2028-04")).toEqual({ year: 2028, month: 4 });

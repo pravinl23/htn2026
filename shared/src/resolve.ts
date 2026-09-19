@@ -38,40 +38,74 @@ function formatDateForField(field: CapturedField, iso: string): string | null {
   return `${MONTHS[d.month - 1]} ${d.year}`;
 }
 
-function tokens(text: string): Set<string> {
-  return new Set(normalize(text).split(" ").filter((t) => t.length > 1));
+const STOPWORDS = new Set(["of", "the", "and", "in", "at", "for", "to", "or", "an"]);
+const YES_WORD = /^(y|yes|true)$/i;
+const NO_WORD = /^(n|no|false)$/i;
+
+function words(text: string): string[] {
+  return normalize(text).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 }
 
+function keywords(text: string): Set<string> {
+  return new Set(words(text).filter((w) => w.length > 1 && !STOPWORDS.has(w)));
+}
+
+/** Shared keywords over the LARGER set: "University of Toronto" is not "University of Waterloo". */
 function overlap(a: string, b: string): number {
-  const ta = tokens(a);
-  const tb = tokens(b);
+  const ta = keywords(a);
+  const tb = keywords(b);
   if (ta.size === 0 || tb.size === 0) return 0;
   let shared = 0;
   for (const t of ta) if (tb.has(t)) shared++;
-  return shared / Math.min(ta.size, tb.size);
+  return shared / Math.max(ta.size, tb.size);
 }
 
-/** Pick the option that best expresses a fact value. Returns null when nothing fits well. */
+/** Whole words in order, never substrings: the state code "AR" is not inside "Ontario". */
+function containsWords(haystack: string[], needle: string[]): boolean {
+  if (needle.length === 0 || needle.length > haystack.length) return false;
+  for (let i = 0; i + needle.length <= haystack.length; i++) {
+    if (needle.every((w, j) => haystack[i + j] === w)) return true;
+  }
+  return false;
+}
+
+function containmentScore(label: string, target: string): number {
+  const lw = words(label);
+  const tw = words(target);
+  if (containsWords(lw, tw)) return 0.88; // "Hack the North 2026" says "Hack the North"
+  // The option is only part of the fact: it must carry most of it ("University" is not "University of Waterloo").
+  return containsWords(tw, lw) && overlap(label, target) > 0.5 ? 0.88 : 0;
+}
+
+/** Yes/no reads the option's first word, or a 1/0 style VALUE ("1-2 years" is not a yes). */
+function yesNoScore(option: FieldOption, wantsYes: boolean): number {
+  const word = wantsYes ? YES_WORD : NO_WORD;
+  const first = words(option.label)[0] ?? "";
+  const value = option.value.trim();
+  return word.test(first) || (wantsYes ? YES : NO).test(value) ? 0.95 : 0;
+}
+
+function optionScore(option: FieldOption, factValue: string): number {
+  const target = normalize(factValue);
+  const label = normalize(option.label);
+  if (label === target || normalize(option.value) === target) return 1;
+  const wantsYes = YES.test(factValue.trim());
+  if (wantsYes || NO.test(factValue.trim())) return yesNoScore(option, wantsYes);
+  const contained = containmentScore(label, target);
+  if (contained > 0) return contained;
+  const shared = overlap(label, target);
+  return shared >= 0.6 ? 0.6 + 0.25 * shared : 0;
+}
+
+/** Pick the option that best expresses a fact value. Null when nothing fits well, or when two options fit equally. */
 export function matchOption(options: FieldOption[], factValue: string): { option: FieldOption; score: number } | null {
   const real = options.filter((o) => o.value !== "" && !/^(select|choose|please|--)/i.test(o.label.trim()));
-  const target = normalize(factValue);
-  const wantsYes = YES.test(factValue.trim());
-  const wantsNo = NO.test(factValue.trim());
-  let best: { option: FieldOption; score: number } | null = null;
-  for (const option of real) {
-    const label = normalize(option.label);
-    const value = normalize(option.value);
-    let score = 0;
-    if (label === target || value === target) score = 1;
-    else if (wantsYes || wantsNo) {
-      const first = label.split(" ")[0] ?? "";
-      const firstValue = value.split(" ")[0] ?? "";
-      if ((wantsYes && (YES.test(first) || YES.test(firstValue))) || (wantsNo && (NO.test(first) || NO.test(firstValue)))) score = 0.95;
-    } else if (label && (label.includes(target) || target.includes(label))) score = 0.88;
-    else score = overlap(label, target) >= 0.5 ? 0.6 + 0.25 * overlap(label, target) : 0;
-    if (!best || score > best.score) best = { option, score };
-  }
-  return best && best.score >= 0.7 ? best : null;
+  const scored = real.map((option) => ({ option, score: optionScore(option, factValue) })).sort((a, b) => b.score - a.score);
+  const [best, runnerUp] = scored;
+  if (!best || best.score < 0.7) return null;
+  // "Yes, as a citizen" vs "Yes, with a permit": picking one would be a guess. Exact duplicates are the same answer.
+  if (runnerUp && runnerUp.score === best.score && best.score < 1) return null;
+  return best;
 }
 
 function resolveDateOption(field: CapturedField, iso: string): ResolvedValue | null {
@@ -86,6 +120,14 @@ function resolveDateOption(field: CapturedField, iso: string): ResolvedValue | n
     if (hit) return { action: "select", value: hit.option.value, displayText: hit.option.label, confidenceFactor: hit.score };
   }
   return null;
+}
+
+/** Assignments may come from a model: a name never goes into an email input, nor prose into a phone or url input. */
+function fitsInputType(kind: CapturedField["kind"], value: string): boolean {
+  if (kind === "email") return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  if (kind === "tel") return /\d{3}/.test(value.replace(/\D/g, "")) && !/[a-z]{4}/i.test(value);
+  if (kind === "url") return /^[^\s@]+\.[^\s@]+$/.test(value);
+  return true;
 }
 
 /** Turn a fact value into the concrete thing to write into this field. Null when it cannot be expressed. */
@@ -113,6 +155,7 @@ export function resolveFieldValue(field: CapturedField, factKey: string, factVal
     value = formatted;
   } else if (field.kind === "date" || field.kind === "month") return null;
   else if (field.kind === "number" && !/^-?\d+(\.\d+)?$/.test(value)) return null;
+  else if (!fitsInputType(field.kind, value)) return null;
   else if (field.kind === "url" && !/^https?:\/\//i.test(value)) value = `https://${value}`;
   return { action: "fill", value, displayText: value, confidenceFactor: 1 };
 }
