@@ -31,7 +31,7 @@ This is deliberately **learning from failures through tests**, not live model se
 
 ## Planned implementation slices
 
-- [ ] Shared versioned redacted outcome, replay-case, and evaluator contracts with adversarial tests.
+- [x] Shared versioned redacted outcome, replay-case, and evaluator contracts with adversarial tests.
 - [ ] Extension run collector plus background forwarding and tests proving sensitive run fields are absent.
 - [ ] Server outcome route, bounded replay store, Sentry sink/no-op sink, and route/privacy tests.
 - [ ] Replay export/promote workflow and checked-in seed fixtures/eval command.
@@ -41,3 +41,7 @@ This is deliberately **learning from failures through tests**, not live model se
 ## Resume instructions
 
 Start with `git status --short --branch` and `git log --oneline --decorate -8`. Read this file and `docs/jev-agent.md`. Continue from the first unchecked slice, preserve the invariants above, and make a focused commit after every green slice. Do not put a Sentry DSN in git. If live capture is still unverified, ask the owner to create a Sentry Node project and add its DSN to the repo-local `.env`, then exercise one synthetic blocked run and confirm the sanitized event.
+
+## Implementation notes
+
+- `shared/src/agentTelemetry.ts` defines the only wire schema. `sanitizeAgentRunOutcome` reconstructs it from an allowlist, while `createAgentReplayFixture` and `evaluateAgentReplay` turn reviewed outcomes into deterministic regression assertions that ignore provider/timing variance.
