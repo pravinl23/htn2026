@@ -22,6 +22,7 @@ export interface DemoRoute {
 }
 
 export const ROUTES: DemoRoute[] = [
+  { path: "/workflow/index.html", title: "Atomic workflow lab", blurb: "Meeting request → calendar check → draft → event, one approved action at a time.", listed: true },
   { path: "/apply", title: "Job application (React)", blurb: "Northwind Robotics, Software Engineering Intern. Controlled inputs.", component: Apply, listed: true },
   { path: "/apply-plain/", title: "Job application (plain HTML)", blurb: "The same form with no framework.", listed: true },
   { path: "/mail", title: "Mail", blurb: "An inbox with a meeting request. Ghost helps you check the calendar and reply.", component: Mail, listed: true },
