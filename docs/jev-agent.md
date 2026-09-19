@@ -52,10 +52,16 @@ Confidence is risk-aware. An uncalibrated mutation uses the user's full threshol
 
 With no decision key, the deterministic policy exists for tests and offline demos. It may apply the first locally prepared field action, but it never clicks and never invents a value. It reports `BLOCKED` when a required field has no safe local action unless the goal explicitly says to leave unsupported fields untouched.
 
+## Outcome capture and reviewed learning
+
+Every terminal run produces a `ghost.agent-run.v1` outcome. It contains operations, closed result/reason codes, bounded candidate counts, booleans, provider category and coarse timing/confidence buckets. The schema cannot represent the goal, page identity, labels, target IDs, values, DOM, screenshots, or arbitrary error text. The background worker and server each rebuild it from the same allowlist.
+
+With `SENTRY_DSN`, the server manually sends the scrubbed event to Sentry and attaches blocked runs as replay JSON. Without it, capture is a tested no-op and blocked cases remain available from the process-local `/v1/agent/replays` review queue. Reviewed exports live in `evals/agent-replays/` and run with `pnpm eval:agent-replays`. See [`agent-learning.md`](agent-learning.md) for setup, privacy invariants, export/promotion commands, and the boundary between regression learning and unsafe automatic self-modification.
+
 ## What is not done yet
 
 - The first proof is deliberately form-heavy. Add a second scenario with a reversible page click, navigation and a useful wait.
 - Record a live fallback video for judging.
-- Emit redacted run/failure envelopes to Sentry, then convert recurring failures into versioned replay fixtures and eval cases. Sentry should help the team learn; it should not let production errors silently rewrite prompts, thresholds or policy.
+- Add a Sentry DSN and verify one real blocked event plus its attachment in the configured project. The no-DSN path, sink adapter, scrubber, route and replay pipeline are tested; live delivery is the only missing piece.
 - Extend the same shared runner to the macOS AX adapter. The current native workflow coordinator and native form walker remain separate paths.
 - Decide how Composio suggestions enter the same panel after real accounts are connected. External effects must continue through reviewed, single-use confirmation tokens rather than the form runner's local operation path.

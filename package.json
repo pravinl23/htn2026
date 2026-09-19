@@ -9,7 +9,7 @@
     "dev": "concurrently -n server,demo,ext -c blue,green,magenta \"pnpm --filter @ghost/server dev\" \"pnpm --filter @ghost/demo dev\" \"pnpm --filter @ghost/extension dev\"",
     "build": "pnpm --filter @ghost/extension build && pnpm --filter @ghost/demo build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r --workspace-concurrency=1 test",
+    "test": "pnpm -r --workspace-concurrency=1 test && pnpm eval:agent-replays",
     "e2e": "pnpm build && pnpm --filter @ghost/e2e e2e",
     "test:live": "node scripts/test-live.mjs",
     "eval:agent-replays": "pnpm --filter @ghost/server eval:agent-replays"

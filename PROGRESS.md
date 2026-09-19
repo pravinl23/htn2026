@@ -38,3 +38,11 @@ Format:
 - Live verification: direct TypeSafe/Jev + Baseten drafting completed `/apply` in 8.3 s; deterministic keyless run completed in 2.0 s. Both left consent untouched and recorded zero Submit attempts.
 - Verification: build and all workspace typechecks pass; 2,029 JS/TS unit tests and all 34 loaded-extension browser tests pass.
 - Next: record the live proof, add Sentry outcome/failure capture feeding replay/evals, then add a second page-changing `CLICK`/`WAIT` scenario before returning to the canonical invoice-loop video.
+
+## Run 4: 2026-09-19 redacted Sentry outcomes and replay evals [DONE]
+- Added a versioned shared outcome schema that cannot represent goals, URLs, labels, target ids, values, DOM or arbitrary errors; it keeps only closed codes, booleans, bounded structural counts and coarse buckets.
+- The extension converts terminal Jev updates into best-effort outcomes. Its background worker sanitizes again before the server, and the server validates once more with a 64 KB streamed-body limit.
+- Added an opt-in Sentry Node sink with no default integrations, PII or tracing. `beforeSend` discards and reconstructs every event from the validated outcome; blocked runs also get a redacted JSON replay attachment. No DSN is present, so live delivery is not yet verified.
+- Added the bounded `/v1/agent/replays` review queue, canonical export/promotion CLI, checked-in seed fixture, and `pnpm eval:agent-replays` regression gate. This is reviewed learning, never automatic production self-modification.
+- Focused verification: shared/extension/server typechecks, 684 shared tests, 31 relevant extension tests, 464 server tests, extension production build, server bundle smoke, and the replay eval all passed during implementation.
+- Next: add a DSN and verify one Sentry event, then build the second synthetic `CLICK`/navigation/`WAIT` scenario and promote its outcome.

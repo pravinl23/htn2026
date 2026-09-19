@@ -35,7 +35,7 @@ This is deliberately **learning from failures through tests**, not live model se
 - [x] Extension run collector plus background forwarding and tests proving sensitive run fields are absent.
 - [x] Server outcome route, bounded replay store, Sentry sink/no-op sink, and route/privacy tests.
 - [x] Replay export/promote workflow and checked-in seed fixtures/eval command.
-- [ ] Documentation and environment/install plumbing.
+- [x] Documentation and environment/install plumbing.
 - [ ] Full typecheck, unit tests, extension build, server bundle, and relevant end-to-end verification.
 
 ## Resume instructions
@@ -48,3 +48,5 @@ Start with `git status --short --branch` and `git log --oneline --decorate -8`. 
 - `extension/src/content/agentTelemetry.ts` listens to terminal runner updates, copies only structural summaries, and reports best-effort. `serverClient.ts` sanitizes the envelope again before POSTing `/v1/agent/outcomes`.
 - `server/src/routes/agentTelemetry.ts` accepts outcomes and keeps the newest 100 blocked fixtures in memory. `server/src/telemetry/agentOutcomes.ts` uses a no-op sink without a DSN; with a DSN it lazily initializes Sentry with no default integrations or PII, attaches the replay JSON, and rebuilds every outbound event in `beforeSend`.
 - `pnpm eval:agent-replays` validates the checked-in corpus. `export` snapshots the local server queue; `promote` accepts that bundle or a Sentry event containing `extra.agent_replay` / `extra.agent_outcome`, validates it, and writes canonical JSON for human review.
+- Setup and operations are in `docs/agent-learning.md`; `.env.example` and the macOS background env template include the three Sentry variables. Root plan/status/API/architecture docs now describe the implemented boundary rather than listing it as future work.
+- `e2e/tests/agent-demo.spec.ts` now includes a keyless blocked run that must arrive through the real content-script → background-worker → server path and appear as a redacted replay fixture.

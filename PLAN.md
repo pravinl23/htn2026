@@ -86,7 +86,7 @@ Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University o
 - [x] Closed-shadow command panel on **Alt+Shift+J**, with provider, latency, confidence and stop reason.
 - [x] Loaded-extension e2e for the full safe `/apply` run; deterministic and live TypeSafe/Jev paths both pass.
 - [ ] Add a second action-heavy/page-changing scenario so `CLICK`, navigation and `WAIT` are demonstrated, not just value operations.
-- [ ] Send redacted agent failure/outcome envelopes to Sentry and turn recurring failures into a replay/eval corpus. Do not let production failures rewrite prompts or policy automatically.
+- [x] Send strictly redacted agent failure/outcome envelopes through an opt-in Sentry sink and turn blocked outcomes into reviewable replay/eval cases. The no-DSN path and scrubber are tested; live delivery awaits a project DSN. Production failures never rewrite prompts or policy automatically.
 - [ ] Record a fallback video of the live Jev run and add it to the judging script.
 
 ## Stage 6: Do it twice, Ghost does the rest

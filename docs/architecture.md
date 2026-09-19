@@ -10,7 +10,7 @@ The browser extension implements the complete assisted form walk, server predict
 
 | Package | Role |
 | --- | --- |
-| `shared/` (`@ghost/shared`) | Types and pure logic used by both the extension and the server: `CapturedField`, `Ghost`, `Profile`, the Jev-shaped decision interface, heuristic field mapping (`mapFieldToFact`), value resolution (`resolveFieldValue`), and the safety rules (`isSensitive`, `isLockedAction`). No DOM, no Node APIs. |
+| `shared/` (`@ghost/shared`) | Types and pure logic used by both the extension and the server: `CapturedField`, `Ghost`, `Profile`, the Jev-shaped decision interface, redacted agent outcome/replay contracts and evaluator, heuristic field mapping (`mapFieldToFact`), value resolution (`resolveFieldValue`), and the safety rules (`isSensitive`, `isLockedAction`). No DOM, no Node APIs. |
 | `extension/` | Chrome MV3 extension built with esbuild (`node build.mjs`) into `extension/dist`. |
 | `server/` | Hono prediction service on `http://localhost:8787`. Keys live here, never in the extension. |
 | `demo/` | Vite + React demo sites on `http://localhost:5173`. `demo/public/apply-plain/index.html` is framework-free. |
@@ -166,6 +166,8 @@ capture value-free candidates -> one Jev operation/target decision -> confidence
 
 The loaded-extension contract is `e2e/tests/agent-demo.spec.ts`: all safe profile fields and at least the required generated essay are filled, consent and sensitive/file inputs remain untouched, and Submit receives zero attempts. See [`jev-agent.md`](jev-agent.md) for the design rationale and live run command.
 
+Terminal updates also pass through `agentTelemetry.ts`. It deliberately discards the update's goal, history labels and target IDs, keeps only the shared closed schema, and sends `ghost:agent-outcome` without waiting on the result. The background worker sanitizes before `POST /v1/agent/outcomes`; the server sanitizes again, manually captures through the opt-in Sentry sink, and adds blocked outcomes to a bounded replay queue. Sentry's final hook reconstructs the event from the validated outcome, so default scope/request/error data cannot widen it. See [`agent-learning.md`](agent-learning.md).
+
 The content script runs in every frame (`all_frames: true`): embedded application forms (Greenhouse, Lever, Ashby) live in iframes. Each frame has its own controller and overlay, frames smaller than 200x80 (ad slots, tracking pixels) are skipped, and only the top document shows the HUD. The debugger fallback stays top-frame only (its guards run in the top document and refuse anything else). Known gap: fields inside shadow roots (web-component forms such as Salesforce LWC) are not captured yet.
 
 `lifecycle.ts` polls `chrome.runtime.id` once a second. After an extension reload or update the old content script is orphaned (no storage or runtime event ever reaches it again, so it could not be switched off); it then stops the controller, removes the overlay and releases the page.
@@ -185,6 +187,8 @@ export type GhostMessage =
   | { type: "ghost:debugger-fill"; value: string; target: string }               // target: one-shot token, also stamped on the element as data-ghost-target
   | { type: "ghost:debugger-click"; x: number; y: number; target: string }
   | { type: "ghost:predict-form"; request: FormPredictRequest }                  // reply: ServerResult<FormPrediction>
+  | { type: "ghost:agent-next"; request: AgentDecisionRequest }                  // reply: ServerResult<AgentDecisionResponse>
+  | { type: "ghost:agent-outcome"; outcome: AgentRunOutcome }                    // reply ignored; best-effort telemetry
   | { type: "ghost:health" }                                                     // reply: ServerResult<ServerHealth>
   | { type: "ghost:metrics"; batch: MetricsBatch };                              // reply: MetricsReply (Stage 4 + 7, see below)
 // Free-text drafts do not use messages: one chrome.runtime Port named TEXT_PORT ("ghost:text") per draft, see Stage 3.

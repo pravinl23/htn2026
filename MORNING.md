@@ -1,6 +1,6 @@
 # Current handoff
 
-_Last updated: 2026-09-19 after the Jev computer-use integration pass._
+_Last updated: 2026-09-19 after the redacted Jev outcome/replay integration pass._
 
 ## What works now
 
@@ -10,6 +10,7 @@ _Last updated: 2026-09-19 after the Jev computer-use integration pass._
 - **Native macOS agent:** the stable host, hot-swappable library, Accessibility capture, verified writer and `ghostctl` harness are implemented. The new `GHWorkflowCoordinator` is tested as a narrow workflow seam.
 - **Live Jev proof:** a 12-field mapping completed in 490 ms, and the three-step meeting workflow returned calibrated TypeSafe/Jev choices at 100%, 95% and 88% confidence before simulated execution.
 - **Live browser computer-use proof:** the extension's new `Alt+Shift+J` runner completed the `/apply` safety scenario through direct TypeSafe/Jev in 8.3 s. It filled all locally supported fields plus generated prose, left consent untouched and made zero Submit attempts. The same loaded-extension spec passes against the keyless policy in 2.0 s.
+- **Reviewed learning loop:** terminal agent runs now produce a strict value-free outcome, pass two sanitization boundaries, optionally reach Sentry, and turn blocked runs into versioned replay cases checked by `pnpm eval:agent-replays`. There is no Sentry DSN on this machine yet, so live delivery remains unverified.
 
 ## Who is working on what
 
@@ -40,8 +41,8 @@ Measured on Pravin's machine with real keys: Jev direct 12-field form 649 ms (12
 Lock the new live Jev proof into the judging story, then complete the existing invoice-loop proof:
 
 1. Record the live `/apply` Jev run and add its exact `Alt+Shift+J` command to `DEMO.md`.
-2. Instrument redacted agent outcomes/errors in Sentry and preserve them as deterministic replay fixtures/evals; no automatic production self-modification.
-3. Add one page-changing runner scenario that exercises safe `CLICK`/`WAIT` and still proves zero locked actions.
+2. Add a Sentry Node project DSN, produce one synthetic blocked run, and confirm its scrubbed event plus replay attachment.
+3. Add one page-changing runner scenario that exercises safe `CLICK`/`WAIT` and still proves zero locked actions; promote its reviewed outcome into the replay corpus.
 4. Add one loaded-extension e2e from `/reset` through two manual invoice examples and the proposal.
 5. Exercise preview across the remaining 48 items, complete 47 safe items, hold one for review, and record `docs/media/stage6-loop.webm`.
 

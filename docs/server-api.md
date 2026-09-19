@@ -2,7 +2,7 @@
 
 Keys stay on the server. The Chrome extension now calls form prediction, the autonomous `/v1/agent/next` decision route, ghost text, profile extraction, metrics, presence and loop/executor routes while retaining instant local fallback; it still does not call `/v1/predict/next` as a separate passive click-ghost feature. Ghost Desktop calls form/free-text/health/presence. The atomic workflow lab calls `/v1/workflows/*` directly, while the tested native `GHWorkflowCoordinator` seam is not yet connected to the desktop pipeline. All non-SSE bodies are JSON. CORS allows `chrome-extension://*` and `http://localhost:*` only.
 
-Browserbase and Composio paths are unit/mock-tested and fall back to simulated executors without credentials. On the audited developer machine, direct TypeSafe/Jev is configured: a live 12-field decision and the three-action atomic workflow passed with calibrated Jev choices. Browserbase credentials are present but its executor has not been live-verified, and Composio is not configured. The ignored `.env` must never be committed.
+Browserbase and Composio paths are unit/mock-tested and fall back to simulated executors without credentials. On the audited developer machine, direct TypeSafe/Jev is configured: a live 12-field decision and the three-action atomic workflow passed with calibrated Jev choices. Browserbase and Composio keys are present, but their real executor/account effects have not been live-verified. Sentry has no DSN yet. The ignored `.env` must never be committed.
 
 ## Access rules (the API is unauthenticated and spends paid model quota)
 
@@ -10,7 +10,7 @@ Browserbase and Composio paths are unit/mock-tested and fall back to simulated e
 - Every `POST` MUST send `Content-Type: application/json`, otherwise `415`. This forces a CORS preflight, so no web page can reach a handler with a "simple" request.
 - A request whose `Origin` header is present and is not `chrome-extension://*` or `http://localhost:*` / `http://127.0.0.1:*` gets `403` (not just missing CORS headers).
 - A request whose `Host` is not `localhost`, `127.0.0.1` or `[::1]` gets `403` (DNS rebinding).
-- Body limits count streamed bytes too: form 512 KB, next 128 KB, metrics 32 KB, presence 2 KB, ghost-text 64 KB, extract 128 KB, loop synthesize / preview / execute 1 MB, loop compile 256 KB (`413`).
+- Body limits count streamed bytes too: form 512 KB, next 128 KB, agent outcomes 64 KB, metrics 32 KB, presence 2 KB, ghost-text 64 KB, extract 128 KB, loop synthesize / preview / execute 1 MB, loop compile 256 KB (`413`).
 - The loop execution routes (`/v1/loop/compile`, `/v1/loop/preview`, `/v1/loop/execute`, `DELETE /v1/loop/execute/:runId`) are stricter, because they send mail, write sheets and open billed cloud browsers from the user's own accounts. See "Loop execution: access and confirmation" below.
 - Limits on `/v1/predict/form`: at most 100 fields and 64 fact keys (`400` above that).
 
@@ -53,6 +53,16 @@ Loop execution (Stage 8):
 | `COMPOSIO_API_KEY`, `COMPOSIO_USER_ID`, `COMPOSIO_GMAIL_ACCOUNT_ID`, `COMPOSIO_GOOGLESHEETS_ACCOUNT_ID`, `COMPOSIO_SPREADSHEET_ID`, `COMPOSIO_SHEET_RANGE` | Enable and configure `api` mode. |
 
 With `GHOST_PROVIDER=heuristic` (e2e) both server executors stay simulated even when their keys exist.
+
+Sentry outcome capture:
+
+| Variable | Meaning |
+| --- | --- |
+| `SENTRY_DSN` | Enables manual `ghost.agent_run.*` capture. Without it the sink is a no-op. A malformed DSN is ignored. |
+| `SENTRY_ENVIRONMENT` | Optional safe label, default `development`. |
+| `SENTRY_RELEASE` | Optional safe release label. |
+
+Default Sentry integrations, request tracing and default PII are disabled. `beforeSend` rebuilds each event from the strict shared outcome schema. `GHOST_PROVIDER=heuristic` also disables the Sentry config to keep e2e fully offline.
 
 Overrides used by tests and e2e so they never need keys: `GHOST_DECISION_PROVIDER=heuristic`, `GHOST_TEXT_PROVIDER=template`. `GHOST_PROVIDER=heuristic` is shorthand for both. `GHOST_FAST_PATH=0` disables the heuristic fast path. Both overrides also accept `baseten` (and the other provider names); a forced provider without credentials degrades to `heuristic` / `template`. Forcing `heuristic` + `template` removes the Baseten config from the server entirely: no client, no warm-up, zero network.
 
@@ -154,6 +164,16 @@ The provider receives one `operation` choice question plus speculative compatibl
 ```
 
 Malformed, unoffered or provider-failed decisions return `BLOCKED`; they never widen the action space. With the explicitly configured `heuristic` provider, the deterministic test/demo policy can only apply the first local field action and otherwise returns `DONE`/`BLOCKED`; it never clicks. This route decides only. The extension performs freshness checks, lock/sensitivity checks, execution and post-action verification.
+
+### `POST /v1/agent/outcomes`
+
+Accepts the value-free `AgentRunOutcome` contract from `@ghost/shared` (64 KB maximum). The extension and server both reconstruct this object from an allowlist. Unknown properties are dropped; invalid/widened operations, counts, buckets, IDs or arrays return `400`.
+
+Response: `{ accepted: true, captured: boolean, replayId?: string }`. `captured` means a configured Sentry SDK accepted the event for delivery; telemetry failures never fail or change the agent run. `replayId` is present for blocked outcomes added to the review queue.
+
+### `GET /v1/agent/replays`
+
+Returns `{ schemaVersion, count, fixtures }` for the newest 100 blocked outcomes in this server process. The queue is volatile and exists for immediate review/export; configured Sentry events and their redacted JSON attachments are the durable inbox. Use `pnpm eval:agent-replays export`, then review and commit appropriate cases under `evals/agent-replays/`.
 
 ### `POST /v1/ghost-text`
 Request: `{ fieldLabel, fieldSignature, maxChars?, pageContext: { company?, role?, description? (<= 2000 chars) }, facts: Record<string,string> (only the relevant, non-sensitive ones), pastAnswers: PastAnswer[] (<= 3) }`.
