@@ -1,0 +1,20 @@
+{
+  "name": "ghost",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Ghost: Cursor Tab for your whole computer",
+  "engines": { "node": ">=22" },
+  "packageManager": "pnpm@10.12.1",
+  "scripts": {
+    "dev": "concurrently -n server,demo,ext -c blue,green,magenta \"pnpm --filter @ghost/server dev\" \"pnpm --filter @ghost/demo dev\" \"pnpm --filter @ghost/extension dev\"",
+    "build": "pnpm --filter @ghost/extension build && pnpm --filter @ghost/demo build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r --workspace-concurrency=1 test",
+    "e2e": "pnpm build && pnpm --filter @ghost/e2e e2e",
+    "test:live": "node scripts/test-live.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  }
+}

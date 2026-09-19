@@ -1,0 +1,16 @@
+{
+  "name": "@ghost/e2e",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "e2e": "playwright test",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node -e \"console.log('e2e: run with pnpm e2e')\""
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.1",
+    "@types/node": "^22.13.4",
+    "typescript": "^5.7.3"
+  }
+}

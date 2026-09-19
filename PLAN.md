@@ -9,9 +9,9 @@ Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University o
 
 ## Stage 0: Bootstrap
 
-- [ ] pnpm workspace with packages `extension`, `server`, `demo`, `e2e`; shared `tsconfig.base.json` (strict); root `.gitignore` (node_modules, dist, .env, test-results, playwright-report) and `.env.example` listing the keys from CLAUDE.md.
-- [ ] Root scripts: `pnpm dev` (server on 8787 + demo on 5173), `pnpm build` (extension to `extension/dist`), `pnpm test` (all unit tests), `pnpm e2e` (Playwright), `pnpm test:live` (only runs with real keys).
-- [ ] README.md: one-paragraph pitch, how to run, how to load the extension (`chrome://extensions`, Developer mode, Load unpacked, select `extension/dist`).
+- [x] pnpm workspace with packages `extension`, `server`, `demo`, `e2e`; shared `tsconfig.base.json` (strict); root `.gitignore` (node_modules, dist, .env, test-results, playwright-report) and `.env.example` listing the keys from CLAUDE.md.
+- [x] Root scripts: `pnpm dev` (server on 8787 + demo on 5173), `pnpm build` (extension to `extension/dist`), `pnpm test` (all unit tests), `pnpm e2e` (Playwright), `pnpm test:live` (only runs with real keys).
+- [x] README.md: one-paragraph pitch, how to run, how to load the extension (`chrome://extensions`, Developer mode, Load unpacked, select `extension/dist`).
 
 **Acceptance:** fresh clone, `pnpm install && pnpm build && pnpm test` all succeed.
 
