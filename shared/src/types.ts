@@ -29,6 +29,10 @@ export interface CapturedField {
   /** Options for select and radio groups. A radio group is captured as ONE field. */
   options?: FieldOption[];
   required?: boolean;
+  /** Capture saw a required marker beside the label: a trailing "*", "(required)", or a marker element named "required". */
+  requiredMarker?: boolean;
+  /** The field sits in a section whose legend marks every question in it required. */
+  sectionRequired?: boolean;
   value?: string;
   rect: Rect;
   /** Irreversible action (submit, send, pay, delete...). Needs explicit Enter or click, never Tab. */

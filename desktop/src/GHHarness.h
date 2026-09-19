@@ -5,6 +5,8 @@
 //   --dump-tree [--depth 60]      raw AX tree; every value is reduced to its length
 //   --autotab N [--interval 450]  posts N real, untagged Tab presses through the event tap and records each step
 //   --frontmost "App"             bring an app forward first          --delay S   wait before looking
+//   --expect-field "First Name"   the page guard: a captured label must match this, or nothing is sent
+//   --probe-combobox "How did"    open ONE combo box, write down what the tree then shows, close it again (GHProbe)
 //   --out FILE                    write the JSON answer here (LaunchServices launches have no stdout)
 //
 // Rules that hold in every mode:
@@ -12,6 +14,12 @@
 //   - The only key this file can post is Tab (GHAutotabKeyPosting has no other method). Never Return, Enter or Space.
 //   - --autotab refuses to press Tab while the current ghost is locked, and stops there.
 //   - No field value is ever written to the answer or to the log: lengths, labels and short codes only.
+//
+// --expect-field pins the PAGE, not just the app. `--frontmost Safari` only promises that Safari is in front; the
+// user's frontmost TAB may be anything. With --expect-field the harness re-captures the frontmost window before the
+// first Tab AND before every later press, and refuses to post unless some captured field label still matches. A
+// window or tab that changed under the run therefore costs at most zero keystrokes: the run stops with
+// "expect-field-missing" and sends nothing. --dump and --dump-tree report the same check instead of stopping a walk.
 //
 // A second `open -n` instance shares nothing with the agent that is already running, so --dump, --dump-tree and
 // --autotab travel to that agent as a JSON file (GHHarnessChannel) and the agent writes --out. Without a running
@@ -30,6 +38,7 @@ extern NSString *const GHHarnessModeTrust;
 extern NSString *const GHHarnessModeDump;
 extern NSString *const GHHarnessModeDumpTree;
 extern NSString *const GHHarnessModeAutotab;
+extern NSString *const GHHarnessModeProbeComboBox;
 
 extern const NSInteger GHHarnessMaxAutotabCount;        // 200
 extern const NSInteger GHHarnessDefaultIntervalMs;      // 450
@@ -49,6 +58,8 @@ extern const NSTimeInterval GHHarnessRequestMaxAge;     // 120 s: an older reque
 @property (nonatomic) NSInteger depth;                     // dump-tree: 1...200
 @property (nonatomic) NSTimeInterval delay;                // 0...60 s
 @property (nonatomic, copy, nullable) NSString *frontmost; // app name or bundle id
+@property (nonatomic, copy, nullable) NSString *expectField; // page guard: 1...200 chars, one line
+@property (nonatomic, copy, nullable) NSString *probeLabel;  // --probe-combobox: which combo box to open
 @property (nonatomic, copy, nullable) NSString *outPath;   // absolute
 @property (nonatomic) NSTimeInterval createdAt;            // seconds since 1970
 
@@ -67,6 +78,13 @@ extern const NSTimeInterval GHHarnessRequestMaxAge;     // 120 s: an older reque
 /// The share of `deadline` the autotab loop itself may use before it stops with "timeout".
 @property (nonatomic, readonly) NSTimeInterval autotabBudget;
 @end
+
+/// Does any captured label satisfy `expectation`? Case-insensitive, diacritic-insensitive, whitespace collapsed,
+/// and the trailing `*` / ` (Required)` decoration Greenhouse and Workday add to labels does not matter because the
+/// test is "contains". An empty expectation is satisfied by anything (no guard); an expectation with no matching
+/// label is NOT satisfied, and neither is one against an empty label list (a page that captured nothing is exactly
+/// the case the guard exists for).
+BOOL GHHarnessLabelsMeetExpectation(NSArray<NSString *> *_Nullable labels, NSString *_Nullable expectation);
 
 /// { "error": "not trusted", "trusted": false }
 NSDictionary<NSString *, id> *GHHarnessNotTrustedResponse(void);
@@ -195,12 +213,18 @@ extern NSString *const GHHarnessRequestNotification;
 @property (nonatomic) NSTimeInterval maxSettle;
 /// Whole-run budget; 0 = none. Checked before every press ("timeout").
 @property (nonatomic) NSTimeInterval maxDuration;
+/// --expect-field. Asked once more right before EVERY press, after every cheaper check has passed, so it costs a
+/// capture only when a Tab is actually about to go out. It answers nil to allow the press, or the stop code to
+/// refuse it ("expect-field-missing", "frontmost-changed"...): the press is then never posted. Nil block = no guard.
+@property (nonatomic, copy, nullable) void (^precondition)(void (^allow)(NSString *_Nullable problem));
+/// Copied into the report so a record says which page it was pinned to. Purely descriptive; `precondition` decides.
+@property (nonatomic, copy, nullable) NSString *expectField;
 /// Before EVERY press, in this order: not active -> stops "inactive"; current ghost locked -> "locked" (the press
 /// is refused; `lockedLabel` names it); `count` presses done -> "count"; no current ghost -> "no-ghost"; three
-/// presses in a row that Ghost did not consume -> "stalled"; over budget -> "timeout". A press that could not be
-/// posted stops with "post-failed".
-/// Report: { requested, posted, stopped, lockedLabel?, steps: [{ step, ghost, action, consumed, outcome, verified,
-/// reason?, ms, writeMs?, next? }], final: <harnessState> }.
+/// presses in a row that Ghost did not consume -> "stalled"; over budget -> "timeout"; then `precondition`. A press
+/// that could not be posted stops with "post-failed".
+/// Report: { requested, posted, stopped, lockedLabel?, expectField?, steps: [{ step, ghost, action, consumed,
+/// outcome, verified, reason?, ms, writeMs?, next? }], final: <harnessState> }.
 - (void)runCount:(NSInteger)count intervalMs:(NSInteger)intervalMs completion:(void (^)(NSDictionary<NSString *, id> *report))completion;
 @end
 

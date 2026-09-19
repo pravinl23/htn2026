@@ -1,12 +1,13 @@
 // The "You did this twice" bottom sheet (docs/loops.md 3.4): preview grid, execution mode, the ONE batch
 // confirmation, then run progress and the final report. Lives in its own closed shadow host; every string that
 // came from a page is written with textContent.
-import { describeIrreversible } from "@ghost/shared";
+import { CONFIRMATION_FOR, classifyProgram, describeIrreversible, safetyChip } from "@ghost/shared";
 import type { LoopProgram } from "@ghost/shared";
 import type { LoopItemStatus, LoopMode, LoopRunProgress } from "../lib/loopMessages";
 import { loopVariables } from "./dryRun";
 import type { DryRunRow, LoopVariable } from "./dryRun";
 import { LOOP_HOST_CSS, LOOP_PANEL_CSS, PADLOCK } from "./loopPanelStyle";
+import { pageOwnsTab } from "./tabSurface";
 
 export type LoopPanelState = "hidden" | "proposed" | "running" | "done" | "failed";
 
@@ -95,6 +96,8 @@ interface Parts {
   sheet: HTMLElement;
   headline: HTMLHeadingElement;
   name: HTMLParagraphElement;
+  /** "high-impact · explicit approval": the same safety vocabulary approach B's suggestion card uses. */
+  safety: HTMLSpanElement;
   previewNote: HTMLSpanElement;
   fill: HTMLDivElement;
   progressText: HTMLSpanElement;
@@ -275,6 +278,8 @@ export class LoopPanel {
     const s = this.session;
     const parts = this.parts;
     if (!s || !parts || event.isComposing || !isUser(s, event)) return;
+    // tabSurface.ts: while the page owns Tab the sheet keeps its own controls, but never takes a key from it.
+    if (pageOwnsTab(this.doc)) return;
     if (event.key === "Escape") this.onEscape(event, s);
     else if (event.key === "Tab" && s.state === "proposed") this.onTab(event, s, parts);
   };
@@ -492,6 +497,8 @@ function paintHeader(parts: Parts, s: Session, c: Counts): void {
   setText(parts.headline, headlineFor(s, c));
   setText(parts.name, s.proposal.program.name);
   parts.name.title = s.proposal.program.name;
+  setText(parts.safety, safetyChip(s.proposal.program));
+  parts.safety.dataset.safety = classifyProgram(s.proposal.program);
   parts.previewNote.dataset.streaming = String(s.streaming);
   setText(parts.previewNote, s.streaming ? `Previewing ${c.previewed} of ${c.remaining}` : `${c.checked} of ${c.remaining} selected`);
 }
@@ -551,7 +558,10 @@ function paintSelectAll(box: HTMLInputElement, s: Session): void {
 function paintHost(parts: Parts, s: Session, c: Counts): void {
   parts.sheet.dataset.open = "true";
   parts.sheet.dataset.view = s.state;
+  const safety = classifyProgram(s.proposal.program);
   const attrs: Record<string, string> = {
+    "data-loop-safety": safety,
+    "data-loop-confirmation": CONFIRMATION_FOR[safety],
     "data-loop-state": s.state,
     "data-loop-remaining": String(c.remaining),
     "data-loop-checked": String(c.checked),
@@ -655,7 +665,7 @@ function buildParts(doc: Document): Parts {
   return { host, shadow, sheet, ...top.parts, ...middle.parts, ...foot.parts };
 }
 
-function buildTop(doc: Document): { root: HTMLElement; parts: Pick<Parts, "headline" | "name" | "previewNote"> } {
+function buildTop(doc: Document): { root: HTMLElement; parts: Pick<Parts, "headline" | "name" | "safety" | "previewNote"> } {
   const root = make(doc, "header", "top");
   const brand = make(doc, "span", "brand");
   brand.append(make(doc, "span", "dot"), "Ghost");
@@ -663,10 +673,13 @@ function buildTop(doc: Document): { root: HTMLElement; parts: Pick<Parts, "headl
   const name = make(doc, "p", "name");
   const titles = make(doc, "div", "titles");
   titles.append(headline, name);
+  const side = make(doc, "div", "side-notes");
+  const safety = make(doc, "span", "safety");
   const previewNote = make(doc, "span", "preview-note");
   previewNote.setAttribute("aria-live", "polite");
-  root.append(brand, titles, previewNote);
-  return { root, parts: { headline, name, previewNote } };
+  side.append(safety, previewNote);
+  root.append(brand, titles, side);
+  return { root, parts: { headline, name, safety, previewNote } };
 }
 
 type MiddleParts = Pick<Parts, "fill" | "progressText" | "summary" | "failures" | "gridWrap" | "headRow" | "body" | "selectAll">;

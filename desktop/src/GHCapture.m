@@ -802,7 +802,7 @@ static BOOL GHHasBox(CGRect frame) {
 }
 
 - (BOOL)isFrame:(CGRect)frame reachableFromEntry:(GHWalkEntry *)entry window:(CGRect)window {
-    if (!GHHasBox(frame)) return NO;
+    if (!GHHasBox(frame)) return [self keepsFramelessNodeInEntry:entry];
     if (!GHHasBox(window)) return YES; // no window box to compare with (tests passing a bare subtree)
     CGRect visibleArea = entry.insideWebArea && GHHasBox(entry.viewportFrame) ? entry.viewportFrame : window;
     CGRect visible = CGRectIntersection(frame, visibleArea);
@@ -810,6 +810,12 @@ static BOOL GHHasBox(CGRect frame) {
     if (!self.keepsScrolledOutFields || !entry.insideWebArea || !GHHasBox(entry.webAreaFrame)) return NO;
     if (!CGRectIntersectsRect(frame, entry.webAreaFrame)) return NO;
     return CGRectGetMaxX(frame) > CGRectGetMinX(visibleArea) && CGRectGetMinX(frame) < CGRectGetMaxX(visibleArea);
+}
+
+/// A node with no box at all inside a Chromium web area: scrolled out, not hidden (see the header).
+- (BOOL)keepsFramelessNodeInEntry:(GHWalkEntry *)entry {
+    return self.treatsFramelessWebNodesAsScrolledOut && self.keepsScrolledOutFields
+        && entry.insideWebArea && GHHasBox(entry.webAreaFrame);
 }
 
 #pragma mark Combo boxes
