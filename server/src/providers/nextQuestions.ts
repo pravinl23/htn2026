@@ -55,6 +55,7 @@ export interface NextDecision {
 
 export const NEXT_QUESTION = "next";
 const MEMORY_MATCH_CONFIDENCE = 0.8;
+export const BEST_EFFORT_CONFIDENCE = 0.25;
 
 function withoutSignature(event: TraceEvent): TraceEvent {
   const { signature: _signature, ...rest } = event;
@@ -95,7 +96,6 @@ export function buildNextDecision(req: NextPredictRequest): NextDecision {
     criteria[alias] = `${c.kind}: ${c.label}`;
     return { ...c, id: alias };
   });
-  criteria[NONE] = "no candidate is clearly the next action";
   const state: NextState = {
     page: { origin: req.origin, url: req.url },
     recentActions: req.recentActions.map(withoutSignature),
@@ -103,7 +103,7 @@ export function buildNextDecision(req: NextPredictRequest): NextDecision {
     memory: (req.memory ?? []).map(memoryForState),
   };
   const instructions =
-    "Which element in `candidates` (options are candidate `id`s) will the user act on next, given `recentActions` (oldest first) and similar past situations in `memory`? Answer none unless one candidate is clearly next.";
+    "Which element in `candidates` (options are candidate `id`s) is the single most likely element the user will act on next, given `recentActions` (oldest first) and similar past situations in `memory`? Always choose the best candidate even when uncertain.";
   return { state, questions: { [NEXT_QUESTION]: { type: "choice", instructions, criteria } }, aliases };
 }
 
@@ -119,7 +119,7 @@ function candidateFor(action: TraceEvent, candidates: NextCandidate[]): NextCand
   return candidates.find((c) => c.id === action.signature) ?? (label ? candidates.find((c) => normalize(c.label) === label) : undefined);
 }
 
-/** Heuristic: the candidate that followed the same previous action in memory, else none. */
+/** Heuristic memory lookup: the candidate that followed the same previous action, else none. */
 export function pickNextFromMemory(state: Pick<NextPredictRequest, "recentActions" | "candidates" | "memory">): NextPick {
   const last = state.recentActions[state.recentActions.length - 1];
   for (const pair of state.memory ?? []) {
@@ -128,6 +128,16 @@ export function pickNextFromMemory(state: Pick<NextPredictRequest, "recentAction
     if (candidate) return { candidateId: candidate.id, confidence: MEMORY_MATCH_CONFIDENCE };
   }
   return { candidateId: NONE, confidence: 0.6 };
+}
+
+/** A universal, deliberately low-confidence guess when this state has not been learned yet. */
+export function pickBestEffort(state: Pick<NextPredictRequest, "recentActions" | "candidates" | "memory">): NextPick {
+  const learned = pickNextFromMemory(state);
+  if (learned.candidateId !== NONE) return learned;
+  const candidate = state.candidates.find((item) => !item.locked) ?? state.candidates[0];
+  return candidate
+    ? { candidateId: candidate.id, confidence: BEST_EFFORT_CONFIDENCE }
+    : { candidateId: NONE, confidence: 0.99 };
 }
 
 export function readNextAnswer(answers: Answers, aliases: Record<string, string>): NextPick | undefined {

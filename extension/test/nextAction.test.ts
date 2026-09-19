@@ -204,11 +204,12 @@ describe("when a question is asked", () => {
     expect(sent).toHaveLength(0);
   });
 
-  it("shows nothing below the confidence threshold, or for an id it did not offer", async () => {
+  it("shows an exploratory low-confidence guess, but never an id it did not offer", async () => {
     start();
     answer("Open calendar", 0.5);
     await handle?.predictNow();
-    expect(shown()).toBe(false);
+    expect(shown()).toBe(true);
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     reply = { ok: true, candidateId: "button|delete everything|0", confidence: 0.99, provider: "llm", calibrated: false, latencyMs: 1 };
     await handle?.predictNow();
     expect(shown()).toBe(false);

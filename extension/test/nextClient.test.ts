@@ -121,7 +121,7 @@ describe("episodic memory answers first, with zero network", () => {
 
     await openInbox();
     await openEmail();
-    expect(await ask(client)).toMatchObject({ ok: true, candidateId: "none" }); // never seen: nothing to propose
+    expect(await ask(client)).toMatchObject({ ok: true, candidateId: BACK, confidence: 0.25 }); // unseen: safest first best guess
 
     await clickOpenCalendar();
     await goBack();
@@ -142,7 +142,7 @@ describe("episodic memory answers first, with zero network", () => {
     await clickOpenCalendar();
     await record("navigate", "/mail");
     await record("navigate", "/mail/msg-1002"); // a different route into the email: another state
-    expect(await ask(client)).toMatchObject({ ok: true, candidateId: "none" });
+    expect(await ask(client)).toMatchObject({ ok: true, candidateId: BACK, confidence: 0.25 });
   });
 
   it("keeps the state per tab: another tab's actions in between do not hide the memory", async () => {
@@ -295,7 +295,7 @@ describe("one site never learns about another", () => {
     await recordOn(A, "navigate", "/docs", undefined, 1);
 
     await recordOn(B, "navigate", "/", undefined, 2); // same path, same shape, another site
-    expect(await askOn(client, B, "/", docs, 2)).toMatchObject({ ok: true, candidateId: "none" });
+    expect(await askOn(client, B, "/", docs, 2)).toMatchObject({ ok: true, candidateId: DOCS, confidence: 0.25 });
 
     await recordOn(A, "navigate", "/", undefined, 3); // back on A (a new tab): its own memory still works
     expect(await askOn(client, A, "/", docs, 3)).toMatchObject({ ok: true, candidateId: DOCS, confidence: 0.75 });
@@ -337,9 +337,9 @@ describe("one site never learns about another", () => {
     await recordOn(A, "navigate", "/", undefined, 6);
     const fetchMock = serverReply({ candidateId: "none", confidence: 0.6, provider: "heuristic", calibrated: false, latencyMs: 1 });
     const reply = await askOn(makeClient({ fetch: fetchMock, getServerUrl: async () => BASE }), A, "/", docs, 6);
-    expect(reply).toMatchObject({ candidateId: "none" });
+    expect(reply).toMatchObject({ candidateId: DOCS, confidence: 0.25 });
     expect(String(fetchMock.mock.calls[0]?.[1]?.body)).not.toContain("Transfer");
-    expect(await askOn(client, A, "/", docs, 6)).toMatchObject({ candidateId: "none" });
+    expect(await askOn(client, A, "/", docs, 6)).toMatchObject({ candidateId: DOCS, confidence: 0.25 });
   });
 });
 

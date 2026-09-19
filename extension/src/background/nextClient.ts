@@ -27,6 +27,7 @@ export const NEXT_MEMORY = EPISODIC_TOP_K;
 export const MEMORY_RACE_MS = 800;
 export const NEXT_TIMEOUT_MS = 2500;
 export const MEMORY_PROVIDER = "memory";
+export const BEST_EFFORT_CONFIDENCE = 0.25;
 /** The router's own window for "the state before an action" (traceRouter SUMMARY_WINDOW). */
 const ROUTER_WINDOW = 12;
 /** Exact matches with different actions all have to be tallied, not just the top 5. */
@@ -284,7 +285,14 @@ export function createNextClient(deps: NextClientDeps): NextClient {
     const local = await fromMemory(tabEvents, allEvents, place, candidates);
     const answer = (pick: MemoryPrediction | ServerPick, provider: string, calibrated: boolean): NextPredictionReply =>
       ({ ok: true, candidateId: pick.candidateId, confidence: pick.confidence, provider, calibrated, latencyMs: now() - started });
-    const memoryAnswer = (): NextPredictionReply => answer(local.pick, MEMORY_PROVIDER, false);
+    const bestEffort = (): MemoryPrediction => {
+      if (local.pick.candidateId !== NONE) return local.pick;
+      const candidate = candidates.find((item) => !item.locked) ?? candidates[0];
+      return candidate
+        ? { candidateId: candidate.id, confidence: BEST_EFFORT_CONFIDENCE }
+        : local.pick;
+    };
+    const memoryAnswer = (): NextPredictionReply => answer(bestEffort(), MEMORY_PROVIDER, false);
 
     const base = await (deps.getServerUrl ?? serverBaseUrl)().catch(() => null);
     if (!base) return memoryAnswer();
@@ -295,7 +303,7 @@ export function createNextClient(deps: NextClientDeps): NextClient {
     const picked = confident ? await within(server, deps.raceMs ?? MEMORY_RACE_MS) : await server;
     if (!picked) return memoryAnswer(); // down, refused, or slower than a memory that already knows
     // An uncalibrated "none" (the server's heuristic) does not overrule a memory that saw this exact state before.
-    if (confident && picked.candidateId === NONE && !picked.calibrated) return memoryAnswer();
+    if (picked.candidateId === NONE) return memoryAnswer();
     return answer(picked, picked.provider, picked.calibrated);
   }
 

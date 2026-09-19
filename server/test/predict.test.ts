@@ -379,7 +379,7 @@ const NEXT_REQUEST = {
 };
 
 describe("POST /v1/predict/next", () => {
-  it("asks ONE choice question over the candidates plus none and maps the answer back to the client id", async () => {
+  it("asks ONE choice question over every candidate and maps the answer back to the client id", async () => {
     const { provider, decide } = mockProvider({ next: "c1" });
     const { post } = appWith(provider);
     const res = await post("/v1/predict/next", NEXT_REQUEST);
@@ -391,7 +391,7 @@ describe("POST /v1/predict/next", () => {
     expect(Object.keys(questions)).toEqual(["next"]);
     expect(questions.next).toMatchObject({
       type: "choice",
-      criteria: { c0: "button: Archive", c1: "button: Thursday 2pm", c2: "button: Send", none: expect.any(String) },
+      criteria: { c0: "button: Archive", c1: "button: Thursday 2pm", c2: "button: Send" },
     });
     expect(state.candidates.map((c) => c.id)).toEqual(["c0", "c1", "c2"]);
   });
@@ -406,12 +406,12 @@ describe("POST /v1/predict/next", () => {
     expect(state.page).toEqual({ origin: "http://localhost:5173", url: "http://localhost:5173/mail" });
   });
 
-  it("heuristic provider: picks the candidate that followed the same previous action in memory, else none", async () => {
+  it("heuristic provider: uses learned behavior first, then makes a low-confidence safe guess", async () => {
     const app = createApp(loadConfig({}));
     const post = (body: unknown) => app.request("/v1/predict/next", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) });
     expect(await (await post(NEXT_REQUEST)).json()).toMatchObject({ candidateId: "button|Thursday 2pm|3", confidence: 0.8, provider: "heuristic", calibrated: false });
-    expect(await (await post({ ...NEXT_REQUEST, memory: [] })).json()).toMatchObject({ candidateId: "none", provider: "heuristic" });
-    expect(await (await post({ ...NEXT_REQUEST, memory: undefined })).json()).toMatchObject({ candidateId: "none" });
+    expect(await (await post({ ...NEXT_REQUEST, memory: [] })).json()).toMatchObject({ candidateId: "button|Archive|0", confidence: 0.25, provider: "heuristic" });
+    expect(await (await post({ ...NEXT_REQUEST, memory: undefined })).json()).toMatchObject({ candidateId: "button|Archive|0", confidence: 0.25 });
   });
 
   it("never predicts a sensitive control, and never sends one (or actions on one) to the model", async () => {
@@ -430,7 +430,7 @@ describe("POST /v1/predict/next", () => {
 
     const app = createApp(loadConfig({}));
     const res = await app.request("/v1/predict/next", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ ...request, memory: request.memory.slice(0, 1) }) });
-    expect(await res.json()).toMatchObject({ candidateId: "none", provider: "heuristic" });
+    expect(await res.json()).toMatchObject({ candidateId: "button|Archive|0", confidence: 0.25, provider: "heuristic" });
   });
 
   it("answers none with zero calls when there are no candidates", async () => {

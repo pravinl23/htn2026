@@ -349,7 +349,8 @@ class NextAction implements NextActionHandle {
     const reply = parseNextReply(await this.send(message).catch(() => null));
     // Something happened meanwhile (an action, a native Tab, focus moved by anyone): the answer is about another moment.
     if (asked !== this.epoch || deepActive(this.doc) !== focusAtAsk || !reply || reply.candidateId === NONE) return;
-    if (reply.confidence < this.deps.getSettings().confidenceThreshold || !this.gateOpen()) return;
+    // Confidence describes how exploratory the suggestion is; it no longer suppresses a safe best guess.
+    if (!this.gateOpen()) return;
     const candidate = candidates.find((c) => c.id === reply.candidateId);
     const known = candidate ? elements.get(candidate.id) : undefined;
     const el = candidate ? (known?.isConnected ? known : findElement(candidate.id)) : null;
