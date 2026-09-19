@@ -15,9 +15,20 @@ function propertiesOf(schema: Record<string, unknown> | undefined): JsonSchema {
 
 function valueFor(key: string, description: string, canonical: Record<string, unknown>): unknown {
   if (canonical[key] !== undefined) return canonical[key];
+  const normalizedKey = key.toLowerCase().replace(/[_-]+/g, " ");
   const probe = `${key} ${description}`.toLowerCase().replace(/[_-]+/g, " ");
   const first = (...keys: string[]): unknown => keys.map((name) => canonical[name]).find((value) => value !== undefined);
-  if (/calendar.*id/.test(probe)) return first("calendarId", "calendar_id") ?? "primary";
+  // Prefer well-known field names over prose descriptions. Provider descriptions often mention
+  // unrelated concepts (for example, `is_html` mentions the email body and attachment docs mention
+  // total message size), which must not cause those fields to inherit the message body.
+  if (/^(?:body|message body|content)$/.test(normalizedKey)) return first("messageBody", "draftPreview", "requestText");
+  if (normalizedKey === "is html") return first("isHtml", "is_html");
+  if (/^(?:attachment|attachments)$/.test(normalizedKey)) return first("attachment", "attachments");
+  if (/^(?:cc|bcc|extra recipients)$/.test(normalizedKey)) return canonical[key];
+  if (/^calendar ?id$/.test(normalizedKey) || /^(?:the )?calendar identifier\b/i.test(description)) return first("calendarId", "calendar_id") ?? "primary";
+  if ((normalizedKey === "items" && /calendars?|groups?/i.test(description)) || /^list of calendars/i.test(description)) {
+    return [first("calendarId", "calendar_id") ?? "primary"];
+  }
   if (/\b(start|time min|from datetime|start datetime)\b/.test(probe)) return first("start", "timeMin");
   if (/\b(end|time max|to datetime|end datetime)\b/.test(probe)) return first("end", "timeMax");
   if (/duration/.test(probe)) return first("durationMinutes");
