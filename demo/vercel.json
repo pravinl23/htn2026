@@ -1,0 +1,13 @@
+{
+  "framework": "vite",
+  "cleanUrls": false,
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/apply-plain", "destination": "/apply-plain/index.html" },
+    { "source": "/apply-plain/", "destination": "/apply-plain/index.html" },
+    { "source": "/((?!assets/|apply-plain/|api/).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    { "source": "/(.*)", "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }] }
+  ]
+}
