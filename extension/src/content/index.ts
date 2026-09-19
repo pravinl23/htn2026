@@ -1,5 +1,5 @@
 // Content script entry: capture -> predict -> controller -> overlay + execute.
-import type { AgentDecisionRequest, AgentDecisionResponse, FormPredictRequest, GhostSettings, Profile } from "@ghost/shared";
+import type { AgentDecisionRequest, AgentDecisionResponse, AgentRunOutcome, FormPredictRequest, GhostSettings, Profile } from "@ghost/shared";
 import { ghostEvents } from "../lib/events";
 import { readCachedForm, saveCachedForm } from "../lib/formCache";
 import { isGhostMessage, isServerResult, parseAgentDecision, parseFormPrediction } from "../lib/messages";
@@ -9,6 +9,7 @@ import { GhostController } from "./controller";
 import { createBrowserAgentObserver } from "./agentBrowser";
 import { AgentPanel } from "./agentPanel";
 import { AgentRunner } from "./agentRunner";
+import { AgentOutcomeReporter } from "./agentTelemetry";
 import { DraftScheduler, openTextPort } from "./freeText";
 import { Learner } from "./learning";
 import { LearnToast } from "./learnToast";
@@ -74,6 +75,12 @@ async function askAgentWorker(request: AgentDecisionRequest): Promise<AgentDecis
   const reply: unknown = await chrome.runtime.sendMessage(message);
   if (!isServerResult(reply) || !reply.ok) return null;
   return parseAgentDecision(reply.data);
+}
+
+async function reportAgentOutcome(outcome: AgentRunOutcome): Promise<void> {
+  if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) return;
+  const message: GhostMessage = { type: "ghost:agent-outcome", outcome };
+  await chrome.runtime.sendMessage(message);
 }
 
 function apply(session: Session): void {
@@ -164,11 +171,15 @@ async function boot(): Promise<void> {
   startLoopContent({ overlay, isEnabled: () => session.running, pauseGhosts: (paused) => (paused ? session.controller.stop() : void (session.running && session.controller.start())) }); // loop sheet + executor (docs/loops.md 3.4, 3.5)
   if (isTopFrame()) {
     let panel: AgentPanel;
+    const outcomes = new AgentOutcomeReporter({ send: reportAgentOutcome });
     const runner = new AgentRunner({
       observe: createBrowserAgentObserver({ getProfile: () => session.profile, getSettings: () => session.settings, drafts }),
       decide: askAgentWorker,
       confidenceThreshold: () => session.settings.confidenceThreshold,
-      onUpdate: (update) => panel.update(update),
+      onUpdate: (update) => {
+        panel.update(update);
+        outcomes.onUpdate(update);
+      },
     });
     panel = new AgentPanel({
       overlay,

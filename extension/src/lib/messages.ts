@@ -7,6 +7,7 @@ import type {
   AgentExecutableOperation,
   AgentHistoryEntry,
   AgentOperation,
+  AgentRunOutcome,
   CapturedField,
   FieldAssignment,
   FieldKind,
@@ -26,6 +27,7 @@ export type GhostMessage =
   | { type: "ghost:debugger-click"; x: number; y: number; target: string }
   | { type: "ghost:predict-form"; request: FormPredictRequest }
   | { type: "ghost:agent-next"; request: AgentDecisionRequest }
+  | { type: "ghost:agent-outcome"; outcome: AgentRunOutcome }
   | { type: "ghost:health" }
   | { type: "ghost:metrics"; batch: MetricsBatch };
 
@@ -39,7 +41,7 @@ export interface DebuggerReply {
 }
 
 const TYPES: ReadonlySet<string> = new Set([
-  "ghost:toggle", "ghost:debugger-fill", "ghost:debugger-click", "ghost:predict-form", "ghost:agent-next", "ghost:health", "ghost:metrics",
+  "ghost:toggle", "ghost:debugger-fill", "ghost:debugger-click", "ghost:predict-form", "ghost:agent-next", "ghost:agent-outcome", "ghost:health", "ghost:metrics",
 ]);
 
 export function isGhostMessage(msg: unknown): msg is GhostMessage {

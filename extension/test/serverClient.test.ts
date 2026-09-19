@@ -1,7 +1,7 @@
 import { DEMO_PROFILE } from "@ghost/shared";
-import type { AgentDecisionRequest, CapturedField } from "@ghost/shared";
+import type { AgentDecisionRequest, AgentRunOutcome, CapturedField } from "@ghost/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { REQUEST_TIMEOUT_MS, checkHealth, handleServerMessage, isServerMessage, predictAgent, predictForm } from "../src/background/serverClient";
+import { REQUEST_TIMEOUT_MS, checkHealth, handleServerMessage, isServerMessage, predictAgent, predictForm, reportAgentOutcome } from "../src/background/serverClient";
 import type { FetchLike } from "../src/background/serverClient";
 import { sanitizeFormRequest, toWireField } from "../src/lib/messages";
 import { resetMemoryStorage } from "../src/lib/storage";
@@ -11,6 +11,20 @@ const BASE = "http://localhost:8788";
 const PREDICTION = {
   assignments: [{ signature: "first", factKey: "firstName", confidence: 0.97, source: "jev-gateway", calibrated: true }],
   provider: "jev-gateway", calibrated: true, latencyMs: 120, cache: "miss",
+};
+const OUTCOME: AgentRunOutcome = {
+  schemaVersion: "ghost.agent-run.v1",
+  runId: "33333333-3333-4333-8333-333333333333",
+  state: "blocked",
+  reason: "low-confidence",
+  duration: "250-999ms",
+  steps: 1,
+  decisions: [{
+    step: 1, operation: "CLICK", provider: "typesafe", calibrated: true, fallback: false,
+    confidence: "55-69", latency: "100-249ms",
+    candidates: { total: 2, locked: 1, filled: 0, requiredOpen: 1, availableOperations: ["FILL", "CLICK"] },
+  }],
+  actions: [],
 };
 
 function field(signature: string, partial: Partial<CapturedField> = {}): CapturedField {
@@ -128,9 +142,10 @@ describe("checkHealth", () => {
 });
 
 describe("handleServerMessage", () => {
-  it("recognises its three message types only", () => {
+  it("recognises its four server message types only", () => {
     expect(isServerMessage({ type: "ghost:predict-form", request: {} })).toBe(true);
     expect(isServerMessage({ type: "ghost:agent-next", request: {} })).toBe(true);
+    expect(isServerMessage({ type: "ghost:agent-outcome", outcome: {} })).toBe(true);
     expect(isServerMessage({ type: "ghost:health" })).toBe(true);
     expect(isServerMessage({ type: "ghost:debugger-fill" })).toBe(false);
     expect(isServerMessage(null)).toBe(false);
@@ -154,6 +169,24 @@ describe("handleServerMessage", () => {
     const fetchMock = jsonFetch({ ok: true, provider: "llm", calibrated: false, textProvider: "openai" });
     const result = await handleServerMessage({ type: "ghost:health" }, {}, deps(fetchMock));
     expect(result).toEqual({ ok: true, data: { provider: "llm", calibrated: false, textProvider: "openai" } });
+  });
+});
+
+describe("reportAgentOutcome", () => {
+  it("sanitizes again and POSTs the outcome without requiring page identity", async () => {
+    const fetchMock = jsonFetch({ accepted: true, captured: false, replayId: OUTCOME.runId });
+    const dirty = { ...OUTCOME, goal: "private goal", url: "https://private.example", profile: { email: "sam@example.com" } };
+    expect(await handleServerMessage({ type: "ghost:agent-outcome", outcome: dirty }, {}, deps(fetchMock)))
+      .toEqual({ ok: true, data: { accepted: true, captured: false, replayId: OUTCOME.runId } });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${BASE}/v1/agent/outcomes`);
+    expect(sentBody(fetchMock)).toEqual(OUTCOME);
+  });
+
+  it("rejects a widened envelope before network", async () => {
+    const fetchMock = jsonFetch({ accepted: true, captured: false });
+    const widened = { ...OUTCOME, decisions: [{ ...OUTCOME.decisions[0], operation: "SHELL" }] };
+    expect(await reportAgentOutcome(widened, deps(fetchMock))).toEqual({ ok: false, error: "bad-request" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

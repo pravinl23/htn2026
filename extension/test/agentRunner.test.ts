@@ -57,6 +57,11 @@ describe("AgentRunner", () => {
     expect(result.history).toEqual([{ operation: "FILL", targetId: "first", targetLabel: "First name", ok: true, changed: true }]);
     expect(execute).toHaveBeenCalledExactlyOnceWith("FILL", "first");
     expect(decide).toHaveBeenCalledTimes(2);
+    expect(updates).toHaveBeenCalledWith(expect.objectContaining({
+      state: "running",
+      step: 1,
+      candidateSummary: { total: 1, locked: 0, filled: 0, requiredOpen: 1, availableOperations: ["FILL"] },
+    }));
     expect(updates).toHaveBeenLastCalledWith(expect.objectContaining({ state: "done", step: 2 }));
   });
 

@@ -51,6 +51,26 @@ describe("background message router", () => {
     expect(sendResponse).not.toHaveBeenCalled();
   });
 
+  it("forwards redacted outcomes even though they intentionally carry no page origin", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ accepted: true, captured: false })));
+    const { listener } = await loadWorker(fetchMock);
+    const outcome = {
+      schemaVersion: "ghost.agent-run.v1",
+      runId: "44444444-4444-4444-8444-444444444444",
+      state: "done",
+      reason: "completed",
+      duration: "under-250ms",
+      steps: 0,
+      decisions: [],
+      actions: [],
+    };
+    const reply = await new Promise((resolve) => {
+      expect(listener({ type: "ghost:agent-outcome", outcome }, { id: EXTENSION_ID }, resolve)).toBe(true);
+    });
+    expect(reply).toEqual({ ok: true, data: { accepted: true, captured: false } });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8788/v1/agent/outcomes");
+  });
+
   it("leaves unknown messages unanswered and registers exactly one port listener", async () => {
     const { listener, onConnect } = await loadWorker(vi.fn<typeof fetch>());
     expect(listener({ type: "ghost:toggle" }, { id: EXTENSION_ID }, vi.fn())).toBe(false);

@@ -32,7 +32,7 @@ This is deliberately **learning from failures through tests**, not live model se
 ## Planned implementation slices
 
 - [x] Shared versioned redacted outcome, replay-case, and evaluator contracts with adversarial tests.
-- [ ] Extension run collector plus background forwarding and tests proving sensitive run fields are absent.
+- [x] Extension run collector plus background forwarding and tests proving sensitive run fields are absent.
 - [ ] Server outcome route, bounded replay store, Sentry sink/no-op sink, and route/privacy tests.
 - [ ] Replay export/promote workflow and checked-in seed fixtures/eval command.
 - [ ] Documentation and environment/install plumbing.
@@ -45,3 +45,4 @@ Start with `git status --short --branch` and `git log --oneline --decorate -8`. 
 ## Implementation notes
 
 - `shared/src/agentTelemetry.ts` defines the only wire schema. `sanitizeAgentRunOutcome` reconstructs it from an allowlist, while `createAgentReplayFixture` and `evaluateAgentReplay` turn reviewed outcomes into deterministic regression assertions that ignore provider/timing variance.
+- `extension/src/content/agentTelemetry.ts` listens to terminal runner updates, copies only structural summaries, and reports best-effort. `serverClient.ts` sanitizes the envelope again before POSTing `/v1/agent/outcomes`.

@@ -1,5 +1,6 @@
 import type {
   AgentCandidate,
+  AgentCandidateSummary,
   AgentDecisionRequest,
   AgentDecisionResponse,
   AgentExecutableOperation,
@@ -27,6 +28,8 @@ export interface AgentRunUpdate {
   step: number;
   goal: string;
   decision?: AgentDecisionResponse;
+  /** Value-free shape observed when this decision was requested. Used only by redacted outcome telemetry. */
+  candidateSummary?: AgentCandidateSummary;
   history: AgentHistoryEntry[];
   reason?: string;
 }
@@ -85,7 +88,7 @@ export class AgentRunner {
       }).catch(() => null);
       if (!this.current(generation)) return this.finish("cancelled", step - 1, trimmed, history, "cancelled");
       if (!decision) return this.finish("blocked", step, trimmed, history, "decision-unavailable");
-      this.emit({ state: "running", step, goal: trimmed, decision, history: [...history] });
+      this.emit({ state: "running", step, goal: trimmed, decision, candidateSummary: summarizeCandidates(observed.candidates), history: [...history] });
 
       if (decision.operation === "DONE") return this.finish("done", step, trimmed, history, undefined, decision);
       if (decision.operation === "BLOCKED") return this.finish("blocked", step, trimmed, history, "model-blocked", decision);
@@ -169,4 +172,17 @@ export class AgentRunner {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function summarizeCandidates(candidates: AgentCandidate[]): AgentCandidateSummary {
+  const bounded = candidates.slice(0, 1_000);
+  const available = new Set<AgentExecutableOperation>();
+  for (const candidate of bounded) for (const operation of candidate.operations) available.add(operation);
+  return {
+    total: bounded.length,
+    locked: bounded.filter((candidate) => candidate.locked).length,
+    filled: bounded.filter((candidate) => candidate.filled).length,
+    requiredOpen: bounded.filter((candidate) => candidate.required && !candidate.filled && !candidate.locked).length,
+    availableOperations: (["FILL", "SELECT", "CHECK", "CLICK"] as AgentExecutableOperation[]).filter((operation) => available.has(operation)),
+  };
 }
