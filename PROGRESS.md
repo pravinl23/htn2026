@@ -16,3 +16,7 @@ Format:
 ## Run 0: setup by Pravin [DONE]
 - Repo created with CLAUDE.md, PLAN.md, PROGRESS.md, MORNING.md, README.md.
 - Next: Stage 0, Bootstrap.
+
+## Run 1: 2026-09-19 06:50 (UTC) [IN PROGRESS]
+- Local overnight session on Pravin's laptop (long-running; this entry's timestamp is refreshed about every 45 minutes while active).
+- Worked on: Stage 0 onward.
