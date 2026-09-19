@@ -44,5 +44,5 @@ Format:
 - The extension converts terminal Jev updates into best-effort outcomes. Its background worker sanitizes again before the server, and the server validates once more with a 64 KB streamed-body limit.
 - Added an opt-in Sentry Node sink with no default integrations, PII or tracing. `beforeSend` discards and reconstructs every event from the validated outcome; blocked runs also get a redacted JSON replay attachment. No DSN is present, so live delivery is not yet verified.
 - Added the bounded `/v1/agent/replays` review queue, canonical export/promotion CLI, checked-in seed fixture, and `pnpm eval:agent-replays` regression gate. This is reviewed learning, never automatic production self-modification.
-- Focused verification: shared/extension/server typechecks, 684 shared tests, 31 relevant extension tests, 464 server tests, extension production build, server bundle smoke, and the replay eval all passed during implementation.
+- Final verification: all workspace typechecks; 2,046 JS/TS unit tests; the checked-in replay eval; extension/demo production builds; the 3.9 MB server bundle smoke; and all 35 loaded-extension browser tests passed. The new real blocked-run telemetry path passed in 1.5 seconds.
 - Next: add a DSN and verify one Sentry event, then build the second synthetic `CLICK`/navigation/`WAIT` scenario and promote its outcome.

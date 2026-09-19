@@ -36,7 +36,7 @@ This is deliberately **learning from failures through tests**, not live model se
 - [x] Server outcome route, bounded replay store, Sentry sink/no-op sink, and route/privacy tests.
 - [x] Replay export/promote workflow and checked-in seed fixtures/eval command.
 - [x] Documentation and environment/install plumbing.
-- [ ] Full typecheck, unit tests, extension build, server bundle, and relevant end-to-end verification.
+- [x] Full typecheck, unit tests, extension build, server bundle, and relevant end-to-end verification.
 
 ## Resume instructions
 
@@ -50,3 +50,11 @@ Start with `git status --short --branch` and `git log --oneline --decorate -8`. 
 - `pnpm eval:agent-replays` validates the checked-in corpus. `export` snapshots the local server queue; `promote` accepts that bundle or a Sentry event containing `extra.agent_replay` / `extra.agent_outcome`, validates it, and writes canonical JSON for human review.
 - Setup and operations are in `docs/agent-learning.md`; `.env.example` and the macOS background env template include the three Sentry variables. Root plan/status/API/architecture docs now describe the implemented boundary rather than listing it as future work.
 - `e2e/tests/agent-demo.spec.ts` now includes a keyless blocked run that must arrive through the real content-script → background-worker → server path and appear as a redacted replay fixture.
+
+## Final verification
+
+- `pnpm typecheck`: pass.
+- `pnpm test`: 2,046 unit tests plus one replay eval pass.
+- `pnpm --filter @ghost/server bundle`: 3.9 MB bundle builds and smoke-starts.
+- `pnpm e2e`: all 35 loaded-extension tests pass, including the blocked-run telemetry path.
+- Live Sentry delivery remains the only unverified part because no `SENTRY_DSN` exists in `.env` and no Sentry MCP tools are exposed in this task.

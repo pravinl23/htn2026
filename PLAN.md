@@ -10,7 +10,7 @@ This is the implementation ledger. Check a box only when the item works on its i
 - **Workflow showcase:** `/workflow/index.html` runs meeting coordination and Slack → GitHub issue stories through one Jev choice per step and simulated Composio execution.
 - **Native:** the stable Objective-C host, hot-swappable library, Accessibility harness and 201 tests exist; the atomic `GHWorkflowCoordinator` seam is not connected to the main desktop pipeline.
 - **Top priority:** prove the canonical invoice loop in loaded-extension e2e: two demonstrations, preview 48, flag one intentional exception, explicitly confirm once, execute/verify 47, then record the fallback video.
-- **Verified baseline:** build and typecheck pass; 2,029 JS/TS unit tests, 201 desktop tests and 34 browser e2e tests pass. The prior 95-check demo smoke run was not repeated after this integration.
+- **Verified baseline:** build and typecheck pass; 2,046 JS/TS unit tests, the replay eval, 201 desktop tests and 35 browser e2e tests pass. The prior 95-check demo smoke run was not repeated after this integration.
 
 Demo profile (fictional, use everywhere, never real data):
 Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University of Waterloo, BCS Computer Science, expected graduation April 2028, github.com/alexchen-dev, linkedin.com/in/alexchen-dev, alexchen.dev, authorized to work in Canada: yes, requires sponsorship: no.

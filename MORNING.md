@@ -52,8 +52,8 @@ Only after that vertical slice is stable: connect OpenAI to a visible, code-veri
 
 - Build: pass.
 - Typecheck: pass.
-- JS/TS unit tests: 2,029 passed.
-- Browser e2e: 34 passed, including the Jev computer-use proof and both atomic-workflow stories.
+- JS/TS unit tests: 2,046 passed, followed by the checked-in replay eval.
+- Browser e2e: 35 passed, including the Jev computer-use proof, real blocked-run telemetry path and both atomic-workflow stories.
 - Demo smoke: the previous 95-check run passed; it was not rerun after this merge.
 - Desktop: 201 passed.
 - Frozen install: pass.
