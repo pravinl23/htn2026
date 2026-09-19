@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../src/config";
 import { registerAgentTelemetryRoutes } from "../src/routes/agentTelemetry";
+import { AGENT_OUTCOME_BODY_BYTES } from "../src/routes/agentTelemetry";
 import { AgentReplayStore, NoopAgentOutcomeSink, scrubSentryAgentEvent } from "../src/telemetry/agentOutcomes";
 import type { AgentOutcomeSink } from "../src/telemetry/agentOutcomes";
 
@@ -77,6 +78,16 @@ describe("agent outcome routes", () => {
     expect((await post({ ...OUTCOME, runId: "secret" })).status).toBe(400);
     expect((await post({ ...OUTCOME, decisions: [{ ...OUTCOME.decisions[0], operation: "SHELL" }] })).status).toBe(400);
     expect(await (await post(OUTCOME)).json()).toEqual({ accepted: true, captured: false, replayId: OUTCOME.runId });
+  });
+
+  it("bounds streamed and declared outcome bodies", async () => {
+    const { app } = setup(new NoopAgentOutcomeSink());
+    const response = await app.request("/v1/agent/outcomes", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ padding: "x".repeat(AGENT_OUTCOME_BODY_BYTES) }),
+    });
+    expect(response.status).toBe(413);
   });
 
   it("keeps the local review queue bounded and newest-first", () => {
