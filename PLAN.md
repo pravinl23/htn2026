@@ -17,24 +17,24 @@ Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University o
 
 ## Stage 1: The base, Tab through a form (no AI yet)
 
-- [ ] `demo/apply`: realistic job application for a fictional company ("Northwind Robotics, Software Engineering Intern"), about 20 fields: first/last name, email, phone, location, LinkedIn, GitHub, portfolio, school, degree, graduation date, work authorization (select), sponsorship (radio), how did you hear (select), "Why Northwind?" (textarea), "Tell us about a project" (textarea), resume upload (stub), Submit. Built with React controlled inputs so the input-execution path is tested for real. Also `demo/apply-plain` as plain HTML.
-- [ ] Extension skeleton (MV3): content script on localhost and all http/https pages (with an on/off toggle), background service worker, options page. Keyboard shortcut to toggle Ghost.
-- [ ] Capture: enumerate visible interactive elements with accessible names (aria-label, aria-labelledby, label[for], wrapping label, placeholder, nearby text), types, options, bounding boxes, and a stable element signature. Unit tests with jsdom fixtures.
-- [ ] Profile store in `chrome.storage.local`, seeded with the demo profile; options page shows and edits it as JSON.
-- [ ] Heuristic provider in the extension for now: map field labels to profile facts by keywords.
-- [ ] Overlay in a shadow DOM root: ghost cursor (SVG pointer) that glides to the target with a CSS transition, highlight ring, gray ghost text positioned inside the field.
-- [ ] Tab semantics exactly as CLAUDE.md describes (accept and advance, type to override, Esc dismiss, hold Tab to accept all, stop at locks).
-- [ ] React-safe input execution with verification; `chrome.debugger` fallback from the background worker.
-- [ ] Locks on submit and other irreversible buttons; never touch password or card fields.
-- [ ] E2E: load extension, open `/apply`, press Tab repeatedly, assert every field equals the demo profile value, assert Submit was NOT clicked. Record video to `docs/media/stage1-form.webm`.
+- [x] `demo/apply`: realistic job application for a fictional company ("Northwind Robotics, Software Engineering Intern"), about 20 fields: first/last name, email, phone, location, LinkedIn, GitHub, portfolio, school, degree, graduation date, work authorization (select), sponsorship (radio), how did you hear (select), "Why Northwind?" (textarea), "Tell us about a project" (textarea), resume upload (stub), Submit. Built with React controlled inputs so the input-execution path is tested for real. Also `demo/apply-plain` as plain HTML.
+- [x] Extension skeleton (MV3): content script on localhost and all http/https pages (with an on/off toggle), background service worker, options page. Keyboard shortcut to toggle Ghost.
+- [x] Capture: enumerate visible interactive elements with accessible names (aria-label, aria-labelledby, label[for], wrapping label, placeholder, nearby text), types, options, bounding boxes, and a stable element signature. Unit tests with jsdom fixtures.
+- [x] Profile store in `chrome.storage.local`, seeded with the demo profile; options page shows and edits it as JSON.
+- [x] Heuristic provider in the extension for now: map field labels to profile facts by keywords.
+- [x] Overlay in a shadow DOM root: ghost cursor (SVG pointer) that glides to the target with a CSS transition, highlight ring, gray ghost text positioned inside the field.
+- [x] Tab semantics exactly as CLAUDE.md describes (accept and advance, type to override, Esc dismiss, hold Tab to accept all, stop at locks).
+- [x] React-safe input execution with verification; `chrome.debugger` fallback from the background worker.
+- [x] Locks on submit and other irreversible buttons; never touch password or card fields.
+- [x] E2E: load extension, open `/apply`, press Tab repeatedly, assert every field equals the demo profile value, assert Submit was NOT clicked. Record video to `docs/media/stage1-form.webm`.
 
 **Acceptance:** the e2e passes and the video shows the ghost cursor walking the form.
 
 ## Stage 2: Prediction service and Jev
 
-- [ ] `server/` with Hono on Node 22: `GET /v1/health` reports the active provider; CORS limited to the extension and localhost.
+- [x] `server/` with Hono on Node 22: `GET /v1/health` reports the active provider; CORS limited to the extension and localhost.
 - [ ] Provider interface and all four providers with the precedence from CLAUDE.md. Heuristic provider moves from the extension to the server (keep a tiny offline fallback in the extension for when the server is down).
-- [ ] `POST /v1/predict/form`: input is fields (signature, label, type, options) plus profile fact keys; ONE batched decision call with a choice question per field over `[...factKeys, "needs_text", "none"]`; output is assignments with confidence, provider name, and latency.
+- [x] `POST /v1/predict/form`: input is fields (signature, label, type, options) plus profile fact keys; ONE batched decision call with a choice question per field over `[...factKeys, "needs_text", "none"]`; output is assignments with confidence, provider name, and latency.
 - [ ] Extension calls the server once per form, caches the mapping per origin plus form signature, and makes zero calls on repeat visits.
 - [ ] Confidence gating with a threshold setting in the options page.
 - [ ] Small debug HUD (toggleable): active provider, last latency, cache hit or miss.
@@ -44,7 +44,7 @@ Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University o
 
 ## Stage 3: Free-text ghost text
 
-- [ ] `POST /v1/ghost-text` (streaming): field label, page context (company, role, visible job description text), relevant profile facts, and past answers; returns a draft in the user's voice. Template fallback with no LLM key.
+- [x] `POST /v1/ghost-text` (streaming): field label, page context (company, role, visible job description text), relevant profile facts, and past answers; returns a draft in the user's voice. Template fallback with no LLM key.
 - [ ] Speculative generation: when a form is detected, start generating every free-text field in the background and cache the results.
 - [ ] Multi-line ghost text inside textareas; Tab accepts the whole draft; typing overrides.
 - [ ] E2E: textareas get non-empty text on Tab; record latency.
@@ -61,12 +61,12 @@ Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University o
 - [ ] `POST /v1/predict/next`: recent actions plus up to 60 candidate elements; one choice question over candidates plus `none`; returns candidate and confidence.
 - [ ] Ghost cursor for clicks on buttons and links; Tab clicks unless locked.
 - [ ] Episodic memory: store (state summary, action) pairs; retrieve the most similar past pairs and include them in the decision state.
-- [ ] `demo/mail` and `demo/calendar`: an email asks "can we meet Thursday afternoon?"; flow is open calendar, pick the free Thursday slot, return to the email, reply is drafted with that time, Send is locked.
+- [x] `demo/mail` and `demo/calendar`: an email asks "can we meet Thursday afternoon?"; flow is open calendar, pick the free Thursday slot, return to the email, reply is drafted with that time, Send is locked.
 - [ ] E2E for that cross-page flow using only Tab presses (and a final explicit confirm that the test does NOT press).
 
 ## Stage 6: Do it twice, Ghost does the rest
 
-- [ ] `demo/invoices`: an inbox of 50 invoice emails, each opening an invoice view with vendor, invoice number, date, total; `demo/sheet`: a simple spreadsheet grid; each email has a "Reply received" action.
+- [x] `demo/invoices`: an inbox of 50 invoice emails, each opening an invoice view with vendor, invoice number, date, total; `demo/sheet`: a simple spreadsheet grid; each email has a "Reply received" action.
 - [ ] Loop detector: find a repeated action subsequence (3 or more steps) that occurred twice; align the two runs; separate constant steps from variable ones.
 - [ ] Generalizer: infer the iterator (the next unhandled list item) and where each variable value comes from (text on the source page). Output a JSON program. Use the LLM only when heuristics fail.
 - [ ] Preview grid: dry-run extraction for every remaining item, with confidence per row and low-confidence rows flagged.

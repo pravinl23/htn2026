@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ghost lab: hostile and awkward markup</title>
+    <!-- Local-only page for e2e hardening tests. Everything here is fictional (Alex Chen demo profile). -->
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; margin: 0; color: #1d1b2f; }
+      header { position: sticky; top: 0; z-index: 5; background: #181530; color: #fff; padding: 14px 24px; display: flex; gap: 16px; align-items: center; }
+      header input { padding: 6px 10px; border-radius: 6px; border: 0; }
+      main { max-width: 640px; margin: 0 auto; padding: 24px; }
+      label { display: block; margin: 14px 0 4px; font-weight: 600; }
+      input, select, textarea { font: inherit; padding: 8px 10px; width: 100%; box-sizing: border-box; border: 1px solid #c9c6dc; border-radius: 8px; }
+      fieldset { margin: 20px 0; border: 1px solid #dcd9ec; border-radius: 10px; }
+      #scroller { height: 150px; overflow: auto; border: 1px solid #c9c6dc; border-radius: 10px; padding: 0 14px 14px; }
+      #modal { position: fixed; inset: 0; background: rgba(10, 8, 30, .6); display: none; align-items: center; justify-content: center; z-index: 10; }
+      #modal[data-open="true"] { display: flex; }
+      #modal div { background: #fff; padding: 24px; border-radius: 12px; }
+      .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+      button { font: inherit; padding: 9px 16px; border-radius: 8px; border: 0; background: #6b4dff; color: #fff; margin-top: 18px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Ghost lab</strong>
+      <input id="site-search" type="search" aria-label="Search the site" placeholder="Search" />
+      <button type="button" id="open-modal" style="margin:0">Open dialog</button>
+    </header>
+    <main>
+      <h1>Contact form</h1>
+      <form id="lab-form" action="#" onsubmit="event.preventDefault(); window.__submitted = true;">
+        <label for="first">First name</label>
+        <input id="first" name="firstName" />
+
+        <label for="phone">Phone</label>
+        <input id="phone" name="phone" type="tel" />
+
+        <label for="start">Available from</label>
+        <input id="start" name="graduationDate" type="date" />
+
+        <!-- Traps: a person never sees these, so Ghost must never fill them. -->
+        <div style="opacity:0;position:absolute" aria-hidden="true">
+          <label for="hp1">Website</label><input id="hp1" name="website" tabindex="-1" />
+        </div>
+        <div style="height:0;overflow:hidden">
+          <label for="hp2">Mobile phone</label><input id="hp2" name="phone2" />
+        </div>
+        <div class="sr-only">
+          <label for="hp3">Homepage url</label><input id="hp3" name="url" />
+        </div>
+        <div style="opacity:0;height:0">
+          <label for="hp4">Email</label><input id="hp4" name="email2" type="email" />
+        </div>
+
+        <label for="notes">Notes</label>
+        <textarea id="notes" name="notes" rows="2"></textarea>
+
+        <h2>Links (scroll box)</h2>
+        <div id="scroller">
+          <label for="linkedin">LinkedIn</label>
+          <input id="linkedin" name="linkedin" type="url" />
+          <label for="github">GitHub</label>
+          <input id="github" name="github" type="url" />
+          <label for="site">Website</label>
+          <input id="site" name="website2" type="url" />
+          <label for="school">School</label>
+          <input id="school" name="school" />
+        </div>
+
+        <fieldset>
+          <legend>Card details</legend>
+          <label for="holder">Name on card</label><input id="holder" name="holder" />
+          <label for="number">Number</label><input id="number" name="number" inputmode="numeric" />
+          <label for="exp">Expiry</label><input id="exp" name="exp" />
+          <label for="code">CVV2</label><input id="code" name="code" />
+        </fieldset>
+
+        <button type="submit" id="lab-submit" data-testid="submit">Send message</button>
+      </form>
+      <div style="height: 1400px"></div>
+    </main>
+
+    <div id="modal" role="dialog" aria-modal="true" aria-label="Example dialog">
+      <div><p>A page dialog that closes on Escape.</p></div>
+    </div>
+
+    <script>
+      // A vanilla phone mask: the page rewrites whatever it is given, as most real job forms do.
+      const phone = document.getElementById("phone");
+      phone.addEventListener("input", () => {
+        const digits = phone.value.replace(/\D/g, "").slice(-10);
+        if (digits.length === 10) phone.value = `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+      });
+      const modal = document.getElementById("modal");
+      window.__escapes = 0;
+      document.getElementById("open-modal").addEventListener("click", () => (modal.dataset.open = "true"));
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        window.__escapes++;
+        modal.dataset.open = "false";
+      });
+    </script>
+  </body>
+</html>

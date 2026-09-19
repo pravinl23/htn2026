@@ -3,15 +3,14 @@
   "name": "Ghost",
   "version": "0.1.0",
   "description": "Cursor Tab for your whole computer. Ghost predicts your next action; press Tab to accept.",
-  "permissions": ["storage", "tabs", "debugger", "scripting"],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "permissions": ["storage", "debugger"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
       "js": ["content.js"],
       "run_at": "document_idle",
-      "all_frames": false
+      "all_frames": true
     }
   ],
   "options_page": "options.html",

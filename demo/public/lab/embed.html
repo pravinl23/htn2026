@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ghost lab: embedded application form</title>
+    <!-- Local-only page for e2e: career sites usually embed the real form (Greenhouse, Lever, Ashby) in an iframe. -->
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 900px; padding: 24px; color: #1d1b2f; }
+      iframe { width: 100%; height: 640px; border: 1px solid #c9c6dc; border-radius: 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>Careers at Northwind Robotics</h1>
+    <p>The application form below is served from an embedded frame.</p>
+    <iframe id="embedded-form" src="/apply-plain/" title="Application form"></iframe>
+  </body>
+</html>

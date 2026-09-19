@@ -16,8 +16,21 @@ describe("isSensitive", () => {
     expect(isSensitive({ markedSensitive: true, label: "Nickname" })).toBe(true);
   });
 
+  it("flags card and id fields that carry no autocomplete hint", () => {
+    const labels = [
+      "Name on card", "Cardholder name", "Card holder", "CVV2", "CVC2", "CSC", "Card No.", "Card #", "Expiry date", "Expiration",
+      "MM/YY", "MM / YY", "S.I.N.", "S.S.N.", "OHIP number", "Health number", "MFA code", "Authentication code", "Authenticator code",
+      "Recovery phrase", "Recovery code",
+    ];
+    for (const label of labels) expect(isSensitive({ label }), label).toBe(true);
+    for (const name of ["cc-number", "ccnum", "cc-exp", "cc_csc", "ccName", "cardNumber", "pwd", "securityCode"]) {
+      expect(isSensitive({ name }), name).toBe(true);
+    }
+    expect(isSensitive({ placeholder: "MM/YY" })).toBe(true);
+  });
+
   it("does not flag ordinary fields", () => {
-    for (const label of ["First name", "Email", "Phone", "LinkedIn", "Why Northwind?", "Single sign-on hint", "Business name"]) {
+    for (const label of ["First name", "Email", "Phone", "LinkedIn", "Why Northwind?", "Single sign-on hint", "Business name", "Full name", "Company", "Discard draft", "Account", "No. of years"]) {
       expect(isSensitive({ label }), label).toBe(false);
     }
     expect(isSensitive({ autocomplete: "given-name" })).toBe(false);

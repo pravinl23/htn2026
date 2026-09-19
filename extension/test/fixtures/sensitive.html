@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Checkout | Northwind Robotics Store</title>
+  </head>
+  <body>
+    <main>
+      <h1>Checkout</h1>
+      <form id="checkout" action="/pay" method="post">
+        <section>
+          <h2>Contact</h2>
+          <label for="contactEmail">Email</label>
+          <input id="contactEmail" name="contactEmail" type="email" autocomplete="email" />
+          <label for="accountPassword">Create a password</label>
+          <input id="accountPassword" name="accountPassword" type="password" autocomplete="new-password" />
+        </section>
+
+        <section>
+          <h2>Payment</h2>
+          <label for="cardholder">Name on card</label>
+          <input id="cardholder" name="cardholder" type="text" autocomplete="cc-name" />
+          <label for="pan">Number</label>
+          <input id="pan" name="pan" type="text" autocomplete="cc-number" inputmode="numeric" />
+          <label for="exp">Expiry</label>
+          <input id="exp" name="exp" type="text" autocomplete="cc-exp" placeholder="MM / YY" />
+          <label for="cvc">CVC</label>
+          <input id="cvc" name="cvc" type="text" />
+        </section>
+
+        <section>
+          <h2>Identity check</h2>
+          <label for="govId">Social Insurance Number (SIN)</label>
+          <input id="govId" name="govId" type="text" />
+          <input name="idBackup" type="text" aria-label="Backup" title="Passport number" />
+          <div data-ghost-sensitive>
+            <label for="nickname">Nickname</label>
+            <input id="nickname" name="nickname" type="text" />
+          </div>
+          <label for="petName">Pet name</label>
+          <input id="petName" name="petName" type="text" data-sensitive />
+        </section>
+
+        <section>
+          <h2>Shipping</h2>
+          <label for="city">City</label>
+          <input id="city" name="city" type="text" autocomplete="address-level2" />
+        </section>
+
+        <button type="submit">Pay now</button>
+      </form>
+    </main>
+  </body>
+</html>

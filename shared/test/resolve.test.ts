@@ -18,7 +18,8 @@ describe("resolveFieldValue", () => {
 
   it("formats graduation date per input kind", () => {
     expect(resolveFieldValue(field("Graduation", "month"), "graduationDate", "2028-04")?.value).toBe("2028-04");
-    expect(resolveFieldValue(field("Graduation", "date"), "graduationDate", "2028-04")?.value).toBe("2028-04-01");
+    expect(resolveFieldValue(field("Graduation", "date"), "graduationDate", "2028-04-15")?.value).toBe("2028-04-15");
+    expect(resolveFieldValue(field("Graduation", "date"), "graduationDate", "2028-04")).toBeNull(); // never invent a day
     expect(resolveFieldValue(field("Expected graduation", "text"), "graduationDate", "2028-04")?.value).toBe("April 2028");
     expect(resolveFieldValue(field("Graduation year", "text"), "graduationDate", "2028-04")?.value).toBe("2028");
     expect(resolveFieldValue(field("Graduation year", "number"), "graduationDate", "2028-04")?.value).toBe("2028");

@@ -27,11 +27,12 @@ function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
+/** Null when the field wants more than the fact knows: a day of the month is never invented. */
 function formatDateForField(field: CapturedField, iso: string): string | null {
   const d = parseIsoDate(iso);
   if (!d) return iso;
   if (field.kind === "month") return `${d.year}-${pad(d.month)}`;
-  if (field.kind === "date") return `${d.year}-${pad(d.month)}-${pad(d.day ?? 1)}`;
+  if (field.kind === "date") return d.day === undefined ? null : `${d.year}-${pad(d.month)}-${pad(d.day)}`;
   const label = normalize(field.label);
   if (field.kind === "number" || (/\byear\b/.test(label) && !/month|date/.test(label))) return String(d.year);
   return `${MONTHS[d.month - 1]} ${d.year}`;
@@ -106,8 +107,11 @@ export function resolveFieldValue(field: CapturedField, factKey: string, factVal
   if (field.kind === "file" || field.kind === "button" || field.kind === "link" || field.kind === "other") return null;
 
   let value = factValue;
-  if (isDate) value = formatDateForField(field, factValue) ?? factValue;
-  else if (field.kind === "date" || field.kind === "month") return null;
+  if (isDate) {
+    const formatted = formatDateForField(field, factValue);
+    if (formatted === null) return null;
+    value = formatted;
+  } else if (field.kind === "date" || field.kind === "month") return null;
   else if (field.kind === "number" && !/^-?\d+(\.\d+)?$/.test(value)) return null;
   else if (field.kind === "url" && !/^https?:\/\//i.test(value)) value = `https://${value}`;
   return { action: "fill", value, displayText: value, confidenceFactor: 1 };
