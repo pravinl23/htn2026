@@ -1,7 +1,6 @@
-// PORT of the pure rules in extension/src/content/predict.ts (ghostsFromAssignments, upgradeGhosts and
-// their helpers). Kept as a copy rather than an import because that module also carries the extension's
-// cache/server plumbing (`performance`, chrome message types) and is edited on its own schedule; a desktop
-// build must not break with it. When a rule changes there, change it here: the native test runner
+// PORT of the pure rules in extension/src/content/predict.ts (ghostsFromAssignments and helpers), plus the
+// server-upgrade merge used only by Desktop today. Kept separate because the native bridge runs through
+// JavaScriptCore while the extension operates on DOM elements. When a shared rule changes there, change it here: the native test runner
 // (desktop/tests/test_core.m) pins every rule below through JavaScriptCore.
 import { NEEDS_TEXT, NONE, isSensitive, mapFormHeuristically, resolveFieldValue } from "@ghost/shared";
 import type { CapturedField, FieldAssignment, Ghost, GhostSettings, GhostSource, Profile } from "@ghost/shared";

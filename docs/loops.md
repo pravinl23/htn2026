@@ -1,8 +1,14 @@
 # Action trace, next-action prediction, and "Do it twice, Ghost does the rest"
 
-Binding design for PLAN.md Stages 5 and 6. Pure logic lives in `shared/src/trace/` and `shared/src/loop/` (no DOM, fully unit tested). DOM and chrome.* glue lives in the extension.
+Design and implementation status for PLAN.md Stages 5 and 6.
 
-## 1. Action trace (Stage 5)
+## Current implementation boundary — 2026-09-19
+
+- **Implemented:** shared trace types/normalization/shape logic, episodic memory, repeat detection, alignment, source matching, loop synthesis/program planning and adversarial tests; server `/v1/predict/next` and `/v1/loop/synthesize`; server-side parallel/API executor infrastructure.
+- **Not implemented:** extension trace/page-fact capture, background trace persistence, next-action requests, click ghosts beyond the form walk, loop proposal/preview/confirmation UI, visible/background loop execution and Stage 5/6 e2e.
+- The detailed client behavior below remains the target contract until those extension modules exist. Statements about what "the content script" or "background worker" does in Sections 1, 2, 3.4 and 3.5 are plans, not current behavior.
+
+## 1. Action trace (Stage 5 — shared types implemented, extension recorder planned)
 
 ```ts
 // shared/src/trace/types.ts
@@ -52,7 +58,7 @@ export type FactLocator =
 
 Sources in priority order: `[data-field]`/`[data-testid]` elements with short text, `<dt>/<dd>` pairs, two-column table rows, `label: value` text lines, headings. Max 80 facts per page, text <= 200 chars, skip anything sensitive-looking (`isSensitive` on the label). The background keeps the latest facts per (tab, pathPattern) and a short history per URL so the generalizer can look up "where did this typed value come from".
 
-## 2. Next-action prediction (Stage 5)
+## 2. Next-action prediction (Stage 5 — server implemented, extension client planned)
 
 - After each user action settles (300 ms debounce) and no form ghosts are pending, the content script sends candidates (visible buttons/links/fields, max 60, filtered in code: in viewport or near it, not in nav chrome unless recently used) plus the last 20 events to `POST /v1/predict/next` (see docs/server-api.md). ONE choice question over candidate ids plus `none`.
 - **Episodic memory**: background stores `(stateSummary, action)` pairs where `stateSummary = pathPattern + the last 3 event shape keys` (see 3.1). Top 5 most similar pairs (exact key match first, then Jaccard over tokens) are included in the request as `memory`. The heuristic provider predicts purely from memory: if the same state summary was followed by the same action at least once before, propose it with confidence 0.75 (once) / 0.9 (twice or more).
@@ -99,11 +105,11 @@ export type LoopStep =
 export type StepTarget = { signature?: string; label: string; kind: FieldKind; cell?: { row: "next-empty"; colHeader: string } };
 ```
 
-### 3.4 Preview grid
+### 3.4 Preview grid (planned)
 
 When a loop is detected, Ghost shows a bottom sheet: "You did this twice. Ghost can do the remaining N." with a grid: one row per remaining item, one column per variable, extracted by **dry run**: load each item URL in a pool of 4 hidden same-origin iframes, wait for the locator, read the text, apply the transform. Each row has a confidence (1.0 exact locator hit, 0.6 fallback locator, 0 missing) and low-confidence rows are flagged and unchecked by default. The footer lists every irreversible effect with counts (e.g. "Send reply 'Received' x 48") and has ONE confirmation control. Tab focuses the confirm button; only an explicit Enter or click on it starts the run (it is a locked action).
 
-### 3.5 Executor
+### 3.5 Executor (extension visible/background modes planned; server parallel/API modes implemented)
 
 - The background worker owns the run state (`chrome.storage.session`): program, item queue, per-item status, mode. Content scripts ask "is there an active run for this tab?" on load and execute the steps for their page, so runs survive full page navigations.
 - Modes: `visible` (ghost cursor moves, about 120 ms per step, real navigation in the tab), `background` (hidden iframes; used by default for > 10 items so 48 items finish in seconds), `parallel` (Browserbase, Stage 8), `api` (Composio, Stage 8).
@@ -115,5 +121,5 @@ When a loop is detected, Ghost shows a bottom sheet: "You did this twice. Ghost 
 
 - `/invoices`: inbox of 50 invoice emails (deterministic seeded data: vendor, invoice number `INV-1xxx`, date, total). Clicking one opens `/invoices/:id` with the invoice fields rendered as `<dl>` with `data-field` attributes and a "Reply: received" button (locked, marks the email as replied in localStorage; NOT a real send). Replied and logged states are visible in the inbox list.
 - `/sheet`: spreadsheet grid (columns Vendor, Invoice #, Date, Total, 60 rows) persisted in localStorage and synced across tabs/iframes via the `storage` event. Cells are inputs; `window.__sheet` exposes the rows for tests.
-- `/mail` + `/mail/:id` and `/calendar`: the "can we meet Thursday afternoon?" flow. Calendar shows a week with busy blocks and one free Thursday afternoon slot; picking it stores `pickedSlot` in localStorage; back on the email the reply textarea gets a ghost draft mentioning the slot; **Send is locked**.
+- `/mail` + `/mail/:id` and `/calendar`: the "can we meet Thursday afternoon?" demo surface. Calendar shows a week with busy blocks and one free Thursday afternoon slot; picking it stores `pickedSlot` in localStorage. The textarea is compatible with programmatic fills and **Send is locked**, but Ghost does not yet navigate the flow or draft the reply.
 - All demo state resets with `/reset` or `?reset=1` so e2e runs are deterministic.

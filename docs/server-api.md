@@ -1,6 +1,8 @@
 # Ghost prediction server API (`server/`, http://localhost:8787)
 
-Keys stay on the server. The extension only ever talks to this API. All bodies are JSON. CORS allows `chrome-extension://*` and `http://localhost:*` only.
+Keys stay on the server. This file documents implemented server contracts; it does **not** imply that every client is connected. As of the 2026-09-19 audit, Ghost Desktop calls the form/free-text/health endpoints, while the Chrome extension calls none of them and still predicts forms locally. The extension also has no loop panel or executor client yet. All non-SSE bodies are JSON. CORS allows `chrome-extension://*` and `http://localhost:*` only.
+
+Browserbase and Composio paths are unit/mock-tested and fall back to simulated executors without credentials. They have not been live-verified in the current checkout. There is no `.env` at the audited revision.
 
 ## Access rules (the API is unauthenticated and spends paid model quota)
 
@@ -97,7 +99,7 @@ Template fallback (no key): a deterministic 2 to 4 sentence draft built from fac
 Request: `{ resumeText: string (<= 20000 chars) }`. Response: `{ facts: Record<string,string>, pastAnswers: [], provider, latencyMs }` using the canonical fact keys in `shared/src/profile.ts` (`FACT_DESCRIPTIONS`). LLM path: JSON-mode chat completion, validated and filtered to known keys plus `extra.*`. No key: regex extraction (email, phone, URLs for github/linkedin/website, first line as name, school and degree keywords, graduation date parsed in code into `YYYY-MM`).
 
 ### `POST /v1/loop/synthesize`
-Stage 6. The extension runs the shared heuristic (`synthesizeProgram`) itself; it calls this route only to get help with the fills the heuristic left `unresolved`.
+Stage 6 server contract. The intended extension coordinator will run the shared heuristic (`synthesizeProgram`) itself and call this route only for fills left `unresolved`. No extension loop coordinator calls this route yet.
 
 Request (1 MB; at most 200 events per run, 40 urls, 80 facts per url; typed values over 500 chars are rejected, page text is clipped to 200):
 ```json
@@ -109,7 +111,7 @@ Response:
 ```json
 { "program": LoopProgram | null, "provider": "heuristic" | "llm", "resolvedByModel": 0, "unresolved": [UnresolvedStep], "latencyMs": 3, "modelCalls": 0, "model": "…", "cache": "hit" | "miss", "fallbackFrom": "llm" }
 ```
-- The server first runs the same `synthesizeProgram` as the extension. With nothing unresolved, or no LLM configured, that result is returned (`provider: "heuristic"`, `modelCalls: 0`). `program: null` means the two runs do not generalize.
+- The server first runs the shared `synthesizeProgram` that the planned extension loop coordinator will also use. With nothing unresolved, or no LLM configured, that result is returned (`provider: "heuristic"`, `modelCalls: 0`). `program: null` means the two runs do not generalize.
 - Otherwise ONE chat call asks, for all open fills at once, which labeled page value explains both typed values. The model may only pick a candidate index and one transform from the closed list `trim | number | date-iso | lowercase | uppercase | first-word | last-word | digits-only`. Code then verifies that the pick reproduces BOTH typed values; anything else is dropped. A verified pick becomes an `extract` step, so `extract.from.transform` can be any of those eight (wider than the shared `ValueTransform`).
 - Prompt hygiene: page text only appears as JSON string values inside `<untrusted_page_data>`; no urls, locators, constants, resolved values or profile data are sent. Sensitive-looking facts (by label or locator name) are dropped at validation. Page text shaped like an SSN, or a SIN / 13 to 19 digit number with a valid Luhn check digit, is dropped at validation too (the heuristic never sees it, so Ghost never copies it). In front of the prompt the broader shape test applies to typed values AND candidate text: any SSN shape, SIN shape or 13 to 19 digit run is left out, whatever its label says, before the prompt and the cache key are built.
 - Identical questions are answered from an LRU cache (100 entries). Model timeout 8 s; on any model failure the heuristic program is returned with `fallbackFrom: "llm"`.

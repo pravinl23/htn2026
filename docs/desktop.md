@@ -2,6 +2,8 @@
 
 The Chrome extension only covers Chromium browsers. Ghost Desktop is a native menu-bar agent that runs in the background and gives the same experience (ghost text, ghost cursor, Tab to accept, locks) in **any** app that exposes an accessibility tree: Safari, Chrome, Arc, Firefox, Edge, Electron apps, and native apps. It talks to the same local prediction server and reuses the same tested mapping logic.
 
+**Implementation status (2026-09-19):** the native form agent described through the capture/controller/writer/overlay pipeline is implemented and has 167 passing unit tests. Cross-app claims have not been live-rehearsed during the current audit, loop automation is not implemented, and the real-world Greenhouse/file-upload harness is only a plan in `desktop-realworld.md`. Presence deduplication is also incomplete as described below.
+
 ## Constraints on this machine
 
 - Only the Command Line Tools are installed and their Swift toolchain does not match the SDK, so **Swift does not build here. Use Objective-C (ARC) with clang and a Makefile.** No Xcode project, no SwiftPM, no CocoaPods.
@@ -63,7 +65,7 @@ Strings in, strings out (JSON), so the Objective-C side stays thin and the behav
 
 ## Coexistence with the extension
 
-When the extension is active in a browser, both would draw ghosts. The server gets `POST /v1/presence { client: "extension", browser: "chrome" }` heartbeats (30 s) and `GET /v1/presence`. Ghost Desktop skips a browser whose extension heartbeat is fresher than 90 s, and says so in the menu ("Chrome: handled by the extension").
+When the extension is active in a browser, both can draw ghosts. The intended design is `POST /v1/presence { client: "extension", browser: "chrome" }` every 30 seconds plus `GET /v1/presence`; Desktop would skip a browser whose heartbeat is fresher than 90 seconds. **This is not implemented end to end:** Desktop has the polling/parser and menu state, but the server has no presence route and the extension sends no heartbeat. Until those pieces exist, disable one client manually before using the other in the same browser.
 
 ## CLI modes (for testing without the UI)
 

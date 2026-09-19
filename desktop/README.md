@@ -8,6 +8,12 @@ JavaScriptCore). Design: [`docs/desktop.md`](../docs/desktop.md).
 Objective-C (ARC) + clang + a Makefile. No Xcode project, no Swift (the Swift toolchain on this machine
 does not match the SDK).
 
+## Current status
+
+The native form agent and its offline/server-upgraded prediction path are implemented and have 167 passing tests. This covers capture, overlay rendering, Tab/Escape state, verified writes, form caching and streamed textarea drafts under stubs. It has **not** been included in the root pnpm verification gate or re-run against real browsers/apps with a live Accessibility grant during the 2026-09-19 audit.
+
+Extension/desktop coordination is incomplete: the client contains presence polling, but the server does not expose `/v1/presence` and the extension sends no heartbeat. Do not run both clients in the same browser expecting automatic deduplication. Learned loops, invoice batching, file uploads and the Greenhouse/autotab harness are not native-agent features today.
+
 ## Build
 
 ```sh
@@ -49,7 +55,7 @@ it off and on).
 | **Enabled** (Alt+Shift+G) | Master switch. Same setting as `settings.json` `enabled`. |
 | status line | `Needs Accessibility permission`, `Off`, `On: heuristic only (server offline)`, `On: <provider>, <latency> ms` |
 | **Server: ...** | Provider reported by `GET /v1/health`, or `offline` with a short reason (`unreachable`, `timeout`...) |
-| **<Browser>: handled by the extension** | The Ghost extension in that browser sent a heartbeat in the last 90 s, so Desktop stays out of it |
+| **<Browser>: handled by the extension** | Planned coordination state. The UI/client parser exists, but no server presence route or extension heartbeat currently supplies it. |
 | **Pause in <app> / Resume in <app>** | Per-app pause, stored in `settings.json` `pausedBundleIds` |
 | **Never runs in <app>** | Built-in list: terminals, password managers, Keychain Access, System Settings, Ghost itself |
 | **Open profile.json / settings.json / demo / log** | |
@@ -71,7 +77,7 @@ Only requests to the local prediction server (`settings.serverUrl`, default `htt
   typed in a field, never a sensitive field (not even its label), never buttons or links.
 - `POST /v1/ghost-text`: the question's label and an allowlist of facts (name, school, degree, major, graduation date,
   location, GitHub, website). Email, phone, LinkedIn, work authorization and sponsorship are never sent.
-- `GET /v1/health`, `GET /v1/presence`.
+- `GET /v1/health`. The client also attempts `GET /v1/presence`, but that server route is not implemented yet.
 
 With the server down Ghost still works: the keyword heuristic runs in-process.
 
@@ -131,10 +137,10 @@ the wrong field submits a form.
 ## Keeping in step with the extension
 
 `core/predict.ts` is a copy of the pure part of `extension/src/content/predict.ts` (threshold gating, skip filled
-fields, placeholder choices, sensitivity re-check, tick-only checkboxes, lock ghost last, `upgradeGhosts`). It is a
-copy because the extension file also carries cache/server plumbing and changes on its own schedule. When a rule
-changes there, change it here; `tests/test_core.m` pins each rule through the real bundle in JavaScriptCore.
-`textFacts` and `formRequest` in `core/entry.ts` mirror `extension/src/lib/messages.ts` the same way.
+fields, placeholder choices, sensitivity re-check, tick-only checkboxes, lock ghost last, `upgradeGhosts`). It stays
+separate because the native bridge runs the shared rules through JavaScriptCore while the extension operates on DOM
+elements. When a rule changes there, change it here; `tests/test_core.m` pins each rule through the real bundle in JavaScriptCore.
+`textFacts` and `formRequest` in `core/entry.ts` are currently Desktop-only server-client policies. The Chrome extension has no equivalent client yet; extract these policies into shared code when adding one.
 
 ## Tests
 

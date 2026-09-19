@@ -2,6 +2,8 @@
 
 Owner: teammate (and their coding agent). Pravin's agent will NOT touch the files listed under "Your scope" from now on.
 
+**Status at the 2026-09-19 audit:** the compile/executor code and mocked route tests exist, but the real Composio API assumptions below remain unverified. No `.env`, live test, demo script, judging write-up, clip or extension execution-mode UI exists in this checkout. Treat the opening pitch as the intended finished experience, not current behavior.
+
 ## The one-paragraph pitch
 
 Ghost watches you do a multi-step task twice (open an invoice email, copy vendor / number / date / total into a spreadsheet, reply "received"), generalizes it into a small JSON program, previews every remaining item in a grid, and runs the rest after ONE confirmation. It can run the program four ways: visibly in the tab, in hidden frames, in parallel cloud browsers (Browserbase), or **compiled to API calls through Composio**: the same learned loop becomes `GOOGLESHEETS…APPEND` + `GMAIL…REPLY/SEND` tool calls, so 48 items finish without a browser at all. That last mode is the Composio track: "Build and scale an agent using Composio" (judged on creativity, ambition, usefulness).
@@ -33,7 +35,7 @@ Env vars (put them in YOUR local `.env`, never in chat, never committed): `COMPO
 
 Shared files you may touch only with small additive edits (tell Pravin first, they are hot): `server/src/config.ts` (the `composio` block only), `server/src/routes/execute.ts`, `docs/server-api.md` (Composio paragraphs only).
 
-**Out of scope, do not edit:** `extension/`, `desktop/`, `shared/`, `demo/`, `e2e/`, every other file in `server/`. The extension's loop panel calls `GET /v1/executors` and the preview/execute routes to offer "API (Composio)" mode: **keep that HTTP contract exactly as documented** so our side keeps working. If the contract must change, change `docs/server-api.md` in the same commit and tell Pravin.
+**Out of scope, do not edit:** `extension/`, `desktop/`, `shared/`, `demo/`, `e2e/`, every other file in `server/`. The **planned** extension loop panel will call `GET /v1/executors` and the preview/execute routes to offer "API (Composio)" mode; no such panel exists yet. Keep that HTTP contract exactly as documented so the future client can rely on it. If the contract must change, change `docs/server-api.md` in the same commit and tell Pravin.
 
 ## Tasks, in order
 

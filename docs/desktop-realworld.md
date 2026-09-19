@@ -1,63 +1,66 @@
-# Ghost Desktop, real-world target: a real Greenhouse application, Tab only
+# Ghost Desktop real-world target: Greenhouse with Tab only
 
-This is THE demo. Not our own demo site: a real Greenhouse job application in Safari or Chrome, driven natively through the macOS Accessibility API.
+This document is a **future implementation and validation plan**, not a description of current behavior.
 
-**Smoke test:** open a real `job-boards.greenhouse.io/<company>/jobs/<id>` posting, put the cursor nowhere in particular, and press Tab repeatedly. Ghost fills every personal field, picks the dropdown answers, drafts the essay answers, presses "Attach" for the resume, picks the resume file in the macOS open panel, and ends parked on **Submit application** with a lock. The user never touches the mouse.
+## Current boundary — 2026-09-19
 
-**Hard limits (CLAUDE.md rules 2 and 5):**
-- Tab NEVER presses Submit. The walk ends with the ghost cursor parked on Submit and the lock badge; one explicit Enter or click by the human sends it.
-- Automated tests and agent-driven runs NEVER submit on a real site. Every real-site run stops at the locked Submit. Do not click Submit, do not press Enter on it, do not synthesize either.
-- EEO / demographic questions (gender, race, ethnicity, veteran status, disability) are always left alone (`none`).
-- Passwords, SSN/SIN, card fields: never captured (unchanged).
+Ghost Desktop currently implements and unit-tests:
 
-## 1. Stable host + hot-swappable library (so the Accessibility grant survives rebuilds)
+- macOS Accessibility trust handling and bounded AX-tree capture;
+- sensitive/hidden/disabled field exclusion and stable signatures;
+- offline form mapping plus server-upgraded `/v1/predict/form` results;
+- streamed `/v1/ghost-text` drafts for supported textareas;
+- ghost overlays, Tab/Escape/hold-Tab state, locks and verified writes;
+- local profile/settings/form-cache storage;
+- a menu-bar app, `--selftest`, `--trust` and basic `--dump` modes.
 
-macOS ties the Accessibility grant of an ad-hoc signed app to its code hash. Every rebuild would force the user to re-grant. So:
+It does **not** currently implement the features previously proposed for this real-world target:
 
-- `Ghost.app/Contents/MacOS/Ghost` becomes a tiny **host** (`desktop/host/main.m`, about 40 lines): it `dlopen`s the library and calls `int GhostMain(int argc, const char **argv)`. Library path: `$GHOST_LIB`, else `~/Library/Application Support/Ghost/libghost.dylib`, else `<bundle>/../libghost.dylib`. The host is built and signed ONCE (`make host`) and then never touched; `make app` must not rebuild or re-sign it when it already exists (`make host-force` does).
-- Everything else (all current `desktop/src/*.m`) is compiled into `desktop/build/libghost.dylib` (`make lib`), which lives OUTSIDE the bundle so the bundle's seal never changes. `make install-lib` copies it to `~/Library/Application Support/Ghost/`.
-- No hardened runtime, no library validation (ad-hoc signed host), so the dylib loads.
-- Always launch through LaunchServices so Ghost is its own TCC "responsible process": `open -n desktop/build/Ghost.app --args <flags>`. A binary started directly from a shell is attributed to the parent terminal/app and will look untrusted. CLI modes therefore take `--out <file>` and write results to a file instead of stdout.
+- stable host plus hot-swappable `libghost.dylib` (`desktop/host`, `make host`, `make lib`, `make install-lib` do not exist);
+- `--dump-tree`, `--autotab`, `--frontmost`, `--delay` or `--out` harness flags;
+- resume/cover-letter file facts or native open-panel automation;
+- Greenhouse-specific react-select/autocomplete handling;
+- saved redacted AX fixtures for Greenhouse, Lever or Ashby;
+- a fictional resume PDF;
+- a recorded real-site run in Safari, Chrome, Arc, Firefox or Edge.
 
-## 2. Test and debug harness (agent-drivable, no mouse)
+The current Makefile builds a single ad-hoc-signed `Ghost.app`. Rebuilding can invalidate its Accessibility approval. The server/extension presence heartbeat is also missing, so disable the Chrome extension before trying Desktop in Chrome.
 
-All of these run inside the trusted host via `open -n ... --args`:
+## Target smoke test
 
-- `--trust --out f`: `{ "trusted": bool }`.
-- `--dump --delay 3 --out f.json`: captured fields of the frontmost window (labels, kinds, options, rects, locked; NO values).
-- `--dump-tree --delay 3 --depth 60 --out f.json`: raw AX tree (role, subrole, title, description, placeholder, identifier, DOM classes, actions, rect; values redacted to their length) so we can design against what Greenhouse really exposes.
-- `--autotab N --interval 450 --out f.json`: with Ghost running normally, post N real Tab key events (NOT tagged synthetic, so they go through the event tap exactly like the user's) and record after each one: current ghost label, action taken, verification result, time. Refuses to continue when the current ghost is locked, and never posts Return/Enter. This is how an agent smoke-tests without touching the keyboard.
-- `--frontmost "Safari"`: bring an app forward before dumping or auto-tabbing.
-- Every run appends to `~/Library/Logs/Ghost/desktop.log` (no values).
+On a real Greenhouse job application, Ghost should eventually fill supported personal fields, choose only high-confidence dropdown answers, draft essay answers, skip EEO/demographic questions, optionally attach the fictional resume, and stop parked on **Submit application** with a lock. The user should not need the mouse for supported fields.
 
-## 3. File upload through the native open panel
+Non-negotiable rules:
 
-Profile gains file facts: `resumePath` (and optional `coverLetterPath`) in `profile.json`, absolute paths, validated to exist and be readable, shown as the file name only.
+- Tab never activates Submit; only an explicit human Enter/click may submit.
+- Automated or agent-driven real-site runs never submit.
+- EEO/demographic questions are left alone.
+- Password, government-ID and payment fields are never captured.
+- A write or option choice that cannot be verified stops the walk.
 
-- Capture: an upload control is an `AXButton`/`AXLink` whose label matches attach / upload / choose file / browse / "Resume/CV" (Greenhouse renders an "Attach" button next to "Resume/CV"; also "Dropbox", "Google Drive", "Enter manually": never pick those), or an `AXButton` with subrole/description "file upload button" (native `<input type=file>`). It becomes a field of kind `file` whose label is the nearest group label ("Resume/CV").
-- Ghost: `{ action: "upload", displayText: "resume.pdf", value: <path> }` when the label maps to resume/CV/cover letter and the path exists. Not locked (nothing leaves the machine until Submit).
-- Accept (one Tab): `AXPress` the button, wait up to 3 s for the open panel (an `AXSheet` or `AXWindow` with subrole `AXDialog` in the frontmost app containing an "Open"/"Choose"/"Upload" default button), then drive it with keystrokes posted as tagged-synthetic events: Cmd+Shift+G, wait for the "Go to" field, type the absolute path, Return (path resolves), wait for the field to disappear, Return (Open). Verify: the panel closed AND the page now shows the file name near the upload control (rescan; Greenhouse shows the file name and a remove "x"). On any failure: press Escape once to close the panel only if it is still open and it is ours, stop the walk, show the reason in the HUD.
-- While the panel is open the overlay shows the ghost file name over the panel and the HUD says "Picking resume.pdf". If the user presses any key themselves, abort the automation (never fight the user).
-- Never type a path into anything that is not the open panel's go-to field (check the focused element's role/window before every keystroke burst).
+## Work required before claiming the target
 
-## 4. Real form controls
+1. **Preserve Accessibility permission across development.** Implement and test a stable signed host with an external hot-swappable library, or adopt another signing/deployment approach that avoids re-granting after every build.
+2. **Build an agent-drivable diagnostic harness.** Add redacted AX-tree dumping and safe auto-Tab support that stops at locks and never posts Enter.
+3. **Capture real fixtures.** Save redacted AX structures from Greenhouse in at least Safari and Chrome, then add regression fixtures for capture, dropdowns and ordering.
+4. **Handle real comboboxes.** Open options lazily, select only an exact/high-confidence match and verify the displayed value. Close and skip on ambiguity.
+5. **Implement file upload safely.** Validate a fictional local resume path, drive only the expected open panel, verify the filename on the page and abort on any focus mismatch.
+6. **Run the safety rehearsal.** With a throwaway application and no submission, repeat the full walk three times in each claimed browser and record which controls were supported or skipped.
 
-Greenhouse's current boards are React: text inputs (work with AXValue set or fall back to typing), and **react-select comboboxes** for dropdowns (Country, location autocomplete, "Are you legally authorized...", custom questions).
+## File-upload target contract
 
-- Combobox accept: focus it, type the resolved option text (tagged-synthetic typing), wait for the listbox (`AXList`/`AXMenu`/role description "list box") to show options, pick the option whose text best matches (exact, then prefix, then the shared `matchOption` rules through the core) by arrow keys + Return or `AXPress` on the option, verify the displayed value. If no option matches well (score below 0.7), press Escape to close the list and skip the field (no ghost is better than a wrong ghost).
-- Options are usually not in the AX tree until the list opens: resolve lazily at accept time, and show the intended answer ("Yes", "Canada") as the ghost pill beforehand, from the fact value.
-- Location autocomplete (Google Places style): type the city, wait for suggestions, pick the first suggestion that starts with the typed city, verify.
-- Phone country pickers, date pickers: fill the plain text part only when it verifies; otherwise skip.
-- Checkbox groups ("How did you hear", consent): consent is never auto-checked.
-- Essay questions (`AXTextArea` or long-label text fields): streamed ghost text from `/v1/ghost-text` with page context taken from the AX tree (company = window title / first heading, role = heading, description = static text of the posting, capped at 2000 chars).
-- Ordering: reading order; the walk must scroll fields into view (`AXScrollToVisible` action when available, else focus which scrolls the web view) before drawing the ghost and before writing.
+If implemented, an upload ghost may use an absolute `resumePath`/`coverLetterPath` that exists and is readable, displaying only the filename. Accepting it may press the page's attach control, but it must type the path only while the focused element is the macOS open panel's go-to field. Any unexpected window, focus change or user keypress aborts the operation. Success requires both the panel closing and the page showing the expected filename.
 
-## 5. Works in any app
+## Real combobox target contract
 
-Same pipeline for Safari, Chrome, Arc, Firefox, Edge and native apps. Browser specifics: set `AXEnhancedUserInterface`/`AXManualAccessibility` for Chromium; Safari needs nothing; Firefox exposes its tree by default when an AX client connects. Record in the README which browsers were actually verified.
+For react-select/location controls, focus and type the intended option, wait for the exposed listbox, choose only an exact or high-confidence shared `matchOption` result, and verify the committed display value. If no option clears the threshold, close the list and skip the field. Phone/date controls receive the same write-then-verify rule.
 
-## 6. Fixtures and tests
+## Definition of done
 
-- Save redacted raw AX dumps of real forms (Greenhouse in Safari and in Chrome, Lever, Ashby if time) under `desktop/tests/fixtures/*.json` (structure and labels only, never values) and replay them through `GHFakeAXNode` so capture/mapping regressions are caught without a browser.
-- Unit tests for: upload detection and the open-panel state machine (with a fake panel + fake key poster), combobox flow, refusal rules (never Return on a locked target, never type outside the go-to field), autotab stop-at-lock.
-- A fictional resume PDF for the demo profile lives at `demo/fixtures/resume-alex-chen.pdf`.
+- The implemented files and Make targets match this document.
+- Redacted real-browser fixtures cover the controls claimed in the demo.
+- Automated tests prove no Return/Enter can reach a locked target and no path can be typed outside the expected open panel.
+- Three non-submitting live rehearsals succeed in every browser named in the README.
+- A fallback recording exists.
+
+Until then, use the local `/apply` demo as the verified form walkthrough and describe Desktop as a tested native prototype, not a completed real-world Greenhouse agent.

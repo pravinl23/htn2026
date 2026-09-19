@@ -8,6 +8,8 @@ The single most important rule: **`main` must always contain a working, demoable
 
 Read `PLAN.md` (what to build, in order), `PROGRESS.md` (what previous runs did), and `MORNING.md` (what Pravin will read when he wakes up) before doing anything.
 
+**Current boundary:** the Chrome extension only implements the offline form walk. Server prediction/text/loop/executor services and shared loop logic exist, but the extension does not consume them. The immediate milestone is the invoice-loop vertical slice named at the top of `PLAN.md`; do not infer that a module listed in the target architecture below already exists. `MORNING.md` is the authoritative handoff.
+
 ## The product
 
 Ghost predicts your next action anywhere in the browser (and later the OS) and shows it as a translucent "ghost": a ghost cursor gliding onto the button or field you are about to use, and gray ghost text inside the field you are about to fill. Pressing **Tab** accepts it. Example: open a job application, the ghost cursor is already sitting on the first field with your name ghosted in, and Tab, Tab, Tab fills the whole form.
@@ -37,6 +39,7 @@ server/      Node 22 + TypeScript (Hono) prediction service on http://localhost:
   src/routes/      /v1/health, /v1/predict/form, /v1/predict/next, /v1/ghost-text, /v1/profile/extract, /v1/loop/synthesize, /v1/metrics
 demo/        Local demo sites served on http://localhost:5173 (job application, mail, calendar, invoices, sheet)
 e2e/         Playwright tests that load the built extension into Chromium and drive the demo sites
+desktop/     Objective-C macOS form agent (separate Makefile/tests; no loop support yet)
 docs/        README assets, architecture diagram, recorded demo videos (docs/media)
 ```
 
@@ -93,14 +96,14 @@ Many sites (React, Workday) ignore programmatic value changes. Set values with t
 1. Run `date` and note the start time. Each run gets about 50 minutes of wall clock because the next scheduled run starts an hour later.
 2. If the latest PROGRESS.md entry is marked IN PROGRESS and started less than 55 minutes ago, another run is active: add a one-line note and stop.
 3. Add a new PROGRESS.md entry marked IN PROGRESS, commit, push.
-4. Work PLAN.md items in order. For each: implement, test, check the box in PLAN.md, commit, pull with rebase, push.
+4. Work the explicit **Top priority** in PLAN.md first, then remaining unchecked items in dependency order. For each: implement, test, check the box in PLAN.md, commit, pull with rebase, push.
 5. If an item fights you for more than about 15 minutes, put it behind a flag or revert it, write down why, and move on.
 6. At about 45 minutes, stop starting new items. Run all tests, finalize your PROGRESS.md entry (DONE, what changed, test status, what is next), update MORNING.md, commit, push.
 7. If PLAN.md is complete, work the Stretch section, then polish, harden, and add tests. Never idle.
 
 ## When keys or services are missing
 
-Use the fallback provider, keep building, and add a clear line to MORNING.md such as "Add AI_GATEWAY_API_KEY to enable Jev; everything else already works." Browserbase and Composio integrations should be real code behind a clean interface plus a stub that activates when their keys are missing.
+Use the fallback provider, keep building, and add a precise line to MORNING.md that says which live integration is unavailable and which local path still works. Do not say "everything else works" unless the complete user flow has been verified. Browserbase and Composio integrations should remain behind clean interfaces plus stubs when their keys are missing.
 
 ## Keys (environment variables)
 
@@ -108,10 +111,13 @@ Use the fallback provider, keep building, and add a clear line to MORNING.md suc
 AI_GATEWAY_API_KEY=      # Vercel AI Gateway, used for Jev (model typesafe-ai/jev)
 TYPESAFE_API_KEY=        # optional, direct TypeSafe access once off the waitlist
 OPENAI_API_KEY=          # free-text ghost text, resume extraction, loop generalization
+XAI_API_KEY=             # optional OpenAI-compatible text/decision fallback
 BROWSERBASE_API_KEY=     # optional, parallel loop execution (stage 8)
 BROWSERBASE_PROJECT_ID=  # optional
 COMPOSIO_API_KEY=        # optional, compile loops to API calls (stage 8)
 ```
+
+`.env.example` is the authoritative full list for executor/account/public-URL configuration.
 
 ## Code style
 

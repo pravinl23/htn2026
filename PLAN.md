@@ -1,6 +1,16 @@
 # Ghost build plan
 
-Work top to bottom. Check a box only when the item works and its tests pass. Push after every checked box.
+This is the implementation ledger. Check a box only when the item works on its intended user path and its tests pass. A server route or pure helper alone does not make a feature complete; partial work is called out explicitly below.
+
+## Current snapshot — 2026-09-19 18:10 UTC
+
+- **Demoable now:** browser form capture, offline prediction, ghost overlay, Tab/Escape/hold-Tab interaction, verified React-safe writes, sensitive-field exclusion, locked actions, settings/profile editing, and the `/apply` walkthrough.
+- **Implemented but not connected to the extension:** server form prediction, streaming ghost text, profile extraction, next-action prediction, metrics, loop synthesis, Browserbase/Composio executor services, and the shared trace/loop/memory engines.
+- **Demo surfaces only:** invoices/sheet and mail/calendar are polished and smoke-tested, but Ghost does not yet drive those flows.
+- **Native:** the Objective-C macOS form agent is implemented and has 167 passing tests; real Accessibility-permission/browser rehearsal and extension-presence coordination remain unverified/incomplete.
+- **Top priority:** the canonical invoice-loop vertical slice: record two runs, detect/synthesize, preview 48 remaining items, flag one intentional exception, confirm once, execute and verify 47, then cover the whole path with e2e and a fallback video.
+- **Verified baseline:** build and typecheck pass; 1,007 JS/TS tests pass (plus 2 skipped), 167 desktop tests pass, 19 extension e2e tests pass, and the demo smoke script passes 95 checks.
+- **Setup debt:** the lockfile and `extension/package.json` disagree about `pdfjs-dist`, so frozen install currently fails.
 
 Demo profile (fictional, use everywhere, never real data):
 Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University of Waterloo, BCS Computer Science, expected graduation April 2028, github.com/alexchen-dev, linkedin.com/in/alexchen-dev, alexchen.dev, authorized to work in Canada: yes, requires sponsorship: no.
@@ -33,12 +43,13 @@ Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University o
 ## Stage 2: Prediction service and Jev
 
 - [x] `server/` with Hono on Node 22: `GET /v1/health` reports the active provider; CORS limited to the extension and localhost.
-- [ ] Provider interface and all four providers with the precedence from CLAUDE.md. Heuristic provider moves from the extension to the server (keep a tiny offline fallback in the extension for when the server is down).
+- [x] Provider interface and all four server providers with the precedence from CLAUDE.md, including timeout/fallback behavior and validation.
+- [ ] Make the server the extension's primary form predictor while retaining the current in-process heuristic as the offline fallback.
 - [x] `POST /v1/predict/form`: input is fields (signature, label, type, options) plus profile fact keys; ONE batched decision call with a choice question per field over `[...factKeys, "needs_text", "none"]`; output is assignments with confidence, provider name, and latency.
 - [ ] Extension calls the server once per form, caches the mapping per origin plus form signature, and makes zero calls on repeat visits.
-- [ ] Confidence gating with a threshold setting in the options page.
-- [ ] Small debug HUD (toggleable): active provider, last latency, cache hit or miss.
-- [ ] Tests: provider adapters with mocked HTTP; a contract test that checks the exact Jev request shape; `pnpm test:live` hits the real provider when keys exist and prints latency.
+- [x] Confidence gating with a threshold setting in the options page.
+- [x] Toggleable HUD component with provider, latency, cache state and keystrokes saved. It currently reports only the offline heuristic because server wiring is missing.
+- [x] Provider adapter tests, exact Jev request contract tests, and key-gated live provider tests.
 
 **Acceptance:** with no keys everything still works through the heuristic provider; with keys the live test passes and logs latency.
 
@@ -51,38 +62,44 @@ Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University o
 
 ## Stage 4: Resume import and learning
 
-- [ ] Options page: paste resume text or upload a PDF (pdf.js) and call `POST /v1/profile/extract` (LLM) to propose facts; user reviews and saves.
+- [x] Server `POST /v1/profile/extract` with LLM and deterministic regex fallback, plus fixture and live tests.
+- [ ] Options page: paste resume text or upload a PDF and call `POST /v1/profile/extract`; user reviews and saves the proposed facts.
 - [ ] Opt-in learning: values the user types manually into recognized fields become new facts; answers to essay questions are saved as past answers.
-- [ ] Tests for extraction mapping with a fictional sample resume in `demo/fixtures/`.
+- [x] Fixture-backed extraction mapping tests using the fictional resume in `demo/fixtures/`.
 
 ## Stage 5: Next-action prediction beyond forms
 
-- [ ] Action trace recorder in the background worker (clicks, typing, navigation, tab switches) as normalized events with element signatures; sensitive values masked.
-- [ ] `POST /v1/predict/next`: recent actions plus up to 60 candidate elements; one choice question over candidates plus `none`; returns candidate and confidence.
+- [x] Shared normalized trace types, filtering/shape logic, and episodic-memory retrieval.
+- [ ] Action trace recorder in the extension/background worker (clicks, typing, navigation, tab switches); sensitive values masked.
+- [x] Server `POST /v1/predict/next`: recent actions plus up to 60 candidate elements; one choice question over candidates plus `none`; returns candidate and confidence.
+- [ ] Extension client for `/v1/predict/next` and candidate capture.
 - [ ] Ghost cursor for clicks on buttons and links; Tab clicks unless locked.
-- [ ] Episodic memory: store (state summary, action) pairs; retrieve the most similar past pairs and include them in the decision state.
-- [x] `demo/mail` and `demo/calendar`: an email asks "can we meet Thursday afternoon?"; flow is open calendar, pick the free Thursday slot, return to the email, reply is drafted with that time, Send is locked.
+- [ ] Connect the implemented episodic-memory logic to recorded extension actions and prediction requests.
+- [x] `demo/mail` and `demo/calendar`: an email asks "can we meet Thursday afternoon?"; a user can open the calendar, pick the free Thursday slot, return to the email, fill the React-controlled reply, and reach locked Send. Ghost orchestration/drafting is not part of this checkbox.
 - [ ] E2E for that cross-page flow using only Tab presses (and a final explicit confirm that the test does NOT press).
 
 ## Stage 6: Do it twice, Ghost does the rest
 
 - [x] `demo/invoices`: an inbox of 50 invoice emails, each opening an invoice view with vendor, invoice number, date, total; `demo/sheet`: a simple spreadsheet grid; each email has a "Reply received" action.
-- [ ] Loop detector: find a repeated action subsequence (3 or more steps) that occurred twice; align the two runs; separate constant steps from variable ones.
-- [ ] Generalizer: infer the iterator (the next unhandled list item) and where each variable value comes from (text on the source page). Output a JSON program. Use the LLM only when heuristics fail.
+- [x] Pure loop detector: find a repeated action subsequence (3 or more steps) that occurred twice; reject redos and noise.
+- [x] Pure aligner/generalizer: infer the iterator, constants, variable sources and transforms; output a JSON program and expose unresolved steps.
+- [x] Server `/v1/loop/synthesize`: use the LLM only for unresolved mappings and accept only code-verified answers.
 - [ ] Preview grid: dry-run extraction for every remaining item, with confidence per row and low-confidence rows flagged.
 - [ ] Executor: visible mode with the ghost cursor moving; verification after each step; stop on mismatch; one batch confirmation listing irreversible effects.
-- [ ] Unit tests for alignment and synthesis on synthetic traces. E2E: perform two invoices manually, accept the proposal, confirm, and assert the sheet has 50 correct rows. Record `docs/media/stage6-loop.webm`.
+- [x] Extensive unit/adversarial tests for loop detection, alignment, synthesis, transforms and refusal behavior.
+- [ ] E2E: perform two invoices manually, accept the proposal, preview 48, explicitly confirm, complete 47 safe items, leave one intentional exception for review, and record `docs/media/stage6-loop.webm`.
 
 ## Stage 7: Metrics and calibration
 
-- [ ] Counters: ghosts shown, accepted, acceptance rate, keystrokes and clicks saved, p50 and p95 latency.
+- [x] Server-side latency/cache/client-counter aggregation and `/v1/metrics` routes.
+- [ ] Extension reporting for ghosts shown/accepted, acceptance rate, clicks saved and calibration pairs.
 - [ ] Calibration log of (confidence, accepted) and a reliability chart on a metrics page.
-- [ ] Demo HUD with a live "keystrokes saved" counter.
+- [x] Form HUD with a live per-walk keystrokes-saved counter. Loop-result metrics are still missing.
 
 ## Stage 8: Scale-out executors (stub when keys are missing)
 
-- [ ] Browserbase executor that runs loop items in parallel cloud browsers (`BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID`).
-- [ ] Composio compile path that maps known actions (send email, append sheet row) to API tool calls (`COMPOSIO_API_KEY`).
+- [x] Browserbase parallel executor, validation, cancellation, durability checks, SSRF protection and simulated fallback. Unit-tested only; no credentials/live run in the current checkout.
+- [x] Composio compile/execution path for sheet append and Gmail actions, confirmation tickets and simulated fallback. Mock-tested only; the live API contract remains unverified.
 - [ ] Execution mode selector in the preview grid (visible, background, parallel, API).
 
 ## Stage 9: Demo polish
@@ -96,5 +113,6 @@ Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University o
 
 - [ ] Hardening against saved HTML fixtures of real application forms (Greenhouse, Lever, Ashby, Workday) stored in `e2e/fixtures/`. Never submit real forms.
 - [ ] Terminal ghost spike: a zsh plugin that predicts the next command from history.
-- [ ] macOS spike: a small Swift helper that reads the accessibility tree of the frontmost app.
+- [x] Native macOS menu-bar form agent in Objective-C: AX capture, overlay, Tab state machine, verified writer, server prediction/free text, local cache and settings; 167 tests pass.
+- [ ] Live-verify the native agent in supported apps after granting Accessibility permission; implement the missing extension heartbeat and server `/v1/presence` route before running both clients together.
 - [ ] YouTube learning spike: turn a tutorial transcript into a step list Ghost can suggest.

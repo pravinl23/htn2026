@@ -2,6 +2,10 @@
 
 This file is the contract between modules. If you change a signature here, change every caller in the same commit.
 
+## Current integration boundary — 2026-09-19
+
+The browser extension currently implements the offline form walk only: `capture -> buildGhostsOffline -> controller -> overlay/execute`. It does not fetch the server, stream free text, record traces, predict next actions or orchestrate loops. The server and shared packages contain those later-stage services/pure engines, and Ghost Desktop independently consumes form prediction and ghost text. Read contracts below as implemented only where a corresponding source module exists; `docs/loops.md` marks the planned extension pieces explicitly.
+
 ## Packages
 
 | Package | Role |
@@ -11,6 +15,7 @@ This file is the contract between modules. If you change a signature here, chang
 | `server/` | Hono prediction service on `http://localhost:8787`. Keys live here, never in the extension. |
 | `demo/` | Vite + React demo sites on `http://localhost:5173`. `demo/public/apply-plain/index.html` is framework-free. |
 | `e2e/` | Playwright tests that load `extension/dist` into Chromium and drive the demo sites. |
+| `desktop/` | Separate Objective-C macOS menu-bar form agent. It has its own Makefile/tests and is not part of the pnpm workspace or root verification gate. |
 
 ## Extension content script (`extension/src/content/`)
 

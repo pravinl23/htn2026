@@ -137,8 +137,8 @@ export function isLockedActionProbe(probeJson: string): boolean {
 }
 
 // ---------- /v1/ghost-text facts ----------
-// Same allowlist and rules as extension/src/lib/messages.ts (`TEXT_FACT_KEYS`, `textFacts`). Ported rather
-// than imported: that module also carries chrome message plumbing the desktop agent has no use for.
+// Desktop-only client allowlist for `/v1/ghost-text`. The Chrome extension has no server/text client yet;
+// when it gains one, move this policy into shared code instead of copying it again.
 // Contact details, LinkedIn, work authorization and sponsorship never leave the machine for a draft.
 const TEXT_FACT_KEYS: readonly string[] = [
   "fullName", "firstName", "lastName", "school", "degree", "major", "graduationDate", "location", "github", "website",
@@ -158,7 +158,8 @@ export function textFacts(profileJson: string): string {
 }
 
 // ---------- /v1/predict/form request (fact KEYS only, value-free fields) ----------
-// Same rules as `sanitizeFormRequest` / `toWireField` in extension/src/lib/messages.ts.
+// Desktop-only request sanitization. The Chrome extension has no `/v1/predict/form` client yet; keep a
+// future implementation aligned with these limits and preferably extract the policy into shared code.
 const FORM_LIMITS = { fields: 100, factKeys: 64, options: 50, id: 300, label: 500, name: 200, hint: 100, placeholder: 300 } as const;
 const FACT_KEY = /^[A-Za-z][\w.-]{0,63}$/;
 const WIRE_KINDS: ReadonlySet<string> = new Set<FieldKind>([

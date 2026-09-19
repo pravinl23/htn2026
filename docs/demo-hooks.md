@@ -5,7 +5,7 @@ Reference for e2e tests and extension work. Generated from the page builders' re
 
 ## Invoices, invoice view, sheet, reset
 
-Stage 6 item 1 (the `/invoices`, `/invoices/:id`, `/sheet` and `/reset` demo pages) is built. `pnpm --filter @ghost/demo typecheck`, `test` (74 passing) and `build` all pass. No git commands were run, no dependencies were added, and nothing outside my owned files was touched. Nothing was committed and the PLAN.md Stage 6 item 1 box is still unchecked (not my file).
+The `/invoices`, `/invoices/:id`, `/sheet` and `/reset` demo pages are built. At the 2026-09-19 audit, demo typecheck/build pass, all 74 demo unit tests pass, and the 95-check browser smoke suite passes. These pages expose the hooks below for future loop orchestration; the extension does not yet record or execute the invoice routine.
 
 I ran an isolated headless Playwright script against a temporary dev server on port 5199, which I stopped afterwards. It confirmed:
 - 50 inbox rows, with SPA navigation into an invoice.
@@ -108,7 +108,7 @@ Absolute paths are in `files`.
 
 ## Mail and calendar
 
-The mail and calendar demo is built: inbox → message → "Open calendar" → pick Thursday 2:30 PM → "Back to mail" → the picked-time chip shows above the reply box, and "Send reply" is the locked action. Demo typecheck, unit tests (74 passing, 33 of them new) and build all pass. I clicked through the whole flow in a browser, including `?reset=1`, a simulated cross-tab `storage` event, and setting the textarea through the native value setter, with no console errors and no sideways page scroll at 375px (the week grid scrolls inside its own box). No git commands were run and no dependencies were added.
+The mail and calendar demo is built: inbox → message → "Open calendar" → pick Thursday 2:30 PM → "Back to mail" → the picked-time chip shows above the reply box, and "Send reply" is the locked action. The 2026-09-19 smoke audit covers reset, cross-tab storage, native-setter textarea writes, sending the fictional local reply, console errors and 375px layouts. Ghost does not yet choose the slot, navigate back or draft the reply itself.
 
 **Pages**
 - `/mail` lists 8 fictional emails, ids `msg-1001` to `msg-1008`, all from `@example.com` senders. `msg-1001` is from Priya Nair with subject "Quick chat Thursday afternoon?". No subject contains a word Ghost's lock rules treat as irreversible, so opening an email never looks locked.
@@ -158,7 +158,7 @@ window.__mail = { pickedSlot: { day, start, end, label } | null, sentReplies: Re
 
 ## Browser verification
 
-The demo pages work in a real browser without the extension. `e2e/scripts/smoke-demo.mjs` passes 95 checks against the production preview on :5173 and the same 95 against a Vite dev server on :5197. The dev run adds StrictMode and React warnings. There were no console errors, React warnings, page errors, failed requests or 4xx responses on any page. Typecheck, unit tests (74 passing) and build pass after my edits. I ran no git commands and added no dependencies. Both servers I started are stopped. The Vite dev server on :5199 was already running when I started and I left it alone.
+The demo pages work in a real browser without the extension. At the 2026-09-19 audit, `e2e/scripts/smoke-demo.mjs` passed 95 checks against the production preview on :5173 with no console errors, warnings, page errors or failed requests. The script expects a demo server to be running; start `pnpm --filter @ghost/demo preview` first.
 
 Run it with `pnpm --filter @ghost/demo build && pnpm --filter @ghost/demo preview`, then `node e2e/scripts/smoke-demo.mjs`. Setting `BASE_URL=http://localhost:<port>` points it at a dev server instead. It runs headless and exits 1 on the first failed check. It writes 24 full-page PNGs to `e2e/test-results/smoke/` (gitignored; a Playwright test run wipes that folder).
 
