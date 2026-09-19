@@ -60,6 +60,8 @@ export interface ServerConfig {
   extensionId?: string;
   /** GHOST_EXECUTE_TOKEN: per-install secret a caller without an Origin (the desktop daemon) sends as X-Ghost-Token. Never logged. */
   executeToken?: string;
+  /** Optional, manual-only agent outcome capture. No automatic request/error instrumentation is enabled. */
+  sentry?: { dsn: string; environment: string; release?: string };
 }
 
 /** Every cloud session is billed, so BROWSERBASE_CONCURRENCY is clamped. Keep in step with MAX_CONCURRENCY in executors/browserbase.ts. */
@@ -132,6 +134,26 @@ function composioFromEnv(env: Env): ServerConfig["composio"] {
   };
 }
 
+function sentryFromEnv(env: Env): ServerConfig["sentry"] {
+  const raw = env.SENTRY_DSN;
+  if (!raw) return undefined;
+  try {
+    const dsn = new URL(raw);
+    if (!/^https?:$/.test(dsn.protocol) || !dsn.hostname || !dsn.username || dsn.password) return undefined;
+    const safe = (value: string | undefined, fallback?: string): string | undefined => {
+      const trimmed = value?.trim();
+      return trimmed && trimmed.length <= 100 && /^[A-Za-z0-9._/@-]+$/.test(trimmed) ? trimmed : fallback;
+    };
+    return {
+      dsn: dsn.toString(),
+      environment: safe(env.SENTRY_ENVIRONMENT, "development") ?? "development",
+      release: safe(env.SENTRY_RELEASE),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 /** Provider precedence: TypeSafe direct, Jev via AI Gateway, Baseten, LLM adapter (OpenAI / xAI), heuristic. Overridable for tests. */
 export function loadConfig(env: Env = process.env): ServerConfig {
   const llm = llmFromEnv(env);
@@ -161,5 +183,6 @@ export function loadConfig(env: Env = process.env): ServerConfig {
     extensionId: /^[a-p]{32}$/.test(env.GHOST_EXTENSION_ID ?? "") ? env.GHOST_EXTENSION_ID : undefined,
     // Short secrets are ignored rather than accepted: a guessable token is worse than none, because it looks like protection.
     executeToken: (env.GHOST_EXECUTE_TOKEN ?? "").length >= 16 ? env.GHOST_EXECUTE_TOKEN : undefined,
+    sentry: offline ? undefined : sentryFromEnv(env),
   };
 }
