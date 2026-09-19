@@ -13,6 +13,8 @@
   "dependencies": {
     "@ghost/shared": "workspace:*",
     "@hono/node-server": "^1.13.8",
+    "@typesafe-ai/sdk": "^0.6.0",
+    "ai": "^7.0.107",
     "hono": "^4.7.2"
   },
   "devDependencies": {

@@ -1,0 +1,39 @@
+Alex Chen
+Waterloo, ON | +1 519 555 0142 | alex.chen.dev@example.com
+github.com/alexchen-dev | linkedin.com/in/alexchen-dev | alexchen.dev
+
+SUMMARY
+Second-year Computer Science student who likes building small, fast developer tools and the infrastructure behind them. Looking for a software engineering internship.
+
+EDUCATION
+University of Waterloo — Waterloo, ON
+BCS Computer Science | Expected graduation: April 2028
+Co-op program. Relevant courses: Data Structures and Algorithms, Operating Systems, Databases, Computer Networks.
+
+EXPERIENCE
+Software Engineering Intern, Maple Lantern Labs (fictional) — Toronto, ON
+May 2026 - Aug 2026
+- Built a TypeScript service that batches webhook deliveries and retries failures with backoff, replacing a nightly cron script.
+- Added structured logging and a latency dashboard so the team could see slow requests per endpoint.
+- Wrote integration tests with Playwright that run on every pull request.
+
+Backend Developer Intern, Kestrel Yard Software (fictional) — Waterloo, ON
+Sept 2025 - Dec 2025
+- Implemented a PostgreSQL-backed job queue in Go with idempotent workers and a small admin page.
+- Migrated three internal scripts from Python 2 to Python 3 and added unit tests for each.
+
+PROJECTS
+TabTrail — browser extension
+- A Chrome extension in TypeScript that records the pages visited during a research session and exports a tidy reading list.
+- Uses a shadow DOM overlay so it never clashes with page styles.
+
+Pantry Planner — web app
+- A React and Hono app that suggests meals from what is already in the fridge; recipes are stored in SQLite.
+- Deployed with Docker; end-to-end tests run in GitHub Actions.
+
+SKILLS
+Languages: TypeScript, Python, Go, SQL, C++
+Tools: React, Node.js, Hono, PostgreSQL, Docker, Playwright, Git
+
+INTERESTS
+Hackathons, bouldering, and film photography.

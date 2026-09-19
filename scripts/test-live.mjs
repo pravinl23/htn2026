@@ -1,4 +1,5 @@
 // Runs live provider tests only when at least one real key is present.
+// Extra arguments go to vitest, e.g. `pnpm test:live decision` runs only the decision test (one real call).
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 
@@ -15,5 +16,5 @@ if (present.length === 0) {
   process.exit(0);
 }
 console.log("test:live using keys: " + present.join(", "));
-const r = spawnSync("pnpm", ["--filter", "@ghost/server", "test:live"], { stdio: "inherit", env: process.env });
+const r = spawnSync("pnpm", ["--filter", "@ghost/server", "test:live", ...process.argv.slice(2)], { stdio: "inherit", env: process.env });
 process.exit(r.status ?? 1);

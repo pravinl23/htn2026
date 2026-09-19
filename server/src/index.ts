@@ -1,7 +1,7 @@
-import { serve } from "@hono/node-server";
-import { createApp } from "./app";
+import { loadConfig } from "./config";
+import { startServer } from "./listen";
 
-const port = Number(process.env.PORT ?? 8787);
-serve({ fetch: createApp().fetch, port }, () => {
-  console.log(`[ghost] prediction server on http://localhost:${port}`);
+const config = loadConfig();
+startServer(config, (port) => {
+  console.log(`[ghost] prediction server on http://${config.host}:${port} (decisions: ${config.decisionProvider}, text: ${config.textProvider})`);
 });
