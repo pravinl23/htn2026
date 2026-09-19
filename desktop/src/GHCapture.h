@@ -2,8 +2,9 @@
 // extension/src/content/capture.ts). Pure logic over GHAXNode, so it is tested with fake trees.
 //
 // Walk: breadth-first, bounded (nodes, depth, wall clock). When a bound trips the walk stops and the
-// fields found so far are returned. Browser chrome (toolbars, menus, the tab strip) is never entered;
-// when the window has a web area, only fields inside a web area are returned.
+// fields found so far are returned. Browser chrome is excluded from results; when the window has a
+// web area, only fields inside a web area are returned. Safari may place that web area below AXTabGroup,
+// so the walker can traverse a tab group while still refusing its controls as page candidates.
 //
 // Safety: AXSecureTextField is never captured, and neither is anything whose naming sources trip the
 // sensitive rules (not even its label). Values never reach a signature, a label or a log.

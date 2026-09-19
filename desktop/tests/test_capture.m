@@ -789,3 +789,70 @@ GH_TEST(accessibility_untrusted_state_attempts_nothing) {
     GH_ASSERT_FALSE(accessibility.running);
     [accessibility stop]; // idempotent
 }
+
+// The redacted harness fixture preserves Safari's AXTabGroup > ... > AXWebArea nesting.
+static GHFakeAXNode *NodeFromHarnessFixture(NSDictionary *raw) {
+    NSDictionary *rect = raw[@"rect"];
+    GHFakeAXNode *node = Node(raw[@"role"], nil, [rect[@"x"] doubleValue], [rect[@"y"] doubleValue],
+                            [rect[@"width"] doubleValue], [rect[@"height"] doubleValue]);
+    NSDictionary *properties = @{ @"title": @"title", @"subrole": @"subrole", @"description": @"axDescription",
+                                  @"roleDescription": @"roleDescription", @"identifier": @"identifier", @"text": @"value" };
+    for (NSString *key in properties) {
+        if ([raw[key] isKindOfClass:NSString.class]) [node setValue:raw[key] forKey:properties[key]];
+    }
+    if (raw[@"enabled"]) node.enabled = [raw[@"enabled"] boolValue];
+    node.required = [raw[@"required"] boolValue];
+    for (NSDictionary *child in raw[@"children"]) [node addChild:NodeFromHarnessFixture(child)];
+    return node;
+}
+
+GH_TEST(capture_safari_tab_group_discovers_page_without_returning_chrome) {
+    GHFakeAXNode *window = Node(@"AXWindow", nil, 0, 0, 800, 600);
+    GHFakeAXNode *tabs = [window addChild:Node(@"AXTabGroup", nil, 0, 0, 800, 600)];
+    [tabs addChild:Radio(@"Private browser tab", YES, 0, 0)];
+    [tabs addChild:Node(@"AXTextField", @"Browser search", 0, 40, 200, 30)];
+    GHFakeAXNode *scroll = [tabs addChild:Node(@"AXScrollArea", nil, 0, 100, 800, 500)];
+    GHFakeAXNode *web = [scroll addChild:Node(@"AXWebArea", nil, 0, 100, 800, 500)];
+    [web addChild:Node(@"AXTextField", @"First name", 10, 120, 300, 30)];
+    [web addChild:Node(@"AXButton", @"Submit application", 10, 170, 300, 30)];
+
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:window];
+    GH_ASSERT(result.sawWebArea);
+    GH_ASSERT_EQUAL_INT(result.fields.count, 2);
+    GH_ASSERT(FieldLabelled(result, @"First name") != nil);
+    GH_ASSERT(FieldLabelled(result, @"Submit application").locked);
+    GH_ASSERT_FALSE([DumpJSON(result) containsString:@"Private browser tab"]);
+    GH_ASSERT_FALSE([DumpJSON(result) containsString:@"Browser search"]);
+
+    GHCapture *limited = Capture([[GHFakeSafety alloc] init]);
+    limited.limits.maxNodes = 4; // stop before AXWebArea: provisional browser controls must fail closed
+    GHCaptureResult *partial = [limited captureWindow:window];
+    GH_ASSERT(partial.partial);
+    GH_ASSERT_EQUAL_INT(partial.fields.count, 0);
+
+    // AXTabGroup is also a normal native-app container. A complete walk with no web area keeps it.
+    GHFakeAXNode *nativeWindow = Node(@"AXWindow", nil, 0, 0, 800, 600);
+    GHFakeAXNode *nativeTabs = [nativeWindow addChild:Node(@"AXTabGroup", nil, 0, 0, 800, 600)];
+    [nativeTabs addChild:Node(@"AXTextField", @"Project title", 10, 40, 300, 30)];
+    GHCaptureResult *nativeResult = [Capture([[GHFakeSafety alloc] init]) captureWindow:nativeWindow];
+    GH_ASSERT_FALSE(nativeResult.sawWebArea);
+    GH_ASSERT(FieldLabelled(nativeResult, @"Project title") != nil);
+}
+
+GH_TEST(capture_real_greenhouse_safari_fixture_reaches_form) {
+    NSString *path = [@(__FILE__).stringByDeletingLastPathComponent stringByAppendingPathComponent:@"fixtures/greenhouse-safari-viam.json"];
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    GH_ASSERT(data != nil);
+    if (!data) return;
+    NSDictionary *fixture = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+    GHCapture *capture = Capture([[GHFakeSafety alloc] init]);
+    capture.keepsScrolledOutFields = YES;
+    capture.clock = ^NSTimeInterval { return 0; }; // deterministic traversal budget for a saved tree
+    GHCaptureResult *result = [capture captureWindow:NodeFromHarnessFixture(fixture[@"tree"])];
+    GH_ASSERT(result.sawWebArea);
+    GH_ASSERT_FALSE(result.partial);
+    GH_ASSERT(FieldLabelled(result, @"First Name") != nil);
+    GH_ASSERT(FieldLabelled(result, @"Last Name") != nil);
+    GH_ASSERT(FieldLabelled(result, @"Email") != nil);
+    GH_ASSERT(FieldLabelled(result, @"Submit application").locked);
+}

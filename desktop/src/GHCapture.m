@@ -40,7 +40,7 @@ static NSSet<NSString *> *GHAlwaysSkippedRoles(void) {
 /// Browser and app chrome. Inside a web area the same roles are page content (an ARIA tablist) and are walked.
 static NSSet<NSString *> *GHChromeRoles(void) {
     static NSSet *roles; static dispatch_once_t once;
-    dispatch_once(&once, ^{ roles = GHSet(@[ @"AXToolbar", @"AXTabGroup" ]); });
+    dispatch_once(&once, ^{ roles = GHSet(@[ @"AXToolbar" ]); });
     return roles;
 }
 
@@ -250,6 +250,9 @@ static BOOL GHIsValueKind(NSString *kind) {
 @property (nonatomic) NSUInteger indexInParent;
 @property (nonatomic) NSUInteger depth;
 @property (nonatomic) BOOL insideWebArea;
+/// Safari puts its AXWebArea below an outer AXTabGroup. Until a complete walk proves that the tab
+/// group belongs to a native app, candidates below it are provisional browser chrome.
+@property (nonatomic) BOOL insideUnresolvedTabGroup;
 @property (nonatomic) CGRect webAreaFrame;   // document box of the nearest web area
 @property (nonatomic) CGRect viewportFrame;  // what the user can see of it
 @property (nonatomic, strong, nullable) GHWalkEntry *radioGroup; // nearest AXRadioGroup ancestor
@@ -943,10 +946,15 @@ static void GHRadioSeat(GHWalkEntry *radio, GHWalkEntry *__strong *container, NS
         if (!entry.insideWebArea && [GHChromeRoles() containsObject:role]) continue;
         if (GHIsSecure(node)) continue;
 
+        if (!entry.insideWebArea && [role isEqualToString:@"AXTabGroup"]) {
+            entry.insideUnresolvedTabGroup = YES;
+        }
+
         if ([role isEqualToString:kRoleWebArea]) {
             result.sawWebArea = YES;
             if (!result.webAreaNode) result.webAreaNode = node;
             entry.insideWebArea = YES;
+            entry.insideUnresolvedTabGroup = NO;
             entry.webAreaFrame = node.frame;
             CGRect viewport = GHHasBox(windowFrame) ? windowFrame : CGRectZero;
             CGRect holder = entry.parent ? entry.parent.node.frame : CGRectZero;
@@ -987,6 +995,7 @@ static void GHRadioSeat(GHWalkEntry *radio, GHWalkEntry *__strong *container, NS
             next.indexInParent = index++;
             next.depth = entry.depth + 1;
             next.insideWebArea = entry.insideWebArea;
+            next.insideUnresolvedTabGroup = entry.insideUnresolvedTabGroup;
             next.webAreaFrame = entry.webAreaFrame;
             next.viewportFrame = entry.viewportFrame;
             next.radioGroup = entry.radioGroup;
@@ -1008,6 +1017,12 @@ static void GHRadioSeat(GHWalkEntry *radio, GHWalkEntry *__strong *container, NS
     if (result.sawWebArea) {
         [candidates filterUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(GHCandidate *candidate, NSDictionary *bindings) {
             return candidate.entry.insideWebArea;
+        }]];
+    } else if (result.stop != GHCaptureStopNone || depthLimited) {
+        // A partial browser walk may stop before Safari's nested AXWebArea. Never mistake tab-strip,
+        // address/search or other provisional controls for a native form when discovery is incomplete.
+        [candidates filterUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(GHCandidate *candidate, NSDictionary *bindings) {
+            return !candidate.entry.insideUnresolvedTabGroup;
         }]];
     }
 
