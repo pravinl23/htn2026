@@ -113,5 +113,6 @@ Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University o
 - [ ] Hardening against saved HTML fixtures of real application forms (Greenhouse, Lever, Ashby, Workday) stored in `e2e/fixtures/`. Never submit real forms.
 - [ ] Terminal ghost spike: a zsh plugin that predicts the next command from history.
 - [x] Native macOS menu-bar form agent in Objective-C: stable host, AX capture, overlay, Tab state machine, verified writer, server prediction/free text, local cache, settings and harness; 201 tests pass.
+- [ ] Ghost Desktop on a REAL Greenhouse application in Safari (Pravin's stream): capture into Safari's tab group (done), resume upload through the macOS open panel, react-select comboboxes, EEO and unknown-authorization questions left alone, live `ghostctl autotab` run that ends parked on the locked Submit, recording in `docs/media/`.
 - [x] Extension heartbeat and server `/v1/presence` coordination are implemented. Continue real-app compatibility rehearsals with the trusted stable host.
 - [ ] YouTube learning spike: turn a tutorial transcript into a step list Ghost can suggest.
