@@ -5,3 +5,6 @@ export * from "./sensitive";
 export * from "./locks";
 export * from "./heuristic";
 export * from "./resolve";
+export * from "./trace";
+export * from "./loop";
+export * from "./memory";
