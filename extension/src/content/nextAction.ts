@@ -107,6 +107,10 @@ export function collectCandidates(doc: Document = document, max: number = NEXT_M
     const list = listRefOf(el);
     if (list && !sensitiveText(list.listSignature)) candidate.group = `LIST(${list.listSignature})`;
     let priority = nextCandidatePriority(candidate);
+    // A category selector and its adjacent query input can both be labelled "Search". Prefer the control the user
+    // can actually type a query into without baking in any site's markup.
+    if (["text", "textarea"].includes(field.kind)) priority += 12;
+    if (kind === "link" && (el.querySelector('h1, h2, h3, h4, h5, h6, [role="heading"]') || el.closest('h1, h2, h3, h4, h5, h6, [role="heading"]'))) priority += 30;
     if (el.closest('dialog, [role="dialog"], [aria-modal="true"]')) priority += 55;
     if (el.closest('main, [role="main"], article')) priority += 22;
     if (el.closest("form")) priority += 18;

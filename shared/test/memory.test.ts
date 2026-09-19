@@ -161,15 +161,19 @@ describe("rankNextCandidates", () => {
     { id: "logo", kind: "link", label: "Store home", locked: false },
     { id: "search", kind: "field", label: "Search products", locked: false },
     { id: "order", kind: "button", label: "Place your order", locked: true },
+    { id: "carousel", kind: "link", label: "Carousel next slide", locked: false },
   ];
 
   it("chooses meaningful task controls on cold start and keeps a locked final action eligible", () => {
-    expect(rankNextCandidates(cold).map((candidate) => candidate.id)).toEqual(["search", "order", "logo"]);
+    expect(rankNextCandidates(cold).map((candidate) => candidate.id)).toEqual(["search", "order", "carousel", "logo"]);
   });
 
   it("moves from a search action into a changing result group and from play into viewing mode", () => {
     const results: NextCandidate[] = [
       { id: "search", kind: "field", label: "Search", locked: false },
+      { id: "next-page", kind: "link", label: "Next page", locked: false, group: "LIST(pagination)" },
+      { id: "filter", kind: "link", label: "Apply the filter Brand to narrow results", locked: false, group: "LIST(filters)" },
+      { id: "promotion", kind: "link", label: "Buy More, Save More", locked: false, group: "LIST(filters)" },
       { id: "result", kind: "link", label: "Unseen result", locked: false, group: "LIST(results)" },
     ];
     expect(rankNextCandidates(results, { type: "input", label: "Search", signature: "search" })[0]?.id).toBe("result");

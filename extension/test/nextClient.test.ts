@@ -145,6 +145,19 @@ describe("episodic memory answers first, with zero network", () => {
     expect(await ask(client)).toMatchObject({ ok: true, candidateId: OPEN_CALENDAR, confidence: 0.65, provider: "memory" });
   });
 
+  it("advances from a just-used search field into results after navigation instead of repeating search", async () => {
+    const client = makeClient();
+    await record("input", "/", target("search-field", "Search catalog", "text"), "wireless keyboard");
+    await record("navigate", "/s");
+    const resultCandidates: NextCandidate[] = [
+      { id: "search-field", kind: "field", label: "Search catalog", locked: false },
+      { id: "new-result", kind: "link", label: "A product not seen before", locked: false, group: "LIST(result-grid)" },
+    ];
+    expect(await askOn(client, ORIGIN, "/s", resultCandidates, TAB)).toMatchObject({
+      ok: true, candidateId: "new-result", confidence: 0.25, provider: "memory",
+    });
+  });
+
   it("keeps the state per tab: another tab's actions in between do not hide the memory", async () => {
     const client = makeClient();
     await openInbox();

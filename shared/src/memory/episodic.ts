@@ -167,11 +167,12 @@ function findCandidate(action: EpisodicAction, candidates: readonly NextCandidat
 
 const POSITIVE_INTENT = [
   /\b(search|find|look up|browse|discover)\b/,
-  /\b(continue|next|proceed|checkout|place (?:the |your )?order|confirm|pay|purchase|submit|send|post|upload|save|finish|done|apply|book|reserve)\b/,
+  /\b(continue|next|proceed|checkout|place (?:the |your )?order|add(?: [a-z]+){0,3} to (?:the )?cart|go to (?:the )?cart|cart|buy(?: it)? now|confirm|pay|purchase|submit|send|post|upload|save|finish|done|apply|book|reserve)\b/,
   /\b(play|watch|open|start|view|read|full ?screen|expand)\b/,
 ];
 const NEGATIVE_INTENT = /\b(back|cancel|close|dismiss|delete|remove|sign ?out|log ?out|unsubscribe|clear|reset)\b/;
 const CHROME_INTENT = /\b(home|logo|account|profile|settings|help|menu|navigation)\b/;
+const PASSIVE_NAVIGATION = /\b(carousel|slideshow|previous slide|next slide|previous page|next page|apply (?:the )?filter|narrow results|sort by|buy more[, ]+save more)\b/;
 
 export interface PreviousCandidateAction {
   type?: string;
@@ -189,6 +190,7 @@ export function nextCandidatePriority(candidate: NextCandidate, previous?: Previ
   if (candidate.group) score += 8;
   if (NEGATIVE_INTENT.test(text)) score -= 90;
   if (CHROME_INTENT.test(text)) score -= 30;
+  if (PASSIVE_NAVIGATION.test(text)) score -= 90;
   const previousLabel = previous?.label?.toLowerCase() ?? "";
   if (previous?.signature === candidate.id || (previousLabel !== "" && previousLabel === candidate.label.toLowerCase())) score -= 120;
   // After committing a discovery field, advance into its result group instead of suggesting the same field again.

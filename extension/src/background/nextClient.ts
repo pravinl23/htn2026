@@ -10,7 +10,7 @@
 // number in a path stays home). Memory pairs carry no origin, so exact and recent-site recall only count when this
 // origin's own trace proves that the user performed that action in that recorded state.
 import { EPISODIC_MAX_PAIRS, EPISODIC_TOP_K, NONE, actionFromEvent, actionKey, filterNoise, isSensitive, normalizeUrl, predictFromMemory, predictFromRecentSiteMemory, rankNextCandidates, stateSummary } from "@ghost/shared";
-import type { EpisodicPair, MemoryPrediction, NextCandidate, NormalizedUrl, TraceEvent } from "@ghost/shared";
+import type { EpisodicPair, FieldKind, MemoryPrediction, NextCandidate, NormalizedUrl, TraceEvent } from "@ghost/shared";
 import { isLoopMessage, sanitizeNextCandidates } from "../lib/loopMessages";
 import type { LoopMessageOf, NextPredictionReply } from "../lib/loopMessages";
 import { getSettings } from "../lib/storage";
@@ -217,6 +217,11 @@ function senderOrigin(sender: LoopSender): string | null {
   }
 }
 
+function candidateKind(kind: FieldKind): NextCandidate["kind"] {
+  if (kind === "button" || kind === "link") return kind;
+  return "field";
+}
+
 /** Resolves with the promise's value, or undefined once `ms` passed. The timer never outlives the race. */
 function within<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -250,7 +255,26 @@ export function createNextClient(deps: NextClientDeps): NextClient {
     // Large SPAs rarely recreate the exact last-three-action state. Fall back to what this user did most recently
     // on this origin when that target is available now; evidence prevents another website's memory from entering.
     const recentHere = evidence.size === 0 ? [] : learnedHere(await deps.memory.recent(EPISODIC_MAX_PAIRS), evidence);
-    if (pick.candidateId === NONE) pick = predictFromRecentSiteMemory(candidates, recentHere);
+    if (pick.candidateId === NONE) {
+      const recentPick = predictFromRecentSiteMemory(candidates, recentHere);
+      const clean = filterNoise(tabEvents);
+      let lastTargetIndex = -1;
+      for (let i = clean.length - 1; i >= 0; i--) {
+        if (clean[i]?.target) {
+          lastTargetIndex = i;
+          break;
+        }
+      }
+      const lastTarget = lastTargetIndex >= 0 ? clean[lastTargetIndex]?.target : undefined;
+      const repeated = candidates.find((candidate) => candidate.id === recentPick.candidateId);
+      // A navigation commonly follows an input/click. Do not turn that just-observed action into an immediate
+      // site-level loop (search -> search); contextual ranking can advance into results instead.
+      const repeatsLast = repeated !== undefined && lastTarget !== undefined
+        && (repeated.id === lastTarget.signature || (repeated.kind === candidateKind(lastTarget.kind) && repeated.label.trim().toLowerCase() === lastTarget.label.trim().toLowerCase()));
+      const afterTarget = clean.slice(lastTargetIndex + 1);
+      const immediateTransition = afterTarget.length <= 1 && afterTarget.every((event) => event.type === "navigate");
+      if (!repeatsLast || !immediateTransition) pick = recentPick;
+    }
     const forServer = [...recalled, ...recentHere.filter((pair) => !recalled.some((exact) => exact.summary === pair.summary && actionKey(exact.action) === actionKey(pair.action)))];
     return { summary, recalled: forServer, pick };
   }
@@ -292,7 +316,7 @@ export function createNextClient(deps: NextClientDeps): NextClient {
       ({ ok: true, candidateId: pick.candidateId, confidence: pick.confidence, provider, calibrated, latencyMs: now() - started });
     const bestEffort = (): MemoryPrediction => {
       if (local.pick.candidateId !== NONE) return local.pick;
-      const last = filterNoise(tabEvents).at(-1)?.target;
+      const last = [...filterNoise(tabEvents)].reverse().find((event) => event.target)?.target;
       const candidate = rankNextCandidates(candidates, last)[0];
       return candidate
         ? { candidateId: candidate.id, confidence: BEST_EFFORT_CONFIDENCE }

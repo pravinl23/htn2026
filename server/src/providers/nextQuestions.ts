@@ -138,7 +138,8 @@ export function pickBestEffort(state: Pick<NextPredictRequest, "recentActions" |
   const learned = pickNextFromMemory(state);
   if (learned.candidateId !== NONE) return learned;
   // Locked means explicit confirmation, not low likelihood: checkout/submit may be the correct next target.
-  const candidate = rankNextCandidates(state.candidates, state.recentActions.at(-1))[0];
+  const previous = [...state.recentActions].reverse().find((action) => action.label || action.signature);
+  const candidate = rankNextCandidates(state.candidates, previous)[0];
   return candidate
     ? { candidateId: candidate.id, confidence: BEST_EFFORT_CONFIDENCE }
     : { candidateId: NONE, confidence: 0.99 };

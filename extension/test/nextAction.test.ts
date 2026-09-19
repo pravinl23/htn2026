@@ -170,12 +170,42 @@ describe("collectCandidates", () => {
     expect(collectCandidates(document, 3).candidates.map((candidate) => candidate.label)).toEqual(["Play video", "Full screen", "Search videos"]);
   });
 
+  it("prefers an editable search box over its category selector and carousel navigation", () => {
+    document.body.innerHTML = `<header><form>
+      <select aria-label="Search in"><option>All</option></select>
+      <input type="text" aria-label="Search marketplace" />
+    </form></header><main><a href="#next" aria-label="Carousel next slide">Next</a></main>`;
+    expect(collectCandidates(document).candidates.map((candidate) => candidate.label)).toEqual([
+      "Search marketplace", "Search in", "Carousel next slide",
+    ]);
+  });
+
+  it("prefers generic commerce actions on a product page while keeping them locked", () => {
+    document.body.innerHTML = `<header><input type="search" aria-label="Search marketplace" /></header><main>
+      <h1>Product</h1><form><button type="submit">Add to Cart</button><button type="submit">Buy Now</button></form>
+    </main>`;
+    const candidates = collectCandidates(document).candidates;
+    expect(candidates.slice(0, 2).map((candidate) => candidate.label)).toEqual(["Add to Cart", "Buy Now"]);
+    expect(candidates.slice(0, 2).every((candidate) => candidate.locked)).toBe(true);
+  });
+
   it("marks changing items with the value-free repeated group used by site memory", () => {
     document.body.innerHTML = `<main><ul aria-label="Recommended"><li><a href="/v/1">First video</a></li><li><a href="/v/2">Second video</a></li></ul></main>`;
     const grouped = collectCandidates(document).candidates.filter((candidate) => candidate.label.endsWith("video"));
     expect(grouped).toHaveLength(2);
     expect(grouped[0]?.group).toMatch(/^LIST\(/);
     expect(grouped[1]?.group).toBe(grouped[0]?.group);
+  });
+
+  it("finds repeated cards through deeply nested component wrappers", () => {
+    const card = (i: number) => `<div class="result-card"><div><div><div><div><div><div>
+      <a href="/brand/${i}">Sponsored brand ${i}</a><a href="/item/${i}"><h2>Result ${i}</h2></a><a href="/reviews/${i}">Reviews</a>
+    </div></div></div></div></div></div><span>price</span></div>`;
+    document.body.innerHTML = `<main><div class="results">${card(1)}${card(2)}${card(3)}</div></main>`;
+    const grouped = collectCandidates(document).candidates.filter((candidate) => candidate.label.startsWith("Result"));
+    expect(grouped).toHaveLength(3);
+    expect(grouped.every((candidate) => candidate.group === grouped[0]?.group)).toBe(true);
+    expect(collectCandidates(document).candidates[0]?.label).toBe("Result 1");
   });
 });
 

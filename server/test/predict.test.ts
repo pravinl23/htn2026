@@ -412,6 +412,17 @@ describe("POST /v1/predict/next", () => {
     expect(await (await post(NEXT_REQUEST)).json()).toMatchObject({ candidateId: "button|Thursday 2pm|3", confidence: 0.8, provider: "heuristic", calibrated: false });
     expect(await (await post({ ...NEXT_REQUEST, memory: [] })).json()).toMatchObject({ candidateId: "button|Send|9", confidence: 0.25, provider: "heuristic" });
     expect(await (await post({ ...NEXT_REQUEST, memory: undefined })).json()).toMatchObject({ candidateId: "button|Send|9", confidence: 0.25 });
+
+    const afterSearch = {
+      ...NEXT_REQUEST,
+      recentActions: [{ type: "input", label: "Search catalog", signature: "search" }, { type: "navigate" }],
+      candidates: [
+        { id: "search", kind: "field", label: "Search catalog", locked: false },
+        { id: "result", kind: "link", label: "New result", locked: false, group: "LIST(results)" },
+      ],
+      memory: [],
+    };
+    expect(await (await post(afterSearch)).json()).toMatchObject({ candidateId: "result", confidence: 0.25 });
   });
 
   it("never predicts a sensitive control, and never sends one (or actions on one) to the model", async () => {
