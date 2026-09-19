@@ -4,6 +4,7 @@ import type { ResolvedCapability } from "./candidates";
 
 const DEFAULT_BASE_URL = "https://backend.composio.dev/api/v3.1";
 const REQUEST_TIMEOUT_MS = 15_000;
+const CONNECTION_CACHE_MS = 2 * 60_000;
 const SESSION_TOOLKITS = ["gmail", "googlecalendar", "slack", "github", "linear", "notion"];
 
 export class ComposioWorkflowError extends Error {
@@ -42,6 +43,7 @@ export class ComposioWorkflowClient {
   private readonly doFetch: typeof fetch;
   private readonly baseUrl: string;
   private readonly sessions = new Map<string, string>();
+  private readonly connections = new Map<string, { expiresAt: number; value: ConnectedToolkit[] }>();
   private readonly capabilities = new Map<string, { expiresAt: number; value: ResolvedCapability | undefined }>();
   private readonly now: () => number;
 
@@ -95,7 +97,7 @@ export class ComposioWorkflowClient {
     const query = new URLSearchParams({ statuses: "ACTIVE", user_ids: userId, limit: "100" });
     const body = (await this.request(`/connected_accounts?${query}`)) as { items?: unknown };
     if (!Array.isArray(body.items)) throw new ComposioWorkflowError("composio-bad-accounts");
-    return body.items.flatMap((item): ConnectedToolkit[] => {
+    const value = body.items.flatMap((item): ConnectedToolkit[] => {
       if (!item || typeof item !== "object") return [];
       const raw = item as Record<string, unknown>;
       const toolkitRaw = raw.toolkit;
@@ -103,6 +105,14 @@ export class ComposioWorkflowClient {
       if (typeof toolkit !== "string" || typeof raw.id !== "string" || typeof raw.status !== "string") return [];
       return [{ toolkit: toolkit.toLowerCase(), accountId: raw.id, status: raw.status, ...(typeof raw.alias === "string" ? { alias: raw.alias } : {}) }];
     });
+    this.connections.set(userId, { expiresAt: this.now() + CONNECTION_CACHE_MS, value });
+    return value;
+  }
+
+  /** Synchronous cache reads keep Composio entirely out of the latency-sensitive prediction path. */
+  peekConnectedToolkits(userId: string): ConnectedToolkit[] {
+    const cached = this.connections.get(userId);
+    return cached && cached.expiresAt > this.now() ? cached.value : [];
   }
 
   async createConnectLink(userId: string, toolkit: string, callbackUrl?: string): Promise<{ redirectUrl: string; connectedAccountId?: string }> {
@@ -164,6 +174,20 @@ export class ComposioWorkflowClient {
     const unique = [...new Set(actionIds)].slice(0, 8);
     const resolved = await Promise.all(unique.map(async (id) => [id, await this.discoverCapability(userId, id)] as const));
     return new Map(resolved.flatMap(([id, value]) => (value ? [[id, value] as const] : [])));
+  }
+
+  peekCapabilities(userId: string, actionIds: string[]): Map<string, ResolvedCapability> {
+    const resolved = new Map<string, ResolvedCapability>();
+    for (const actionId of [...new Set(actionIds)].slice(0, 8)) {
+      const cached = this.capabilities.get(`${userId}:${actionId}`);
+      if (cached?.value && cached.expiresAt > this.now()) resolved.set(actionId, cached.value);
+    }
+    return resolved;
+  }
+
+  async prefetch(userId: string, actionIds: string[]): Promise<{ connections: ConnectedToolkit[]; capabilities: Map<string, ResolvedCapability> }> {
+    const [connections, capabilities] = await Promise.all([this.listConnectedToolkits(userId), this.discoverCapabilities(userId, actionIds)]);
+    return { connections, capabilities };
   }
 
   async execute(userId: string, candidate: ActionCandidate): Promise<Record<string, unknown>> {

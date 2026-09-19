@@ -52,6 +52,10 @@ typedef void (^GHWorkflowCompletion)(id _Nullable value, NSString *_Nullable err
 @property (nonatomic, readonly, copy, nullable) NSDictionary<NSString *, id> *workflowState;
 @property (nonatomic, readonly) BOOL busy;
 
+/// Warm Composio account/tool metadata after a relevant focus change. Prediction itself never calls Composio.
+- (void)prefetchComposioForContext:(NSDictionary<NSString *, id> *)context
+                        completion:(GHWorkflowCompletion)completion;
+
 /// `demo` is side-effect-free and explicit. The production native path always passes NO.
 - (void)requestPredictionForContext:(NSDictionary<NSString *, id> *)context
                                demo:(BOOL)demo

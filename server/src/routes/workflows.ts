@@ -52,6 +52,17 @@ function desiredActions(state: WorkflowState, context: ContextSnapshot): string[
   return [...new Set(ids)].slice(0, 8);
 }
 
+function prefetchActions(context: ContextSnapshot): string[] {
+  const kind = inferWorkflowKind(context);
+  const ids = kind === "meeting"
+    ? ["calendar.check_availability", "gmail.create_draft", "calendar.create_event"]
+    : kind === "issue"
+      ? ["github.create_issue"]
+      : [];
+  ids.push(...(context.relevantActionIds ?? []).filter((id) => ACTION_SPECS[id]?.definition.executor === "composio"));
+  return [...new Set(ids)].slice(0, 8);
+}
+
 function safeFacts(value: Record<string, unknown>): Record<string, string | boolean | number> {
   const result: Record<string, string | boolean | number> = {};
   for (const [key, item] of Object.entries(value).slice(0, 20)) {
@@ -134,6 +145,24 @@ export function registerWorkflowRoutes(app: Hono, config: ServerConfig, deps: Wo
     }
   });
 
+  app.post("/v1/composio/prefetch", bodyLimit({ maxSize: BODY_LIMIT, onError: tooLarge }), async (c) => {
+    try {
+      if (!composio) return c.json({ error: "COMPOSIO_API_KEY is required" }, 503);
+      const refusal = requireTrusted(c);
+      if (refusal) return refusal;
+      const raw = object(await readJsonBody(c.req, BODY_LIMIT));
+      const userId = string(raw.userId, "userId");
+      const context = normalizeContextSnapshot(raw.context, now());
+      const warmed = await composio.prefetch(userId, prefetchActions(context));
+      return c.json({
+        connectedToolkits: warmed.connections.filter((item) => item.status === "ACTIVE").map((item) => item.toolkit),
+        availableActionIds: [...warmed.capabilities.keys()],
+      });
+    } catch (error) {
+      return badRequest(c, error);
+    }
+  });
+
   app.post(PREDICT_ROUTE, bodyLimit({ maxSize: BODY_LIMIT, onError: tooLarge }), async (c) => {
     try {
       const raw = object(await readJsonBody(c.req, BODY_LIMIT));
@@ -145,13 +174,13 @@ export function registerWorkflowRoutes(app: Hono, config: ServerConfig, deps: Wo
       }
       let context = normalizeContextSnapshot(raw.context, now());
       if (composio && !demo) {
-        const connections = await composio.listConnectedToolkits(userId);
+        const connections = composio.peekConnectedToolkits(userId);
         context = { ...context, connectedToolkits: [...new Set(connections.filter((item) => item.status === "ACTIVE").map((item) => item.toolkit))] };
       }
       let state = store.current(userId);
       const kind = inferWorkflowKind(context);
       if (!state || state.status !== "active" || (context.workflow?.id && context.workflow.id !== state.id)) state = store.start(userId, kind, initialStep(kind));
-      const capabilities = composio && !demo ? await composio.discoverCapabilities(userId, desiredActions(state, context)) : new Map();
+      const capabilities = composio && !demo ? composio.peekCapabilities(userId, desiredActions(state, context)) : new Map();
       const candidates = getRelevantActions(context, state, capabilities, demo);
       const prediction = await requestWorkflowPrediction(provider, context, state, candidates, thresholds);
       if (prediction.suggestion && prediction.selectedCandidate) store.saveSuggestion(userId, prediction.suggestion, prediction.selectedCandidate);

@@ -160,4 +160,50 @@ describe("atomic workflow routes", () => {
     expect(await trusted.json()).toMatchObject({ configured: true, connections: [{ toolkit: "gmail", accountId: "ca_1" }] });
     expect(calls).toHaveLength(1);
   });
+
+  it("prefetches Composio metadata separately and performs zero Composio calls during live prediction", async () => {
+    const calls: string[] = [];
+    const fetch = (async (input: Parameters<typeof globalThis.fetch>[0]) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.endsWith("/tool_router/session")) return Response.json({ session_id: "trs_demo" }, { status: 201 });
+      if (url.includes("/connected_accounts?")) return Response.json({ items: [{ id: "ca_1", status: "ACTIVE", toolkit: { slug: "github" } }] });
+      if (url.endsWith("/search")) return Response.json({
+        success: true,
+        results: [{ primary_tool_slugs: ["GITHUB_CREATE_AN_ISSUE"] }],
+        tool_schemas: { GITHUB_CREATE_AN_ISSUE: { toolkit: "github", input_schema: { type: "object" } } },
+      });
+      return Response.json({}, { status: 404 });
+    }) as typeof globalThis.fetch;
+    const token = "test-execute-token-1234";
+    const config = loadConfig({ COMPOSIO_API_KEY: "not-real", GHOST_EXECUTE_TOKEN: token, GHOST_PROVIDER: "heuristic" });
+    const hono = new Hono();
+    registerWorkflowRoutes(hono, config, { composio: new ComposioWorkflowClient({ apiKey: "not-real", fetch }) });
+    const context = {
+      ...MEETING_CONTEXT,
+      activeApplication: { name: "Slack", bundleIdentifier: "com.tinyspeck.slackmacgap" },
+      windowTitle: "Checkout regression",
+      nearbyText: ["Bug: checkout fails after applying a coupon"],
+      connectedToolkits: [],
+      preferences: { repository: "ghost-labs/demo" },
+      relevantActionIds: ["github.create_issue"],
+    };
+    const headers = { "Content-Type": "application/json", "X-Ghost-Token": token };
+
+    const cold = await hono.request("/v1/workflows/predict", { method: "POST", headers, body: JSON.stringify({ userId: USER, context }) });
+    expect(cold.status).toBe(200);
+    expect((await cold.json() as Record<string, any>).suggestion).toBeNull();
+    expect(calls).toHaveLength(0);
+
+    const warmed = await hono.request("/v1/composio/prefetch", { method: "POST", headers, body: JSON.stringify({ userId: USER, context }) });
+    expect(warmed.status).toBe(200);
+    expect(await warmed.json()).toMatchObject({ connectedToolkits: ["github"], availableActionIds: ["github.create_issue"] });
+    const callsAfterPrefetch = calls.length;
+    expect(callsAfterPrefetch).toBeGreaterThan(0);
+
+    const predicted = await hono.request("/v1/workflows/predict", { method: "POST", headers, body: JSON.stringify({ userId: USER, context }) });
+    expect(predicted.status).toBe(200);
+    expect((await predicted.json() as Record<string, any>).suggestion).toMatchObject({ action: { id: "github.create_issue" } });
+    expect(calls).toHaveLength(callsAfterPrefetch);
+  });
 });

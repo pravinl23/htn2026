@@ -181,6 +181,10 @@ static NSString *GHNormalizedURL(NSString *raw) {
     }];
 }
 
+- (void)prefetchComposioForContext:(NSDictionary<NSString *,id> *)context completion:(GHWorkflowCompletion)completion {
+    [self post:@"/v1/composio/prefetch" body:@{ @"userId": self.userId, @"context": context ?: @{} } completion:completion];
+}
+
 - (void)rejectSuggestion { self.currentSuggestion = nil; self.executionToken = nil; }
 
 - (void)approveSuggestionWithConfirmation:(NSString *)confirmation completion:(GHWorkflowCompletion)completion {

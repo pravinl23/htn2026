@@ -54,6 +54,8 @@ AX metadata → privacy-safe ContextSnapshot → filtered ActionCandidates
 
 The server validates the confirmation mode; clients cannot downgrade it. The native writer remains responsible for verifying local effects and reporting them through `/v1/workflows/local-result`.
 
+Live prediction performs synchronous cache reads only: it never waits on Composio. The native coordinator exposes `prefetchComposioForContext` so focus/context changes can warm account and capability metadata before requesting a Jev prediction. A cold cache fails closed to `no_action` until prefetch completes.
+
 ## HTTP interface
 
 - `POST /v1/workflows/predict` — normalize context, discover/filter capabilities, ask Jev once, return the suggestion.
@@ -64,6 +66,7 @@ The server validates the confirmation mode; clients cannot downgrade it. The nat
 - `GET /v1/composio/connections?userId=...` — active connected accounts by toolkit.
 - `POST /v1/composio/connect-link` — create an exact toolkit Connect Link for the per-user session.
 - `POST /v1/composio/oauth-complete` — redeem optional callback identity verification and verify the account is `ACTIVE`.
+- `POST /v1/composio/prefetch` — warm connected-account and capability caches off the latency-sensitive prediction path.
 
 Bodies are bounded. Errors are short codes. Upstream bodies are never logged because they can echo arguments or account metadata.
 

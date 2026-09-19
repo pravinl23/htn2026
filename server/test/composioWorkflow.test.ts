@@ -37,9 +37,11 @@ describe("Composio workflow v3.1 client", () => {
     expect(fake.calls[0]?.body).toMatchObject({ user_id: "u1", toolkits: { enabled: expect.arrayContaining(["gmail", "googlecalendar"]) } });
 
     expect(await client.listConnectedToolkits("u1")).toEqual([{ toolkit: "gmail", accountId: "ca_1", status: "ACTIVE", alias: "work" }]);
+    expect(client.peekConnectedToolkits("u1")).toEqual([{ toolkit: "gmail", accountId: "ca_1", status: "ACTIVE", alias: "work" }]);
     expect(await client.createConnectLink("u1", "gmail")).toEqual({ redirectUrl: "https://app.composio.dev/link/lt_1", connectedAccountId: "ca_2" });
     expect(await client.completeAuth("u1", "session-uri-once")).toEqual({ connectedAccountId: "ca_2", toolkit: "gmail" });
     expect(await client.discoverCapability("u1", "gmail.create_draft")).toMatchObject({ actionId: "gmail.create_draft", toolkit: "gmail", toolSlug: "GMAIL_CREATE_DRAFT_REPLY" });
+    expect(client.peekCapabilities("u1", ["gmail.create_draft"]).get("gmail.create_draft")).toMatchObject({ toolSlug: "GMAIL_CREATE_DRAFT_REPLY" });
 
     const candidate = {
       id: "gmail.create_draft",
