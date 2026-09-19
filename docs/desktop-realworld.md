@@ -2,29 +2,27 @@
 
 This document is a **future implementation and validation plan**, not a description of current behavior.
 
-## Current boundary — 2026-09-19
+## Current boundary (updated 2026-09-19 14:40 EDT)
 
-Ghost Desktop currently implements and unit-tests:
+Implemented and unit-tested (199 native tests):
 
-- macOS Accessibility trust handling and bounded AX-tree capture;
-- sensitive/hidden/disabled field exclusion and stable signatures;
-- offline form mapping plus server-upgraded `/v1/predict/form` results;
-- streamed `/v1/ghost-text` drafts for supported textareas;
-- ghost overlays, Tab/Escape/hold-Tab state, locks and verified writes;
-- local profile/settings/form-cache storage;
-- a menu-bar app, `--selftest`, `--trust` and basic `--dump` modes.
+- macOS Accessibility trust handling and bounded AX-tree capture; sensitive/hidden/disabled exclusion; stable signatures;
+- offline form mapping plus server-upgraded `/v1/predict/form`; streamed `/v1/ghost-text` drafts; ghost overlays; Tab/Escape/hold-Tab state; locks; verified writes; local profile/settings/form cache; menu-bar app;
+- **stable host + hot-swappable `libghost.dylib`** (`desktop/host/main.m`, `make host`, `make lib`, `make install-lib`). The granted host is `~/Applications/Ghost.app`; rebuild only the library;
+- **harness**: `desktop/tools/ghostctl trust | dump | dump-tree | autotab N | run | quit | log | selftest` with `--frontmost`, `--delay`, `--out`;
+- a fictional resume PDF at `demo/fixtures/resume-alex-chen.pdf`;
+- a redacted real AX fixture: `desktop/tests/fixtures/greenhouse-safari-viam.json` (Safari, Viam Greenhouse posting).
 
-It does **not** currently implement the features previously proposed for this real-world target:
+Verified LIVE: `ghostctl trust` and `ghostctl dump-tree` run trusted against the real Greenhouse page in Safari (433 nodes, about 0.5 s).
 
-- stable host plus hot-swappable `libghost.dylib` (`desktop/host`, `make host`, `make lib`, `make install-lib` do not exist);
-- `--dump-tree`, `--autotab`, `--frontmost`, `--delay` or `--out` harness flags;
-- resume/cover-letter file facts or native open-panel automation;
-- Greenhouse-specific react-select/autocomplete handling;
-- saved redacted AX fixtures for Greenhouse, Lever or Ashby;
-- a fictional resume PDF;
-- a recorded real-site run in Safari, Chrome, Arc, Firefox or Edge.
+Not implemented yet:
 
-The current Makefile builds a single ad-hoc-signed `Ghost.app`. Rebuilding can invalidate its Accessibility approval. The server/extension presence heartbeat is also missing, so disable the Chrome extension before trying Desktop in Chrome.
+- real-page capture: `ghostctl dump` finds only 1 bogus field, because the tree walk skips `AXTabGroup` and Safari nests the web area inside it;
+- resume/cover-letter file facts and native open-panel automation;
+- react-select comboboxes (options are not in the AX tree until opened);
+- a recorded end-to-end run in any browser.
+
+The server now exposes `/v1/presence`; the extension heartbeat is not wired yet, so disable the Chrome extension before trying Desktop in Chrome.
 
 ## Target smoke test
 
