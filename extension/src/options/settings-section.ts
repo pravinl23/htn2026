@@ -68,7 +68,7 @@ async function mount(panel: HTMLElement): Promise<void> {
     h("div", { class: "row" }, h("h2", {}, "Settings"), h("span", { class: "spacer" }), status),
     h("p", { class: "muted" }, "Changes save automatically."),
     field("Ghost enabled", "Also toggled by the toolbar icon or Alt+Shift+G.", toggles.enabled),
-    field("Confidence threshold", "Ghosts below this confidence are never shown. A wrong ghost is worse than no ghost.", h("span", { class: "slider" }, threshold, thresholdValue)),
+    field("Form confidence threshold", "Controls form filling and generated text. Safe next-action guesses are shown as exploratory even when confidence is lower.", h("span", { class: "slider" }, threshold, thresholdValue)),
     field("Prediction server URL", "Local Ghost server. API keys live there, never in the extension.", serverUrl),
     urlError,
     field("Debug HUD", "Small overlay with the active provider, last latency, and cache status.", toggles.showHud),
