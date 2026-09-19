@@ -1,0 +1,300 @@
+/* /mail and /mail/:id. Builds on the tokens and the .card, .field, .submit rules in ../styles.css. */
+.mail-page .card {
+  margin-top: 16px;
+}
+
+.mail-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.mail-heading h1 {
+  margin: 0;
+}
+
+.mail-count {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* Inbox */
+.mail-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+  overflow: hidden;
+}
+
+.mail-item + .mail-item {
+  border-top: 1px solid #e6eaf0;
+}
+
+.mail-row {
+  display: grid;
+  grid-template-columns: 204px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 60px;
+  padding: 12px 20px;
+  color: var(--muted);
+  text-decoration: none;
+  transition: background-color 120ms ease;
+}
+
+.mail-row:hover {
+  background: #f8fafc;
+}
+
+.mail-row:focus-visible {
+  position: relative;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 3px var(--accent-soft), inset 0 0 0 1px var(--accent);
+}
+
+.mail-row-from {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.mail-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mail-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.mail-item-unread .mail-dot {
+  background: var(--accent);
+}
+
+.mail-row-main {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mail-row-subject {
+  color: var(--text);
+}
+
+/* No generated content on the subject: pseudo-element text would leak into the link's accessible name. */
+.mail-row-preview {
+  margin-left: 10px;
+  font-size: 0.9375rem;
+}
+
+.mail-item-unread .mail-row-from,
+.mail-item-unread .mail-row-subject {
+  font-weight: 650;
+}
+
+.mail-row-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mail-badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+
+/* Message view */
+.mail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mail-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 14px 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.mail-tool:hover {
+  border-color: var(--accent);
+}
+
+.mail-tool-primary {
+  padding-left: 12px;
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.mail-tool-primary:hover {
+  background: rgba(15, 118, 110, 0.06);
+}
+
+/* Also sizes the "Message not found" card, which would otherwise get the much larger page-level h1. */
+.mail-page .card h1 {
+  margin: 0 0 16px;
+  font-size: clamp(1.375rem, 3vw, 1.75rem);
+}
+
+.mail-page .card > p:last-child {
+  margin-bottom: 0;
+}
+
+.mail-headers {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e6eaf0;
+  font-size: 0.9375rem;
+}
+
+.mail-headers > div {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.mail-headers dt {
+  color: var(--muted);
+}
+
+.mail-headers dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.mail-body {
+  padding-top: 18px;
+  color: #2a3444;
+}
+
+.mail-body p {
+  margin: 0 0 14px;
+  white-space: pre-line;
+}
+
+.mail-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* Reply composer. ../styles.css loads after this file, so ties in specificity go to it: these selectors outrank
+   its .card > h2 and .actions rules on purpose. */
+.mail-page .mail-reply > h2,
+.mail-page .mail-sent > h2 {
+  margin: 0 0 14px;
+  font-size: 1.125rem;
+}
+
+.mail-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 5px 14px 5px 10px;
+  border: 1px solid rgba(15, 118, 110, 0.35);
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent-dark);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.mail-chip::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.mail-reply textarea {
+  min-height: 150px;
+}
+
+.mail-reply .mail-reply-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 18px;
+}
+
+.mail-reply-actions .hint {
+  margin: 0;
+}
+
+.mail-page .mail-sent > h2 {
+  color: var(--accent-dark);
+}
+
+.mail-sent p {
+  margin: 0 0 12px;
+}
+
+.mail-sent pre {
+  margin: 0;
+  padding: 16px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #f8fafc;
+  font: inherit;
+  font-size: 0.9375rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  /* The account email crowds the brand on a phone (and wraps "Larkspur Calendar" onto two lines). */
+  .larkspur .site-header-tag {
+    display: none;
+  }
+
+  .mail-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 12px;
+    padding: 12px 16px;
+  }
+
+  .mail-row-main {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding-left: 16px; /* lines the subject up with the sender, past the unread dot gutter */
+  }
+}

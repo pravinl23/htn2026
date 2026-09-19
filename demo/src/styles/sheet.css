@@ -1,0 +1,124 @@
+/* Ledgerbox Sheets (fictional): the invoice log grid. Chrome (.lb-*) lives in invoices.css. */
+.sheet-titlebar {
+  margin-bottom: 16px;
+}
+
+.sheet-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: var(--surface);
+}
+
+.sheet-counter {
+  flex: 1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.sheet-scroll {
+  /* clip (not hidden/auto) keeps the rounded corners without becoming a scroll container, so the header row can stick to the viewport. */
+  overflow: clip;
+  border: 1px solid var(--border);
+  border-radius: 0 0 12px 12px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+}
+
+.sheet-grid {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet-grid th,
+.sheet-grid td {
+  padding: 0;
+  border-right: 1px solid #e1e6ed;
+  border-bottom: 1px solid #e1e6ed;
+}
+
+.sheet-grid tr > :last-child {
+  border-right: 0;
+}
+
+.sheet-grid tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.sheet-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-strong);
+  background: #eef1f5;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: left;
+}
+
+.sheet-grid .sheet-corner,
+.sheet-grid .sheet-rownum {
+  width: 48px;
+  background: #eef1f5;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.sheet-grid thead th:nth-child(2) {
+  width: 40%;
+}
+
+.sheet-row-filled .sheet-rownum {
+  color: var(--accent-dark);
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Beats the generic text-input rule in styles.css: grid cells are flush, borderless, and compact. */
+.sheet-grid input[type="text"].sheet-cell {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: inherit;
+  line-height: 1.3;
+  transition: none;
+}
+
+.sheet-grid input[type="text"].sheet-cell:hover {
+  background: #f6f9f9;
+}
+
+.sheet-grid input[type="text"].sheet-cell:focus-visible,
+.sheet-grid input[type="text"].sheet-cell:focus {
+  position: relative;
+  z-index: 1;
+  outline: none;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+@media (max-width: 700px) {
+  .sheet-scroll {
+    overflow-x: auto;
+  }
+}

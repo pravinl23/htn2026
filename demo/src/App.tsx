@@ -1,19 +1,30 @@
-const PAGES: Array<{ path: string; title: string; blurb: string }> = [
-  { path: "/apply", title: "Job application (React)", blurb: "Northwind Robotics, Software Engineering Intern" },
-  { path: "/apply-plain/", title: "Job application (plain HTML)", blurb: "Same form without a framework" },
-];
+import { useEffect } from "react";
+import { Index } from "./pages/Index";
+import { NotFound } from "./pages/NotFound";
+import { usePathname } from "./router";
+import { matchRouteWithParams, type DemoRoute } from "./routes";
+
+// Static pages only reach React through the SPA fallback (for example "/apply-plain" without the slash).
+function StaticRedirect({ route }: { route: DemoRoute }) {
+  const alreadyThere = window.location.pathname === route.path;
+  useEffect(() => {
+    if (!alreadyThere) window.location.replace(route.path);
+  }, [alreadyThere, route.path]);
+  return alreadyThere ? <NotFound /> : null;
+}
 
 export function App() {
-  return (
-    <main style={{ fontFamily: "system-ui, sans-serif", maxWidth: 640, margin: "48px auto", padding: "0 16px" }}>
-      <h1>Ghost demo sites</h1>
-      <ul>
-        {PAGES.map((p) => (
-          <li key={p.path}>
-            <a href={p.path}>{p.title}</a>: {p.blurb}
-          </li>
-        ))}
-      </ul>
-    </main>
-  );
+  const pathname = usePathname();
+  const match = matchRouteWithParams(pathname);
+  const route = match?.route;
+
+  useEffect(() => {
+    document.title = route ? `${route.title} · Ghost demo` : "Ghost demo sites";
+  }, [route]);
+
+  if (pathname === "/") return <Index />;
+  if (!match || !route) return <NotFound />;
+  if (!route.component) return <StaticRedirect route={route} />;
+  const Page = route.component;
+  return <Page key={pathname} params={match.params} />;
 }

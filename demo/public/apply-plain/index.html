@@ -1,0 +1,786 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Job application (plain HTML) · Ghost demo</title>
+    <!-- Inline copy of the form rules in demo/src/styles.css so this page stays framework-free and build-free. -->
+    <style>
+      :root {
+        --bg: #f4f6f8;
+        --surface: #ffffff;
+        --text: #182230;
+        --muted: #586174;
+        --border: #cfd6e0;
+        --border-strong: #9aa5b5;
+        --accent: #0f766e;
+        --accent-dark: #0b5a54;
+        --accent-soft: rgba(15, 118, 110, 0.16);
+        --danger: #b42318;
+        --danger-soft: #fef3f2;
+        --radius: 8px;
+        color-scheme: light;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        font-size: 16px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      a {
+        color: var(--accent-dark);
+      }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.875em;
+      }
+
+      /* Layout */
+      .site-header {
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .site-header-inner {
+        max-width: 780px;
+        margin: 0 auto;
+        padding: 14px 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--accent);
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        text-decoration: none;
+      }
+
+      .brand span {
+        color: var(--text);
+      }
+
+      .site-header-tag {
+        color: var(--muted);
+        font-size: 0.875rem;
+      }
+
+      .page {
+        max-width: 780px;
+        margin: 0 auto;
+        padding: 40px 20px 24px;
+      }
+
+      .site-footer {
+        max-width: 780px;
+        margin: 0 auto;
+        padding: 8px 20px 48px;
+        color: var(--muted);
+        font-size: 0.8125rem;
+      }
+
+      /* Job description */
+      .eyebrow {
+        margin: 0 0 6px;
+        color: var(--accent-dark);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(1.75rem, 4vw, 2.25rem);
+        line-height: 1.15;
+        letter-spacing: -0.02em;
+      }
+
+      .job h2 {
+        margin: 28px 0 8px;
+        font-size: 1.125rem;
+      }
+
+      .job p,
+      .job ul {
+        margin: 0 0 12px;
+        color: #2a3444;
+      }
+
+      .job ul {
+        padding-left: 22px;
+      }
+
+      .job li {
+        margin-bottom: 6px;
+      }
+
+      .job .job-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0 0 8px;
+        padding: 0;
+        list-style: none;
+      }
+
+      .job-meta li {
+        margin: 0;
+        padding: 3px 12px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 0.875rem;
+      }
+
+      /* Form card */
+      .card {
+        margin-top: 36px;
+        padding: 32px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+      }
+
+      .card > h2 {
+        margin: 0;
+        font-size: 1.5rem;
+        letter-spacing: -0.01em;
+      }
+
+      .required-note {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 0.875rem;
+      }
+
+      .req {
+        color: var(--danger);
+      }
+
+      .form-section {
+        margin-top: 28px;
+        padding-top: 24px;
+        border-top: 1px solid #e6eaf0;
+      }
+
+      .form-section h3 {
+        margin: 0 0 16px;
+        font-size: 1.0625rem;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 18px 20px;
+      }
+
+      @media (min-width: 640px) {
+        .grid {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .field-wide {
+          grid-column: 1 / -1;
+        }
+      }
+
+      .field {
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        border: 0;
+      }
+
+      .label-wrap {
+        display: block;
+      }
+
+      .label-text {
+        display: block;
+        margin-bottom: 6px;
+        padding: 0;
+        font-size: 0.9375rem;
+        font-weight: 600;
+      }
+
+      input[type="text"],
+      input[type="email"],
+      input[type="tel"],
+      input[type="url"],
+      input[type="month"],
+      input[type="password"],
+      select,
+      textarea {
+        display: block;
+        width: 100%;
+        min-height: 44px;
+        padding: 10px 12px;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius);
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
+        line-height: 1.4;
+        transition: border-color 120ms ease, box-shadow 120ms ease;
+      }
+
+      textarea {
+        min-height: 120px;
+        resize: vertical;
+      }
+
+      select {
+        appearance: none;
+        padding-right: 36px;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23586174' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+      }
+
+      input[type="file"] {
+        display: block;
+        width: 100%;
+        padding: 14px;
+        border: 1px dashed var(--border-strong);
+        border-radius: var(--radius);
+        background: #fafbfc;
+        color: var(--muted);
+        font: inherit;
+        font-size: 0.9375rem;
+      }
+
+      input:hover,
+      select:hover,
+      textarea:hover {
+        border-color: var(--muted);
+      }
+
+      input:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible,
+      button:focus-visible,
+      summary:focus-visible,
+      a:focus-visible {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+
+      [aria-invalid="true"] {
+        border-color: var(--danger);
+      }
+
+      .hint {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 0.8125rem;
+      }
+
+      .error {
+        margin: 6px 0 0;
+        color: var(--danger);
+        font-size: 0.8125rem;
+        font-weight: 500;
+      }
+
+      .error-summary {
+        margin-top: 16px;
+        padding: 12px 14px;
+        border: 1px solid #fda29b;
+        border-radius: var(--radius);
+        background: var(--danger-soft);
+        color: var(--danger);
+        font-size: 0.9375rem;
+        font-weight: 500;
+      }
+
+      /* Radios and checkbox */
+      .choices {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .choice {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 96px;
+        padding: 9px 16px 9px 12px;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius);
+        cursor: pointer;
+      }
+
+      .choice:has(input:checked) {
+        border-color: var(--accent);
+        background: rgba(15, 118, 110, 0.06);
+      }
+
+      input[type="radio"],
+      input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        accent-color: var(--accent);
+        flex: none;
+      }
+
+      .consent-block {
+        margin-top: 28px;
+        padding-top: 24px;
+        border-top: 1px solid #e6eaf0;
+      }
+
+      .consent {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      .consent input {
+        margin-top: 3px;
+      }
+
+      /* Payroll (collapsed, sensitive trap) */
+      .payroll summary {
+        cursor: pointer;
+        border-radius: 4px;
+        font-size: 1.0625rem;
+        font-weight: 600;
+      }
+
+      .payroll[open] summary {
+        margin-bottom: 4px;
+      }
+
+      .payroll .grid {
+        margin-top: 14px;
+      }
+
+      /* Actions */
+      .actions {
+        margin-top: 28px;
+      }
+
+      .submit {
+        min-height: 48px;
+        padding: 12px 28px;
+        border: 0;
+        border-radius: var(--radius);
+        background: var(--accent);
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color 120ms ease;
+      }
+
+      .submit:hover {
+        background: var(--accent-dark);
+      }
+
+      /* Confirmation */
+      .confirmation h2 {
+        color: var(--accent-dark);
+      }
+
+      .confirmation pre {
+        margin: 16px 0;
+        padding: 16px;
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: #f8fafc;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.8125rem;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      @media (max-width: 520px) {
+        .card {
+          padding: 22px 18px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+        }
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="ats">
+      <header class="site-header">
+        <div class="site-header-inner">
+          <a class="brand" href="/apply-plain/" aria-label="Northwind Robotics careers">
+            <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
+              <rect width="32" height="32" rx="8" fill="currentColor" />
+              <path d="M9 23V9h3.2l7.6 9.2V9H23v14h-3.2l-7.6-9.2V23z" fill="#fff" />
+            </svg>
+            <span>Northwind Robotics</span>
+          </a>
+          <span class="site-header-tag">Careers</span>
+        </div>
+      </header>
+
+      <main class="page">
+        <section class="job" aria-labelledby="job-title" data-testid="job-description">
+          <p class="eyebrow">Northwind Robotics · Engineering</p>
+          <h1 id="job-title">Software Engineering Intern</h1>
+          <ul class="job-meta" aria-label="Job details">
+            <li>Waterloo, ON (hybrid)</li>
+            <li>Winter 2027, 4 months</li>
+            <li>Full-time internship</li>
+          </ul>
+
+          <h2>About Northwind Robotics</h2>
+          <p>
+            Northwind Robotics builds autonomous mobile robots that move inventory through warehouses and
+            hospitals. Our robots have driven more than two million kilometres across 140 customer sites in
+            Canada and the United States. We are a team of 85 people who care about reliable software, clear
+            thinking, and leaving things better than we found them.
+          </p>
+
+          <h2>The role</h2>
+          <p>
+            As a Software Engineering Intern you will join the Fleet Platform team, the group responsible for
+            the cloud services and web tools that operators use to run their robots every day. You will own a
+            scoped project from design document to production, with a mentor who reviews your work and helps
+            you grow.
+          </p>
+
+          <h2>What you will do</h2>
+          <ul>
+            <li>Ship production code for the fleet dashboard our customers use to monitor hundreds of warehouse robots in real time (TypeScript, React, Go).</li>
+            <li>Build tooling that replays robot telemetry so engineers can reproduce navigation bugs in minutes instead of days.</li>
+            <li>Work with the perception team to surface model confidence and failure cases to operators in a way they can act on.</li>
+            <li>Write tests, review code, and take part in a weekly on-call shadow rotation with a senior engineer.</li>
+            <li>Demo what you built to the whole company at the end of the term.</li>
+          </ul>
+
+          <h2>What we are looking for</h2>
+          <ul>
+            <li>Currently enrolled in a computer science, software engineering, or related degree program.</li>
+            <li>Comfortable in at least one of TypeScript, Python, Go, or C++, and curious about the others.</li>
+            <li>A project you can walk us through: a hackathon build, open source contribution, course project, or something you made for fun.</li>
+            <li>Clear written communication. Most of our design discussion happens in documents.</li>
+          </ul>
+
+          <h2>What we offer</h2>
+          <ul>
+            <li>Competitive intern salary, paid biweekly</li>
+            <li>A dedicated mentor and a real project that ships</li>
+            <li>Hybrid schedule: three days a week in our Waterloo lab</li>
+            <li>Robot test floor access (safety training included)</li>
+          </ul>
+        </section>
+
+        <form id="application-form" class="card" novalidate aria-labelledby="apply-title">
+          <h2 id="apply-title">Apply for this job</h2>
+          <p class="required-note"><span class="req" aria-hidden="true">*</span> Required</p>
+          <div class="error-summary" id="form-errors" role="alert" data-testid="form-errors" hidden></div>
+
+          <section class="form-section" aria-labelledby="section-personal">
+            <h3 id="section-personal">Personal information</h3>
+            <div class="grid">
+              <div class="field">
+                <label class="label-text" for="first-name">First name <span class="req" aria-hidden="true">*</span></label>
+                <input id="first-name" name="firstName" type="text" autocomplete="given-name" required />
+              </div>
+              <div class="field">
+                <label class="label-text" for="last-name">Last name <span class="req" aria-hidden="true">*</span></label>
+                <input id="last-name" name="lastName" type="text" autocomplete="family-name" required />
+              </div>
+              <div class="field">
+                <label class="label-text" for="email">Email <span class="req" aria-hidden="true">*</span></label>
+                <input id="email" name="email" type="email" autocomplete="email" required />
+              </div>
+              <div class="field">
+                <!-- Wrapping label (no "for") on purpose: real ATS pages mix labelling styles. -->
+                <label class="label-wrap">
+                  <span class="label-text">Phone <span class="req" aria-hidden="true">*</span></span>
+                  <input id="phone" name="phone" type="tel" autocomplete="tel" required aria-describedby="phone-hint" />
+                </label>
+                <p class="hint" id="phone-hint">Include your country code</p>
+              </div>
+              <div class="field field-wide">
+                <label class="label-text" for="location">Current location <span class="req" aria-hidden="true">*</span></label>
+                <input id="location" name="location" type="text" autocomplete="off" required aria-describedby="location-hint" />
+                <p class="hint" id="location-hint">City and province or state</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="form-section" aria-labelledby="section-links">
+            <h3 id="section-links">Links</h3>
+            <div class="grid">
+              <div class="field">
+                <label class="label-text" for="linkedin">LinkedIn profile</label>
+                <input id="linkedin" name="linkedin" type="url" autocomplete="url" />
+              </div>
+              <div class="field">
+                <label class="label-text" for="github">GitHub profile</label>
+                <input id="github" name="github" type="url" autocomplete="url" />
+              </div>
+              <div class="field field-wide">
+                <!-- Named by aria-label only; the visible text is not a <label>. -->
+                <span class="label-text" aria-hidden="true">Portfolio or website</span>
+                <input id="website" name="website" type="url" autocomplete="url" aria-label="Portfolio or website" />
+              </div>
+            </div>
+          </section>
+
+          <section class="form-section" aria-labelledby="section-education">
+            <h3 id="section-education">Education</h3>
+            <div class="grid">
+              <div class="field field-wide">
+                <label class="label-text" for="school">School <span class="req" aria-hidden="true">*</span></label>
+                <input id="school" name="school" type="text" required />
+              </div>
+              <div class="field">
+                <label class="label-text" for="degree">Degree <span class="req" aria-hidden="true">*</span></label>
+                <input id="degree" name="degree" type="text" required aria-describedby="degree-hint" />
+                <p class="hint" id="degree-hint">For example: BASc Software Engineering</p>
+              </div>
+              <div class="field">
+                <label class="label-text" for="graduation-date">Expected graduation date <span class="req" aria-hidden="true">*</span></label>
+                <input id="graduation-date" name="graduationDate" type="month" required />
+              </div>
+            </div>
+          </section>
+
+          <section class="form-section" aria-labelledby="section-eligibility">
+            <h3 id="section-eligibility">Work eligibility</h3>
+            <div class="grid">
+              <div class="field field-wide">
+                <label class="label-text" for="work-authorization">Are you legally authorized to work in Canada? <span class="req" aria-hidden="true">*</span></label>
+                <select id="work-authorization" name="workAuthorization" required>
+                  <option value="">Select an option</option>
+                  <option value="yes">Yes, I am authorized to work in Canada</option>
+                  <option value="no">No</option>
+                </select>
+              </div>
+              <fieldset class="field field-wide choice-group">
+                <legend class="label-text">Will you now or in the future require sponsorship? <span class="req" aria-hidden="true">*</span></legend>
+                <div class="choices">
+                  <label class="choice" for="sponsorship-yes">
+                    <input type="radio" id="sponsorship-yes" name="sponsorship" value="yes" required />
+                    Yes
+                  </label>
+                  <label class="choice" for="sponsorship-no">
+                    <input type="radio" id="sponsorship-no" name="sponsorship" value="no" required />
+                    No
+                  </label>
+                </div>
+              </fieldset>
+            </div>
+          </section>
+
+          <section class="form-section" aria-labelledby="section-questions">
+            <h3 id="section-questions">A few questions</h3>
+            <div class="grid">
+              <div class="field field-wide">
+                <label class="label-text" for="referral-source">How did you hear about us?</label>
+                <select id="referral-source" name="referralSource">
+                  <option value="">Select an option</option>
+                  <option value="Hack the North">Hack the North</option>
+                  <option value="LinkedIn">LinkedIn</option>
+                  <option value="University career fair">University career fair</option>
+                  <option value="A friend">A friend</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div class="field field-wide">
+                <label class="label-text" for="why-northwind">Why Northwind? <span class="req" aria-hidden="true">*</span></label>
+                <textarea id="why-northwind" name="whyNorthwind" rows="5" required></textarea>
+              </div>
+              <div class="field field-wide">
+                <label class="label-text" for="project">Tell us about a project you are proud of</label>
+                <textarea id="project" name="project" rows="6"></textarea>
+              </div>
+            </div>
+          </section>
+
+          <section class="form-section" aria-labelledby="section-resume">
+            <h3 id="section-resume">Resume</h3>
+            <div class="field field-wide">
+              <label class="label-text" for="resume">Resume / CV</label>
+              <input id="resume" name="resume" type="file" accept=".pdf,.doc,.docx,.txt" aria-describedby="resume-hint" />
+              <p class="hint" id="resume-hint">PDF, DOC, DOCX or TXT. This demo never uploads the file anywhere.</p>
+            </div>
+          </section>
+
+          <!-- Sensitive trap: Ghost must never capture, predict, or fill anything in here. -->
+          <details class="form-section payroll" data-testid="payroll">
+            <summary>Payroll (optional)</summary>
+            <p class="hint">Only needed if you receive an offer. You can leave this blank for now.</p>
+            <div class="grid">
+              <div class="field">
+                <label class="label-text" for="sin">Social Insurance Number</label>
+                <input id="sin" name="sin" type="text" inputmode="numeric" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label class="label-text" for="payroll-password">Payroll portal password</label>
+                <input id="payroll-password" name="payrollPassword" type="password" autocomplete="new-password" />
+              </div>
+            </div>
+          </details>
+
+          <div class="consent-block">
+            <div class="consent">
+              <input id="consent" name="consent" type="checkbox" required />
+              <label for="consent">I agree to the privacy policy <span class="req" aria-hidden="true">*</span></label>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="submit" data-testid="submit">Submit application</button>
+          </div>
+        </form>
+
+        <!-- Cloned into the page on submit, so data-testid="submitted" only exists after a real submit. -->
+        <template id="submitted-template">
+          <section class="card confirmation" data-testid="submitted" role="status" aria-labelledby="submitted-title">
+            <h2 id="submitted-title">Application submitted</h2>
+            <p data-role="thanks"></p>
+            <pre data-testid="submitted-json"></pre>
+            <p><a href="/apply-plain/">Start another application</a></p>
+          </section>
+        </template>
+      </main>
+
+      <footer class="site-footer">Northwind Robotics is a fictional company. This page is a local Ghost demo.</footer>
+    </div>
+
+    <script>
+      (function () {
+        var form = document.getElementById("application-form");
+        var summary = document.getElementById("form-errors");
+        var SENSITIVE = ["sin", "payrollPassword"];
+        // Same rules as demo/src/pages/apply/formState.ts.
+        var REQUIRED = [
+          { key: "firstName", label: "First name", focusId: "first-name" },
+          { key: "lastName", label: "Last name", focusId: "last-name" },
+          { key: "email", label: "Email", focusId: "email" },
+          { key: "phone", label: "Phone", focusId: "phone" },
+          { key: "location", label: "Current location", focusId: "location" },
+          { key: "school", label: "School", focusId: "school" },
+          { key: "degree", label: "Degree", focusId: "degree" },
+          { key: "graduationDate", label: "Expected graduation date", focusId: "graduation-date" },
+          { key: "workAuthorization", label: "Work authorization", focusId: "work-authorization" },
+          { key: "sponsorship", label: "Sponsorship", focusId: "sponsorship-yes" },
+          { key: "whyNorthwind", label: "Why Northwind?", focusId: "why-northwind" },
+          { key: "consent", label: "Privacy policy consent", focusId: "consent" },
+        ];
+
+        function readControl(state, el) {
+          if (!el.name || el.type === "submit") return;
+          if (el.type === "radio") state[el.name] = el.checked ? el.value : state[el.name] || "";
+          else if (el.type === "checkbox") state[el.name] = el.checked;
+          else if (el.type === "file") state[el.name] = el.files && el.files[0] ? el.files[0].name : "";
+          else state[el.name] = el.value;
+        }
+
+        function readState() {
+          var state = {};
+          Array.prototype.forEach.call(form.elements, function (el) { readControl(state, el); });
+          return state;
+        }
+
+        function publish() {
+          window.__formState = readState();
+          return window.__formState;
+        }
+
+        function isBlank(value) {
+          return typeof value === "boolean" ? !value : String(value).trim() === "";
+        }
+
+        function validate(state) {
+          var errors = REQUIRED.filter(function (r) { return isBlank(state[r.key]); })
+            .map(function (r) { return { focusId: r.focusId, message: r.label + " is required" }; });
+          var emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(state.email).trim());
+          if (!isBlank(state.email) && !emailOk) errors.push({ focusId: "email", message: "Enter a valid email address" });
+          return errors;
+        }
+
+        function clearErrors() {
+          summary.hidden = true;
+          summary.textContent = "";
+          form.querySelectorAll("p.error").forEach(function (p) { p.remove(); });
+          form.querySelectorAll("[aria-invalid]").forEach(function (el) { el.removeAttribute("aria-invalid"); });
+        }
+
+        function showErrors(errors) {
+          summary.hidden = false;
+          summary.textContent = "Please fix " + errors.length + (errors.length === 1 ? " field" : " fields") + " before submitting.";
+          errors.forEach(function (error) {
+            var el = document.getElementById(error.focusId);
+            var holder = el.closest(".field, .consent-block");
+            el.setAttribute("aria-invalid", "true");
+            var p = document.createElement("p");
+            p.className = "error";
+            p.textContent = error.message;
+            holder.appendChild(p);
+          });
+          document.getElementById(errors[0].focusId).focus();
+        }
+
+        function showConfirmation(state) {
+          var echoed = {};
+          Object.keys(state).forEach(function (key) {
+            if (SENSITIVE.indexOf(key) === -1) echoed[key] = state[key];
+          });
+          var panel = document.getElementById("submitted-template").content.firstElementChild.cloneNode(true);
+          panel.querySelector("[data-role=thanks]").textContent =
+            "Thanks" + (state.firstName ? ", " + state.firstName : "") +
+            ". This is a local demo, so nothing left your browser. Here is what the form would have sent:";
+          panel.querySelector("pre").textContent = JSON.stringify(echoed, null, 2);
+          form.hidden = true;
+          form.after(panel);
+        }
+
+        window.__submitted = false;
+        publish();
+        form.addEventListener("input", publish);
+        form.addEventListener("change", publish);
+        form.addEventListener("submit", function (event) {
+          event.preventDefault();
+          var state = publish();
+          clearErrors();
+          var errors = validate(state);
+          if (errors.length > 0) return showErrors(errors);
+          window.__submitted = true;
+          showConfirmation(state);
+        });
+      })();
+    </script>
+  </body>
+</html>
