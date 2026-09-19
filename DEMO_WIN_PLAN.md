@@ -7,8 +7,8 @@
 - The 10-second form opener is reliable and fully covered by extension e2e.
 - The invoice, sheet, mail and calendar demo surfaces are polished and pass the 95-check browser smoke suite.
 - The repeat detector, loop synthesizer and server execution infrastructure exist and are thoroughly unit-tested.
-- **The centerpiece is not wired into the extension:** there is no action recorder, learned-loop proposal, preview/confirmation panel, visible/background executor, loop result panel or Stage 6 e2e.
-- OpenAI/Jev/Browserbase/Composio are not live in this checkout because no `.env` exists. The scale-out executors are server-side, mock-tested implementations with no extension UI.
+- The extension now has the recorder, page facts, learned-loop proposal, preview/confirmation panel, visible/background executor, result panel and remote-mode selector. The missing proof is the full Stage 6 loaded-extension e2e and fallback video.
+- Direct TypeSafe/Jev is live-configured: the 12-field mapping passed, and the separate atomic-workflow lab completed a three-action meeting flow with calibrated Jev choices. Browserbase has credentials but has not been live-rehearsed; Composio is unconfigured and currently simulated.
 - `DEMO.md` and `docs/media/stage6-loop.webm` are missing.
 
 Therefore the next build is the invoice-loop vertical slice below, not another demo surface.
@@ -45,7 +45,7 @@ Keep it under 20 seconds.
 
 This is the centerpiece. Use the existing `/invoices` and `/sheet` demos; do not introduce a new product surface.
 
-- Implement the missing extension trace recorder/page-fact capture, then connect the existing repeat detector and program synthesis to a new preview and visible/background executor.
+- Stabilize the implemented trace recorder, page-fact capture, repeat detector, preview and visible/background executor in one real loaded-extension run.
 - Script the canonical sequence: enter two invoices manually, return to the invoice list, and let Ghost offer **"I can complete the remaining 48"** (or the actual remaining count).
 - Show a preview grid before execution: source invoice, extracted fields, destination row, confidence, and any flagged exceptions.
 - Require one explicit batch confirmation. The executor must verify each write and stop clearly on the first mismatch.

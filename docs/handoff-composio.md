@@ -2,7 +2,7 @@
 
 Owner: teammate (and their coding agent). Pravin's agent will NOT touch the files listed under "Your scope" from now on.
 
-**Status at the 2026-09-19 audit:** the compile/executor code and mocked route tests exist, but the real Composio API assumptions below remain unverified. No `.env`, live test, demo script, judging write-up, clip or extension execution-mode UI exists in this checkout. Treat the opening pitch as the intended finished experience, not current behavior.
+**Status after the 2026-09-19 integration:** this older invoice-loop executor still exists, and the extension now exposes its API execution mode. A second, atomic workflow engine based on Composio v3.1 sessions, capability prefetch, one Jev choice and single-use approval tokens is documented in `docs/workflows.md`; its simulated meeting and Slack → GitHub stories pass browser tests. The local Composio key/account identifiers remain unset, so neither path has touched a real account. The live test, invoice demo script, judging write-up and clip below are still outstanding.
 
 ## The one-paragraph pitch
 
@@ -35,7 +35,7 @@ Env vars (put them in YOUR local `.env`, never in chat, never committed): `COMPO
 
 Shared files you may touch only with small additive edits (tell Pravin first, they are hot): `server/src/config.ts` (the `composio` block only), `server/src/routes/execute.ts`, `docs/server-api.md` (Composio paragraphs only).
 
-**Out of scope, do not edit:** `extension/`, `desktop/`, `shared/`, `demo/`, `e2e/`, every other file in `server/`. The **planned** extension loop panel will call `GET /v1/executors` and the preview/execute routes to offer "API (Composio)" mode; no such panel exists yet. Keep that HTTP contract exactly as documented so the future client can rely on it. If the contract must change, change `docs/server-api.md` in the same commit and tell Pravin.
+**Historical ownership note:** the original parallel work used the scope below to avoid collisions. That work has now been integrated; the extension loop panel calls `GET /v1/executors` and offers "API (Composio)" when available. Preserve the documented HTTP contract when changing either Composio path.
 
 ## Tasks, in order
 

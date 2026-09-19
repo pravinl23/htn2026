@@ -1,8 +1,8 @@
 # Ghost prediction server API (`server/`, http://localhost:8787)
 
-Keys stay on the server. This file documents implemented server contracts; it does **not** imply that every client is connected. As of the 2026-09-19 audit, Ghost Desktop calls the form/free-text/health endpoints, while the Chrome extension calls none of them and still predicts forms locally. The extension also has no loop panel or executor client yet. All non-SSE bodies are JSON. CORS allows `chrome-extension://*` and `http://localhost:*` only.
+Keys stay on the server. The Chrome extension now calls form prediction, ghost text, profile extraction, metrics, presence and loop/executor routes while retaining instant local fallback; it still does not call `/v1/predict/next`. Ghost Desktop calls form/free-text/health/presence. The atomic workflow lab calls `/v1/workflows/*` directly, while the tested native `GHWorkflowCoordinator` seam is not yet connected to the desktop pipeline. All non-SSE bodies are JSON. CORS allows `chrome-extension://*` and `http://localhost:*` only.
 
-Browserbase and Composio paths are unit/mock-tested and fall back to simulated executors without credentials. They have not been live-verified in the current checkout. There is no `.env` at the audited revision.
+Browserbase and Composio paths are unit/mock-tested and fall back to simulated executors without credentials. On the audited developer machine, direct TypeSafe/Jev is configured: a live 12-field decision and the three-action atomic workflow passed with calibrated Jev choices. Browserbase credentials are present but its executor has not been live-verified, and Composio is not configured. The ignored `.env` must never be committed.
 
 ## Access rules (the API is unauthenticated and spends paid model quota)
 

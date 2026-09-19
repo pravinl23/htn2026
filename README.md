@@ -6,9 +6,9 @@ Built at Hack the North 2026. Instructions for the autonomous builder live in `C
 
 ## Current status
 
-The browser form-filling path is complete and verified: Ghost can walk the React and plain-HTML job applications with Tab, preserve native keyboard behavior outside the walk, refuse sensitive fields, verify writes, and stop on the locked Submit action. The demo sites, prediction/LLM server, pure loop-learning engine, server-side Browserbase/Composio executors, and native macOS form agent are also implemented and unit-tested.
+The browser form-filling path is complete and verified: Ghost can walk the React and plain-HTML job applications with Tab, preserve native keyboard behavior outside the walk, refuse sensitive fields, verify writes, and stop on the locked Submit action. The extension now upgrades its instant local predictions from the server, caches per form, streams free-text drafts, imports resumes, learns opt-in facts, reports metrics, records safe action traces, detects repeated loops, previews them and runs confirmed visible/background/Browserbase/Composio modes.
 
-The headline **"do it twice, Ghost does the rest"** workflow is not connected end to end yet. The Chrome extension still predicts forms locally; it does not record action traces, call the prediction server, show a learned-loop preview, or execute a confirmed loop. Mail/calendar, invoices/sheet, resume extraction, next-action prediction, metrics, and scale-out execution therefore exist as tested components or demo surfaces, not as complete user flows. See `PLAN.md` for the exact boundary.
+The canonical invoice loop is heavily unit-tested, including preview, explicit confirmation, verified background execution and failure handling, but still needs one loaded-extension Playwright run covering the full “do two, preview 48, complete 47, hold one” judging path and its fallback video. The separate atomic workflow lab demonstrates two Jev-selected stories—meeting coordination and Slack → GitHub issue—with simulated Composio execution. Real Composio accounts are not configured, and the native workflow coordinator is a tested seam rather than part of the desktop app’s live pipeline. See `PLAN.md` for the exact boundary.
 
 ## Run it
 
@@ -19,8 +19,6 @@ pnpm install
 pnpm build        # builds the extension into extension/dist (and the demo sites)
 pnpm dev          # prediction server on :8787, demo sites on :5173, extension rebuild on change
 ```
-
-Known setup issue: `pnpm install --frozen-lockfile` currently fails because the lockfile still lists `pdfjs-dist` for the extension while `extension/package.json` does not. Reconcile and commit the lockfile before relying on frozen CI installs.
 
 Then load the extension in Chrome:
 
@@ -49,7 +47,7 @@ The first Playwright run also needs `pnpm --filter @ghost/e2e exec playwright in
 
 ## Keys
 
-The implemented offline form path and server endpoints have deterministic fallbacks when keys are missing. Copy `.env.example` to `.env` to enable live model providers. There is currently no `.env` in the repository checkout, and the extension does not call the server yet. Never commit `.env`.
+The implemented offline form path and server endpoints have deterministic fallbacks when keys are missing. Copy `.env.example` to `.env` to enable live model providers. On the audited developer machine, direct TypeSafe/Jev, Baseten, xAI and Browserbase are configured. A live 12-field Jev decision and the complete three-action atomic workflow passed with calibrated TypeSafe/Jev choices. The extension and desktop both use the local server while retaining local fallback. Never commit `.env`.
 
 ## Run Ghost in the background (macOS)
 
@@ -113,7 +111,6 @@ shared/      types and pure logic shared by the extension and the server (field 
 extension/   Chrome MV3 extension (content script, background worker, options page)
 server/      Hono prediction service on http://localhost:8787
 demo/        local demo sites on http://localhost:5173
-desktop/     native macOS AX capture, verified writes, overlay, and global Tab gate
 e2e/         Playwright tests that load the built extension
 desktop/     native macOS menu-bar form agent (separate Makefile build and tests)
 docs/        media and diagrams
