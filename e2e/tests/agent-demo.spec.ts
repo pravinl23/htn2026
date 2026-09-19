@@ -52,3 +52,38 @@ test.describe("Jev computer-use demo", () => {
     expect(panel?.meta).toContain((await host.getAttribute("data-ghost-agent-provider")) ?? "");
   });
 });
+
+test.describe("Jev outcome telemetry", () => {
+  // Always use the isolated keyless server, even when the main scenario is explicitly pointed at a live provider.
+  test.use({ serverUrl: E2E_SERVER_URL });
+
+  test("turns a real blocked browser run into a redacted replay fixture", async ({ page }) => {
+    const before = await fetch(`${E2E_SERVER_URL}/v1/agent/replays`).then((response) => response.json()) as { count: number };
+    await gotoForm(page, "/apply");
+    const host = page.locator(HOST);
+    await expect(host).toHaveAttribute("data-ghost-state", "ready");
+    await expect.poll(async () => Number(await host.getAttribute("data-ghost-count"))).toBeGreaterThanOrEqual(OFFLINE_GHOSTS + 1);
+    await scrollToForm(page);
+    await page.keyboard.press("Alt+Shift+J");
+    const started = await overlayEval(page, (root, goal) => {
+      const input = root.querySelector<HTMLTextAreaElement>("#ghost-agent-goal");
+      const run = root.querySelector<HTMLButtonElement>("#ghost-agent-panel .run");
+      if (!input || !run) return false;
+      input.value = goal;
+      run.click();
+      return true;
+    }, "Complete every required field");
+    expect(started).toBe(true);
+    await expect.poll(async () => await host.getAttribute("data-ghost-agent-state"), { timeout: 60_000 }).toBe("blocked");
+
+    let latest: unknown;
+    await expect.poll(async () => {
+      const body = await fetch(`${E2E_SERVER_URL}/v1/agent/replays`).then((response) => response.json()) as { count: number; fixtures: unknown[] };
+      latest = body.fixtures[0];
+      return body.count;
+    }).toBeGreaterThan(before.count);
+    expect(latest).toMatchObject({ schemaVersion: "ghost.agent-replay.v1", observed: { state: "blocked" } });
+    expect(JSON.stringify(latest)).not.toMatch(/"(goal|url|origin|title|label|context|targetId|targetLabel|value|profile|email)"/i);
+    await expectNotSubmitted(page);
+  });
+});
