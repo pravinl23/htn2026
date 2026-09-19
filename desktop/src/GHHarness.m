@@ -2,12 +2,14 @@
 #import <AppKit/AppKit.h>
 #import <dlfcn.h>
 #import <sys/file.h>
+#import <sys/stat.h>
 #import "GHAccessibility.h"
 #import "GHCapture.h"
 #import "GHController.h"
 #import "GHCore.h"
 #import "GHField.h"
 #import "GHLog.h"
+#import "GHProfileStore.h"
 
 NSString *const GHHarnessModeTrust = @"trust";
 NSString *const GHHarnessModeDump = @"dump";
@@ -83,7 +85,7 @@ static BOOL GHHarnessIdentifierIsSafe(NSString *identifier) {
     NSUInteger index = [arguments indexOfObject:@"--out"];
     if (index == NSNotFound || index + 1 >= arguments.count) return nil;
     NSString *path = arguments[index + 1];
-    return path.isAbsolutePath ? path : nil;
+    return GHHarnessProblemWithOutPath(path) ? nil : path;
 }
 
 + (instancetype)requestWithArguments:(NSArray<NSString *> *)arguments error:(NSString **)error {
@@ -127,9 +129,9 @@ static BOOL GHHarnessIdentifierIsSafe(NSString *identifier) {
         GHHarnessFail(error, @"--frontmost needs an app name or a bundle id");
         return nil;
     }
-    if (outPath && (![outPath isKindOfClass:[NSString class]] || !outPath.isAbsolutePath || outPath.length > 1024 || [outPath containsString:@"\0"])) {
-        GHHarnessFail(error, @"--out needs an absolute path");
-        return nil;
+    if (outPath) {
+        NSString *problem = [outPath isKindOfClass:[NSString class]] ? GHHarnessProblemWithOutPath(outPath) : @"--out needs an absolute path";
+        if (problem) { GHHarnessFail(error, problem); return nil; }
     }
     BOOL autotab = [mode isEqualToString:GHHarnessModeAutotab];
     if (autotab && !dictionary[@"count"]) { GHHarnessFail(error, @"--autotab needs a count"); return nil; }
@@ -205,6 +207,30 @@ NSData *GHHarnessEncodeResponse(NSDictionary<NSString *, id> *response) {
     return data;
 }
 
+NSString *GHHarnessProblemWithOutPath(NSString *path) {
+    if (path.length == 0 || !path.isAbsolutePath || path.length > 1024 || [path containsString:@"\0"]) return @"--out needs an absolute path";
+    if (![path.pathExtension isEqualToString:@"json"]) return @"--out must name a .json file";
+    for (NSString *component in path.pathComponents) {
+        if ([component isEqualToString:@".."] || [component isEqualToString:@"."]) return @"--out must not contain . or ..";
+    }
+    struct stat info;
+    NSString *parent = path.stringByDeletingLastPathComponent;
+    // The directory must already exist and belong to this user: the harness never creates directories.
+    if (lstat(parent.fileSystemRepresentation, &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != getuid()) {
+        return @"--out must be inside an existing directory of yours";
+    }
+    if (lstat(path.fileSystemRepresentation, &info) == 0 && !S_ISREG(info.st_mode)) return @"--out names something that is not a plain file";
+    return nil;
+}
+
+BOOL GHHarnessRemoveOldAnswer(NSString *path) {
+    if (GHHarnessProblemWithOutPath(path)) return NO;
+    struct stat info;
+    if (lstat(path.fileSystemRepresentation, &info) != 0) return YES;           // nothing there
+    if (!S_ISREG(info.st_mode) || info.st_uid != getuid()) return NO;          // never a directory, a link, or someone else's
+    return unlink(path.fileSystemRepresentation) == 0;
+}
+
 BOOL GHHarnessWriteResponse(NSDictionary<NSString *, id> *response, NSString *outPath) {
     NSData *data = GHHarnessEncodeResponse(response);
     if (!outPath) {
@@ -212,9 +238,20 @@ BOOL GHHarnessWriteResponse(NSDictionary<NSString *, id> *response, NSString *ou
         fflush(stdout);
         return YES;
     }
-    [NSFileManager.defaultManager createDirectoryAtPath:outPath.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:NULL];
-    BOOL ok = [data writeToFile:outPath options:NSDataWritingAtomic error:NULL];
-    if (!ok) GHLog(@"harness: could not write the answer file");
+    NSString *problem = GHHarnessProblemWithOutPath(outPath);
+    if (problem) { GHLog(@"harness: answer not written (%@)", problem); return NO; }
+    // A private temporary file (0600, created fresh, never through a link), then an atomic rename onto the name:
+    // whoever waits for the file sees all of it or nothing, and nobody else can read it.
+    NSString *template = [outPath.stringByDeletingLastPathComponent stringByAppendingPathComponent:@".ghost-answer-XXXXXX"];
+    char buffer[PATH_MAX];
+    if (strlcpy(buffer, template.fileSystemRepresentation, sizeof(buffer)) >= sizeof(buffer)) return NO;
+    int fd = mkstemp(buffer);
+    if (fd < 0) { GHLog(@"harness: could not write the answer file"); return NO; }
+    fchmod(fd, 0600);
+    BOOL ok = write(fd, data.bytes, data.length) == (ssize_t)data.length;
+    ok = (close(fd) == 0) && ok;
+    if (ok) ok = rename(buffer, outPath.fileSystemRepresentation) == 0;   // replaces a file or a link, never follows one
+    if (!ok) { unlink(buffer); GHLog(@"harness: could not write the answer file"); }
     return ok;
 }
 
@@ -266,7 +303,7 @@ BOOL GHHarnessWriteResponse(NSDictionary<NSString *, id> *response, NSString *ou
 }
 
 - (void)withdrawRequest:(NSString *)identifier {
-    if (GHHarnessIdentifierIsSafe(identifier)) [NSFileManager.defaultManager removeItemAtPath:[self requestPathForIdentifier:identifier] error:NULL];
+    if (GHHarnessIdentifierIsSafe(identifier)) unlink([self requestPathForIdentifier:identifier].fileSystemRepresentation);
 }
 
 - (NSString *)lockPath {
@@ -314,9 +351,12 @@ BOOL GHHarnessWriteResponse(NSDictionary<NSString *, id> *response, NSString *ou
     for (NSString *name in [[fm contentsOfDirectoryAtPath:_requestsDirectory error:NULL] sortedArrayUsingSelector:@selector(compare:)]) {
         if (![name.pathExtension isEqualToString:@"json"] || [name hasPrefix:@"."]) continue;
         NSString *path = [_requestsDirectory stringByAppendingPathComponent:name];
+        struct stat info;
+        // A plain file of this user only (never a link, a directory or another account's file), removed with unlink.
+        if (lstat(path.fileSystemRepresentation, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != getuid()) continue;
         NSData *data = [NSData dataWithContentsOfFile:path];
         // Deleting IS the claim: a file that cannot be removed is not run (it would run again on every scan).
-        if (![fm removeItemAtPath:path error:NULL]) continue;
+        if (unlink(path.fileSystemRepresentation) != 0) continue;
         NSString *error;
         GHHarnessRequest *request = [GHHarnessRequest requestWithData:data error:&error];
         if (!request) { GHLog(@"harness: dropped a malformed request (%@)", error ?: @"?"); continue; }
@@ -463,17 +503,70 @@ typedef struct {
     return [[line substringWithRange:cut] stringByAppendingString:@"..."];
 }
 
+/// Text-entry controls: what is inside them (a rich-text editor's paragraphs, a combo box's typed text) is the
+/// user's input, so a dump never descends into them.
+static BOOL GHHarnessIsTextEntry(NSString *role) {
+    static NSSet<NSString *> *roles;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        roles = [NSSet setWithArray:@[ @"AXTextField", @"AXTextArea", @"AXComboBox", @"AXSearchField", @"AXSecureTextField", @"AXDateField", @"AXTimeField" ]];
+    });
+    return role && [roles containsObject:role];
+}
+
+/// Browser chrome outside any web area: toolbars, tab-bar items (every open tab's title), the address field.
+/// Never the path to the page (Safari keeps its AXWebArea INSIDE the outer AXTabGroup).
+static BOOL GHHarnessIsBrowserChrome(id<GHAXNode> node, NSString *role) {
+    if ([role isEqualToString:@"AXToolbar"] || [node.subrole isEqualToString:@"AXTabButton"]) return YES;
+    NSString *identifier = node.identifier.lowercaseString ?: @"";
+    return [identifier isEqualToString:@"web_browser_address_and_search_field"] || [identifier containsString:@"omnibox"]
+        || [identifier containsString:@"addressandsearch"] || [identifier containsString:@"address_and_search"];
+}
+
+/// A widget that shows a CHOSEN value as page text (react-select's single-value, a tag list): input, not page text.
+static BOOL GHHarnessShowsChosenValue(id<GHAXNode> node) {
+    for (NSString *name in node.domClassList) {
+        NSString *lower = name.lowercaseString;
+        if ([lower containsString:@"single-value"] || [lower containsString:@"singlevalue"] || [lower containsString:@"multi-value"]
+            || [lower containsString:@"multivalue"]) return YES;
+    }
+    return NO;
+}
+
 + (NSDictionary<NSString *, id> *)describe:(id<GHAXNode>)node depth:(NSUInteger)depth walk:(GHHarnessTreeWalk *)walk
-                                   actions:(NSArray<NSString *> * (^)(id<GHAXNode>))actions {
+                                   actions:(NSArray<NSString *> * (^)(id<GHAXNode>))actions inWebArea:(BOOL)inWebArea {
     walk->visited++;
     NSMutableDictionary<NSString *, id> *out = [NSMutableDictionary dictionary];
     NSString *role = node.role;
     out[@"role"] = role ?: @"";
-    NSDictionary<NSString *, NSString *> *texts = @{
-        @"subrole": node.subrole ?: @"", @"roleDescription": node.roleDescription ?: @"", @"title": node.title ?: @"",
-        @"description": node.axDescription ?: @"", @"placeholder": node.placeholder ?: @"", @"help": node.help ?: @"",
-        @"identifier": node.identifier ?: @"",
-    };
+
+    // Sensitive first: the role and the flag, nothing else. Not the label, not a length, not what is inside.
+    NSString *labelledBy = nil;
+    if (GHHarnessIsFormControl(role)) {
+        id<GHAXNode> titleElement = node.titleUIElement;
+        labelledBy = titleElement.title.length ? titleElement.title : titleElement.value;
+    }
+    NSString *naming = [@[ node.title ?: @"", node.axDescription ?: @"", node.placeholder ?: @"", node.help ?: @"", node.identifier ?: @"", labelledBy ?: @"" ]
+                        componentsJoinedByString:@" "];
+    if (GHHarnessIsSecure(node) || [GHCapture nativeLooksSensitive:naming]) {
+        out[@"sensitive"] = @YES;
+        return out;
+    }
+    if (!inWebArea && GHHarnessIsBrowserChrome(node, role)) {
+        out[@"omitted"] = @"browser-chrome";
+        return out;
+    }
+
+    // Titles that name a window, a document or a tab are the user's browsing, not the page: never written.
+    BOOL namesTheWindow = [role isEqualToString:@"AXWindow"] || [role isEqualToString:@"AXWebArea"] || (!inWebArea && [role isEqualToString:@"AXTabGroup"]);
+    NSMutableDictionary<NSString *, NSString *> *texts = [@{
+        @"subrole": node.subrole ?: @"", @"roleDescription": node.roleDescription ?: @"", @"placeholder": node.placeholder ?: @"",
+        @"help": node.help ?: @"", @"identifier": node.identifier ?: @"",
+    } mutableCopy];
+    if (!namesTheWindow) {
+        texts[@"title"] = node.title ?: @"";
+        texts[@"description"] = node.axDescription ?: @"";
+    }
     for (NSString *key in texts) {
         NSString *safe = [self safeText:texts[key]];
         if (safe) out[key] = safe;
@@ -482,20 +575,11 @@ typedef struct {
     if (classes.count) out[@"classes"] = [classes subarrayWithRange:NSMakeRange(0, MIN(classes.count, kMaxClasses))];
     NSArray<NSString *> *names = actions ? actions(node) : nil;
     if (names.count) out[@"actions"] = names;
+    NSString *safeLabel = [self safeText:labelledBy];
+    if (safeLabel) out[@"labelledBy"] = safeLabel;
 
-    NSString *labelledBy = nil;
-    if (GHHarnessIsFormControl(role)) {
-        id<GHAXNode> titleElement = node.titleUIElement;
-        labelledBy = titleElement.title.length ? titleElement.title : titleElement.value;
-        NSString *safe = [self safeText:labelledBy];
-        if (safe) out[@"labelledBy"] = safe;
-    }
-
-    NSString *naming = [@[ texts[@"title"], texts[@"description"], texts[@"placeholder"], texts[@"help"], texts[@"identifier"], labelledBy ?: @"" ] componentsJoinedByString:@" "];
     NSString *value = node.value;
-    if (GHHarnessIsSecure(node) || [GHCapture nativeLooksSensitive:naming]) {
-        out[@"sensitive"] = @YES;   // not even the length of what is in there
-    } else if ([role isEqualToString:@"AXStaticText"]) {
+    if ([role isEqualToString:@"AXStaticText"] && !namesTheWindow) {
         NSString *safe = [self safeText:value];
         if (safe) out[@"text"] = safe;
     } else if (value) {
@@ -512,11 +596,16 @@ typedef struct {
 
     NSArray<id<GHAXNode>> *children = node.children;
     if (children.count == 0) return out;
+    if (GHHarnessIsTextEntry(role) || GHHarnessShowsChosenValue(node)) {
+        out[@"childrenOmitted"] = @(children.count);   // the user's input, not page structure
+        return out;
+    }
     if (depth >= walk->maxDepth) {
         walk->truncated = YES;
         out[@"childrenOmitted"] = @(children.count);
         return out;
     }
+    BOOL childInWeb = inWebArea || [role isEqualToString:@"AXWebArea"];
     NSMutableArray<NSDictionary *> *described = [NSMutableArray arrayWithCapacity:children.count];
     for (id<GHAXNode> child in children) {
         BOOL outOfTime = walk->stopAt > 0 && CFAbsoluteTimeGetCurrent() > walk->stopAt;
@@ -525,7 +614,7 @@ typedef struct {
             out[@"childrenOmitted"] = @(children.count - described.count);
             break;
         }
-        [described addObject:[self describe:child depth:depth + 1 walk:walk actions:actions]];
+        [described addObject:[self describe:child depth:depth + 1 walk:walk actions:actions inWebArea:childInWeb]];
     }
     if (described.count) out[@"children"] = described;
     return out;
@@ -536,7 +625,7 @@ typedef struct {
                                    timeBudget:(NSTimeInterval)timeBudget {
     GHHarnessTreeWalk walk = { .maxDepth = maxDepth, .maxNodes = MAX(maxNodes, (NSUInteger)1), .visited = 0, .truncated = NO,
                                .stopAt = timeBudget > 0 ? CFAbsoluteTimeGetCurrent() + timeBudget : 0 };
-    NSDictionary<NSString *, id> *tree = [self describe:root depth:0 walk:&walk actions:actions];
+    NSDictionary<NSString *, id> *tree = [self describe:root depth:0 walk:&walk actions:actions inWebArea:NO];
     if (visited) *visited = walk.visited;
     if (truncated) *truncated = walk.truncated;
     return tree;
@@ -560,6 +649,7 @@ static const CGKeyCode kHarnessTabKeyCode = 48;
 }
 
 - (BOOL)postTab {
+    if (GHRealKeyEventsForbidden()) return NO;   // the test runner
     // HID-state source and NO user data: Ghost's tap cannot tell this press from the user's, which is the point.
     CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
     if (!source) return NO;
@@ -732,6 +822,22 @@ static AXUIElementRef GHHarnessCopyWindow(AXUIElementRef application, AXError *e
     gTrustProbe = [probe copy];
 }
 
+static BOOL (^gPauseCheck)(NSString *);
+
++ (void)setPauseCheck:(BOOL (^)(NSString *))check {
+    gPauseCheck = [check copy];
+}
+
++ (BOOL)bundleIdentifierIsPaused:(NSString *)bundleId {
+    if (gPauseCheck) return gPauseCheck(bundleId);
+    if ([[[GHAccessibility alloc] init] isBundleIdentifierPaused:bundleId]) return YES;   // the built-in list
+    // The user's own pause list (menu: "Pause in <app>"), read fresh from settings.json: the same list the running
+    // controller honours. An unreadable settings file leaves the built-in list only.
+    GHProfileStore *store = [[GHProfileStore alloc] initWithCore:nil];
+    [store reload];
+    return [store isPausedBundleId:bundleId];
+}
+
 + (BOOL)processIsTrusted {
     return gTrustProbe ? gTrustProbe() : (AXIsProcessTrusted() ? YES : NO);
 }
@@ -801,8 +907,8 @@ static AXUIElementRef GHHarnessCopyWindow(AXUIElementRef application, AXError *e
 /// --dump and --dump-tree. The AX walk runs off the main queue; the answer comes back on it.
 + (void)look:(GHHarnessRequest *)request target:(NSRunningApplication *)target completion:(void (^)(NSDictionary<NSString *, id> *))completion {
     NSString *bundleId = target.bundleIdentifier;
-    if ([[[GHAccessibility alloc] init] isBundleIdentifierPaused:bundleId]) {
-        completion(GHHarnessErrorResponse(@"paused-app", bundleId ?: @"unknown"));   // password managers, terminals...: Ghost never looks
+    if ([self bundleIdentifierIsPaused:bundleId]) {
+        completion(GHHarnessErrorResponse(@"paused-app", bundleId ?: @"unknown"));   // password managers, terminals, the user's list: Ghost never looks
         return;
     }
     pid_t pid = target.processIdentifier;

@@ -1,6 +1,8 @@
 // GHWriter against fake nodes and a fake actuator: every branch of the accept path without a single AX call.
 #import "GHTest.h"
 #import "GHCapture.h"
+#import "GHKeyPoster.h"
+#import "GHOpenPanelDriver.h"
 #import "GHWriter.h"
 
 #pragma mark - helpers
@@ -342,6 +344,45 @@ GH_TEST(writer_select_opens_the_popup_and_presses_the_matching_item) {
     GH_ASSERT_FALSE([GHWriter isPlaceholderChoice:@"Canada"]);
 }
 
+GH_TEST(writer_popup_escape_only_closes_a_menu_that_is_really_open) {
+    // Pure: an AXMenu under the popup, or focus on a menu item inside it. Nothing else counts as "open".
+    GHFakeAXNode *popup = Popup(@[ @"Other" ]);
+    GH_ASSERT([GHWriter menuIsOpenForPopup:popup focused:nil]);
+    GHFakeAXNode *listbox = [GHFakeAXNode nodeWithRole:@"AXPopUpButton" title:@"Country" frame:CGRectMake(100, 100, 300, 30)];
+    listbox.value = @"Select...";
+    [listbox addChild:[GHFakeAXNode staticText:@"Canada" frame:CGRectZero]];   // an ARIA listbox: options, no AXMenu
+    GH_ASSERT_FALSE([GHWriter menuIsOpenForPopup:listbox focused:nil]);
+    GHFakeAXNode *item = [[listbox addChild:[GHFakeAXNode nodeWithRole:@"AXGroup"]] addChild:[GHFakeAXNode nodeWithRole:@"AXMenuItem" title:@"Canada" frame:CGRectZero]];
+    GH_ASSERT([GHWriter menuIsOpenForPopup:listbox focused:item]);
+    GHFakeAXNode *strayItem = [GHFakeAXNode nodeWithRole:@"AXMenuItem" title:@"Quit" frame:CGRectZero];
+    GH_ASSERT_FALSE([GHWriter menuIsOpenForPopup:listbox focused:strayItem]);   // some other menu: not ours
+    GH_ASSERT_FALSE([GHWriter menuIsOpenForPopup:nil focused:item]);
+
+    // A popup whose "menu" never shows up as an AXMenu (a slow app, an ARIA listbox): no match, and no Escape either.
+    GHFakeAXActuator *actuator = [[GHFakeAXActuator alloc] init];
+    GHWriter *writer = Writer(actuator);
+    GHField *field = FieldFor(@"Country", GHKindSelect);
+    GHGhost *ghost = GhostFor(field, GHGhostActionSelect, @"Canada");
+    GHFakeAXNode *bare = [GHFakeAXNode nodeWithRole:@"AXPopUpButton" title:@"Country" frame:CGRectMake(100, 100, 300, 30)];
+    bare.value = @"Select...";
+    GHWriteResult *result = Run(writer, ghost, field, bare, nil);
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHWriteReasonOptionNotFound);
+    GH_ASSERT_EQUAL_INT(actuator.dismissMenuCount, 0);
+
+    // The menu is open, but the user pressed a key while it was up: the key was theirs, no Escape follows it.
+    GHFakeAXActuator *keyed = [[GHFakeAXActuator alloc] init];
+    GHWriter *interrupted = Writer(keyed);
+    __weak GHWriter *weakWriter = interrupted;
+    interrupted.after = ^(NSTimeInterval delay, dispatch_block_t block) { [weakWriter noteUserKeyEvent]; block(); };
+    result = Run(interrupted, ghost, field, Popup(@[ @"Select an option", @"Other" ]), nil);
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHWriteReasonOptionNotFound);
+    GH_ASSERT_EQUAL_INT(keyed.dismissMenuCount, 0);
+    // A key outside a pick changes nothing for the next one.
+    interrupted.after = ^(NSTimeInterval delay, dispatch_block_t block) { block(); };
+    result = Run(interrupted, ghost, field, Popup(@[ @"Select an option", @"Other" ]), nil);
+    GH_ASSERT_EQUAL_INT(keyed.dismissMenuCount, 1);
+}
+
 GH_TEST(writer_runs_one_write_at_a_time) {
     GHFakeAXActuator *actuator = [[GHFakeAXActuator alloc] init];
     GHWriter *writer = [[GHWriter alloc] initWithActuator:actuator];
@@ -360,4 +401,155 @@ GH_TEST(writer_runs_one_write_at_a_time) {
     queued.firstObject();
     GH_ASSERT(a.ok);
     GH_ASSERT_FALSE(writer.busy);
+}
+
+#pragma mark - typing through GHKeyPoster, uploads, lazy selects
+
+GH_TEST(writer_live_actuator_types_only_through_the_key_poster_into_the_focused_node) {
+    GHFakeDesktopState *state = [[GHFakeDesktopState alloc] init];
+    state.frontmostPID = 321;
+    GHFakeKeyPoster *poster = [[GHFakeKeyPoster alloc] initWithState:state];
+    GHAXLiveActuator *actuator = [[GHAXLiveActuator alloc] initWithPoster:poster];
+    GH_ASSERT(actuator.poster == poster);
+    GHFakeAXNode *field = TextField(@"Why us?");
+    GHFakeAXNode *elsewhere = TextField(@"Search");
+    state.focusedNode = field;
+    // A line break is typed as a space: never an Enter. Every chunk re-checks focus and the app.
+    GH_ASSERT([actuator typeText:@"Fast tools.\nLow latency, always and everywhere." intoNode:field]);
+    GH_ASSERT_EQUAL_OBJECTS(poster.typedText, @"Fast tools. Low latency, always and everywhere.");
+    GH_ASSERT(poster.guardCalls >= 3);
+    GH_ASSERT_EQUAL_INT([poster countOfKind:GHKeyStrokeKindReturn], 0);
+    // Focus moves after the first chunk: the rest is never typed.
+    __block NSUInteger posts = 0;
+    poster.onPost = ^(GHKeyStroke *stroke) { if (++posts == 1) state.focusedNode = elsewhere; };
+    NSUInteger before = poster.posted.count;
+    GH_ASSERT_FALSE([actuator typeText:[@"" stringByPaddingToLength:50 withString:@"y" startingAtIndex:0] intoNode:field]);
+    GH_ASSERT_EQUAL_INT(poster.posted.count, before + 1);
+    // Another app in front: nothing at all.
+    poster.onPost = nil;
+    state.focusedNode = field;
+    before = poster.posted.count;
+    __block BOOL switched = NO;
+    poster.onPost = ^(GHKeyStroke *stroke) { if (!switched) { switched = YES; state.frontmostPID = 999; } };
+    GH_ASSERT_FALSE([actuator typeText:[@"" stringByPaddingToLength:30 withString:@"z" startingAtIndex:0] intoNode:field]);
+    GH_ASSERT_EQUAL_INT(poster.posted.count, before + 1);
+    // Fakes have no element: presses, focus and scrolling report failure without touching anything.
+    GH_ASSERT_FALSE([actuator pressNode:field]);
+    GH_ASSERT_FALSE([actuator scrollToVisible:field]);
+    NSUInteger posted = poster.posted.count;
+    GH_ASSERT_FALSE([actuator dismissMenuOfPopup:field stillWanted:nil]);   // no menu of ours is open: no Escape
+    GH_ASSERT_EQUAL_INT(poster.posted.count, posted);
+}
+
+GH_TEST(writer_typing_fallback_goes_through_the_actuator_focus_check) {
+    GHFakeAXActuator *actuator = [[GHFakeAXActuator alloc] init];
+    GHFakeAXNode *node = TextField(@"First name");
+    GHFakeAXNode *other = TextField(@"Other");
+    GH_ASSERT([actuator focusNode:other]);
+    GH_ASSERT_FALSE([actuator typeText:@"Alex" intoNode:node]);   // focus is elsewhere: refused
+    GH_ASSERT_EQUAL_OBJECTS(node.value, @"");
+    GH_ASSERT_EQUAL_OBJECTS(other.value, @"");
+    GH_ASSERT([actuator focusNode:node]);
+    GH_ASSERT([actuator typeText:@"Alex" intoNode:node]);
+    GH_ASSERT_EQUAL_OBJECTS(node.value, @"Alex");
+    GH_ASSERT_EQUAL_OBJECTS(actuator.focusRequests, (@[ other, node ]));
+}
+
+static GHFakeAXNode *UploadWidget(GHFakeAXNode **attach, GHFakeAXNode **input) {
+    GHFakeAXNode *widget = [GHFakeAXNode nodeWithRole:@"AXGroup" title:@"Resume/CV" frame:CGRectMake(100, 100, 600, 200)];
+    GHFakeAXNode *row = [widget addChild:[GHFakeAXNode nodeWithRole:@"AXGroup" title:nil frame:CGRectMake(100, 130, 300, 50)]];
+    *attach = [row addChild:[GHFakeAXNode nodeWithRole:@"AXButton" title:@"Attach" frame:CGRectMake(100, 130, 300, 43)]];
+    *input = [row addChild:[GHFakeAXNode nodeWithRole:@"AXButton" title:nil frame:CGRectMake(398, 130, 2, 2)]];
+    (*input).subrole = @"AXFileUploadButton";
+    (*input).identifier = @"resume";
+    [widget addChild:[GHFakeAXNode nodeWithRole:@"AXButton" title:@"Dropbox" frame:CGRectMake(100, 180, 300, 43)]];
+    return widget;
+}
+
+GH_TEST(writer_upload_widget_helpers_read_page_text_and_remove_controls) {
+    GHFakeAXNode *attach = nil, *input = nil;
+    GHFakeAXNode *widget = UploadWidget(&attach, &input);
+    GH_ASSERT([GHWriter uploadWidgetOfInput:input] == widget);   // climbs past the unnamed row to "Resume/CV"
+    GH_ASSERT_FALSE([GHWriter widget:widget mentionsFile:@"resume-alex-chen.pdf"]);
+    GH_ASSERT_FALSE([GHWriter widgetHasRemoveControl:widget]);
+    GHFakeAXNode *typed = [widget addChild:TextField(@"Notes")];
+    typed.value = @"resume-alex-chen.pdf";                          // a field's value is never read
+    GH_ASSERT_FALSE([GHWriter widget:widget mentionsFile:@"resume-alex-chen.pdf"]);
+    [widget addChild:[GHFakeAXNode staticText:@"RESUME-ALEX-CHEN.PDF" frame:CGRectZero]];
+    GH_ASSERT([GHWriter widget:widget mentionsFile:@"resume-alex-chen.pdf"]);
+    [widget addChild:[GHFakeAXNode nodeWithRole:@"AXButton" title:@"Remove file" frame:CGRectZero]];
+    GH_ASSERT([GHWriter widgetHasRemoveControl:widget]);
+    GH_ASSERT([GHWriter uploadWidgetOfInput:nil] == nil);
+    GH_ASSERT_FALSE([GHWriter widget:nil mentionsFile:@"x.pdf"]);
+}
+
+GH_TEST(writer_upload_and_lazy_select_are_refused_without_their_drivers) {
+    GHFakeAXActuator *actuator = [[GHFakeAXActuator alloc] init];
+    GHWriter *writer = Writer(actuator);
+    GHFakeAXNode *attach = nil, *input = nil;
+    (void)UploadWidget(&attach, &input);
+    GHField *file = FieldFor(@"Resume/CV", GHKindFile);
+    GHGhost *upload = GhostFor(file, GHGhostActionUpload, @"/Users/example/resume-alex-chen.pdf");
+    upload.displayText = @"resume-alex-chen.pdf";
+    GHWriteResult *result = Run(writer, upload, file, attach, input);
+    GH_ASSERT(result.refused);
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHWriteReasonUnsupported);
+    GH_ASSERT_EQUAL_INT(actuator.pressedNodes.count, 0);
+
+    // A lazy select on a react-select input without the combobox driver is never typed as free text.
+    GHFakeAXNode *combo = [GHFakeAXNode nodeWithRole:@"AXComboBox" title:@"Country" frame:CGRectMake(100, 100, 300, 30)];
+    combo.value = @"";
+    GHField *select = FieldFor(@"Country", GHKindSelect);
+    select.lazyOptions = YES;
+    GHGhost *lazy = GhostFor(select, GHGhostActionSelect, @"Canada");
+    lazy.lazy = YES;
+    GHWriteResult *refused = Run(writer, lazy, select, combo, nil);
+    GH_ASSERT(refused.refused);
+    GH_ASSERT_EQUAL_OBJECTS(refused.reason, GHWriteReasonUnsupported);
+    GH_ASSERT_EQUAL_INT(actuator.setValueCount + actuator.typeCount + actuator.focusCount, 0);
+    GH_ASSERT_EQUAL_OBJECTS(combo.value, @"");
+
+    // A path never goes into a file field any other way, and an upload never into anything but a file field.
+    GH_ASSERT_EQUAL_OBJECTS(Run(writer, GhostFor(file, GHGhostActionFill, @"/Users/example/r.pdf"), file, attach, input).reason, GHWriteReasonUnsupported);
+    GHField *text = FieldFor(@"Website", GHKindText);
+    GHFakeAXNode *website = TextField(@"Website");
+    GHGhost *wrong = GhostFor(text, GHGhostActionUpload, @"/Users/example/r.pdf");
+    GH_ASSERT(Run(writer, wrong, text, website, nil).refused);
+    GH_ASSERT_EQUAL_OBJECTS(website.value, @"");
+
+    GH_ASSERT([GHWriter ghostRunsSequence:upload field:file]);
+    GH_ASSERT([GHWriter ghostRunsSequence:lazy field:select]);
+    GH_ASSERT_FALSE([GHWriter ghostRunsSequence:GhostFor(text, GHGhostActionFill, @"x") field:text]);
+    select.lazyOptions = NO;
+    GH_ASSERT_FALSE([GHWriter ghostRunsSequence:lazy field:select]);   // a native popup is picked, not driven
+}
+
+GH_TEST(writer_upload_checks_path_target_and_existing_file_before_the_driver) {
+    GHFakeAXActuator *actuator = [[GHFakeAXActuator alloc] init];
+    GHWriter *writer = Writer(actuator);
+    GHFakeDesktopState *state = [[GHFakeDesktopState alloc] init];
+    GHFakeKeyPoster *poster = [[GHFakeKeyPoster alloc] initWithState:state];
+    writer.openPanelDriver = [[GHOpenPanelDriver alloc] initWithActuator:actuator poster:poster state:state];
+    GHFakeAXNode *attach = nil, *input = nil;
+    (void)UploadWidget(&attach, &input);
+    GHField *file = FieldFor(@"Resume/CV", GHKindFile);
+    NSString *path = [GHTestTempDirectory() stringByAppendingPathComponent:@"resume-alex-chen.pdf"];
+    [@"%PDF-1.4 fictional" writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+
+    GHGhost *missing = GhostFor(file, GHGhostActionUpload, @"/nonexistent/ghost/resume.pdf");
+    GH_ASSERT_EQUAL_OBJECTS(Run(writer, missing, file, attach, input).reason, @"upload-invalid-path");
+    file.value = @"resume-old.pdf";                                   // the widget already holds a file
+    GH_ASSERT_EQUAL_OBJECTS(Run(writer, GhostFor(file, GHGhostActionUpload, path), file, attach, input).reason, GHWriteReasonHasValue);
+    file.value = @"";
+    // "Attach" renamed into something that is not an upload control: the file input is the fallback target.
+    attach.title = @"Dropbox";
+    state.frontmostPID = 0;                                           // the driver then refuses: no app in front
+    GHWriteResult *fallback = Run(writer, GhostFor(file, GHGhostActionUpload, path), file, attach, input);
+    GH_ASSERT_EQUAL_OBJECTS(fallback.reason, @"upload-no-frontmost-app");
+    GH_ASSERT(fallback.refused);
+    GH_ASSERT(fallback.sequence);
+    input.subrole = nil;                                              // and with no upload control at all
+    GH_ASSERT_EQUAL_OBJECTS(Run(writer, GhostFor(file, GHGhostActionUpload, path), file, attach, input).reason, @"upload-no-upload-target");
+    GH_ASSERT_EQUAL_INT(actuator.pressedNodes.count, 0);
+    GH_ASSERT_EQUAL_INT(poster.posted.count, 0);
 }

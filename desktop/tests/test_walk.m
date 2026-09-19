@@ -1,6 +1,7 @@
 // GHWalkState (the pure walk), the Tab / Escape rule, and the event tap's callback logic. No AX, no real tap.
 #import "GHTest.h"
 #import "GHEventTap.h"
+#import "GHKeyPoster.h"
 #import "GHWalkState.h"
 
 #pragma mark - helpers
@@ -318,6 +319,61 @@ GH_TEST(tab_during_a_write_is_queued_and_repeats_are_dropped) {
     GH_ASSERT_EQUAL_INT(GHDecideTab(Ready(), GHKeyModifierNone, YES, &hold), GHKeyDecisionAccept);
     GHHoldState native = { NO, NO };
     GH_ASSERT_EQUAL_INT(GHDecideTab(busy, GHKeyModifierNone, YES, &native), GHKeyDecisionPass);
+    // Mid-write, a Tab in another app or another field is that app's: never queued, never swallowed.
+    GHWalkSnapshot away = busy;
+    away.focusInWalk = NO;
+    GHHoldState elsewhere = { NO, NO };
+    GH_ASSERT_EQUAL_INT(GHDecideTab(away, GHKeyModifierNone, NO, &elsewhere), GHKeyDecisionPass);
+    GH_ASSERT_FALSE(elsewhere.walking);
+    GH_ASSERT_EQUAL_INT(GHDecideTab(away, GHKeyModifierNone, YES, &elsewhere), GHKeyDecisionPass);
+}
+
+GH_TEST(tab_jumps_to_an_off_screen_ghost_only_on_a_fresh_press_in_the_walk) {
+    GHHoldState hold = { NO, NO };
+    GHWalkSnapshot offscreen = Ready();
+    offscreen.currentVisible = NO;
+    offscreen.canJump = YES;
+    GH_ASSERT_EQUAL_INT(GHDecideTab(offscreen, GHKeyModifierNone, NO, &hold), GHKeyDecisionJump);
+    GH_ASSERT(hold.walking);
+    // A repeat never jumps (the hold is swallowed until the ghost is on screen), a locked current ghost jumps too.
+    GH_ASSERT_EQUAL_INT(GHDecideTab(offscreen, GHKeyModifierNone, YES, &hold), GHKeyDecisionSwallow);
+    GHWalkSnapshot lock = offscreen;
+    lock.currentLocked = YES;
+    GH_ASSERT_EQUAL_INT(GHDecideTab(lock, GHKeyModifierNone, NO, &hold), GHKeyDecisionJump);
+    // Not after a jump that failed (canJump off), not with focus in another control, not with a modifier, not busy.
+    GHWalkSnapshot failed = offscreen;
+    failed.canJump = NO;
+    GH_ASSERT_EQUAL_INT(GHDecideTab(failed, GHKeyModifierNone, NO, &hold), GHKeyDecisionPass);
+    GHWalkSnapshot elsewhere = offscreen;
+    elsewhere.focusInWalk = NO;
+    GH_ASSERT_EQUAL_INT(GHDecideTab(elsewhere, GHKeyModifierNone, NO, &hold), GHKeyDecisionPass);
+    GH_ASSERT_EQUAL_INT(GHDecideTab(offscreen, GHKeyModifierShift, NO, &hold), GHKeyDecisionPass);
+    GHWalkSnapshot busy = offscreen;
+    busy.busy = YES;
+    GH_ASSERT_EQUAL_INT(GHDecideTab(busy, GHKeyModifierNone, NO, &hold), GHKeyDecisionQueue);
+    GHWalkSnapshot none = offscreen;
+    none.hasCurrent = NO;
+    GH_ASSERT_EQUAL_INT(GHDecideTab(none, GHKeyModifierNone, NO, &hold), GHKeyDecisionPass);
+    // The tap packs the bit.
+    GHEventTap *tap = [[GHEventTap alloc] init];
+    [tap publishSnapshot:offscreen];
+    GH_ASSERT([tap publishedSnapshot].canJump);
+}
+
+GH_TEST(ghost_upload_and_lazy_round_trip) {
+    GHGhost *upload = [GHGhost ghostWithDictionary:@{ @"signature": @"s", @"action": @"upload", @"value": @"/tmp/r.pdf", @"displayText": @"r.pdf" }];
+    GH_ASSERT_EQUAL_OBJECTS(upload.action, GHGhostActionUpload);
+    GH_ASSERT_FALSE(upload.locked);
+    GH_ASSERT_EQUAL_INT(upload.keystrokes, 1);
+    GHGhost *lazy = [GHGhost ghostWithDictionary:@{ @"signature": @"c", @"action": @"select", @"value": @"Canada", @"lazy": @YES }];
+    GH_ASSERT(lazy.lazy);
+    GH_ASSERT([[lazy copy] lazy]);
+    GH_ASSERT_EQUAL_OBJECTS([lazy dictionary][@"lazy"], @YES);
+    GH_ASSERT([upload dictionary][@"lazy"] == nil);
+    // Only a select can be lazy; an unknown action is still no ghost at all.
+    GH_ASSERT_FALSE([GHGhost ghostWithDictionary:@{ @"signature": @"f", @"action": @"fill", @"lazy": @YES }].lazy);
+    GH_ASSERT([GHGhost ghostWithDictionary:@{ @"signature": @"x", @"action": @"press" }] == nil);
+    GH_ASSERT_FALSE([lazy.description containsString:@"Canada"]);
 }
 
 GH_TEST(escape_is_only_consumed_when_a_ghost_is_dismissed) {
@@ -507,4 +563,36 @@ GH_TEST(tap_typing_chunks_never_carry_enter_or_split_a_character) {
     }
     GH_ASSERT_EQUAL_INT([GHEventTap chunksForText:@"\n\n"].count, 0);
     GH_ASSERT_EQUAL_INT(GHKeyModifiersFromFlags(kCGEventFlagMaskShift | kCGEventFlagMaskAlphaShift), GHKeyModifierShift);
+}
+
+GH_TEST(tap_reports_every_untagged_key_down_to_the_sequence_observer) {
+    GHTapRecorder *recorder = [[GHTapRecorder alloc] init];
+    GHEventTap *tap = Tap(recorder);
+    __block NSUInteger seen = 0;
+    tap.userKeyObserver = ^{ seen++; };
+    // Inactive, consumed or passed: the user's key-downs are all reported; Ghost's own (tagged) never are.
+    [tap handleKeyDown:0 flags:0 isRepeat:NO userData:0 printable:YES];
+    [tap publishSnapshot:Ready()];
+    GH_ASSERT([tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:NO userData:0 printable:NO]);
+    [tap handleKeyDown:GHKeyCodeEscape flags:0 isRepeat:NO userData:0 printable:NO];
+    [tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:YES userData:0 printable:NO];
+    GH_ASSERT_EQUAL_INT(seen, 4);
+    GH_ASSERT_FALSE([tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:NO userData:GHSyntheticEventUserData printable:NO]);
+    [tap handleKeyDown:0 flags:0 isRepeat:NO userData:GHSyntheticEventUserData printable:YES];
+    GH_ASSERT_EQUAL_INT(seen, 4);
+    tap.userKeyObserver = nil;
+    [tap handleKeyDown:0 flags:0 isRepeat:NO userData:0 printable:YES];
+    GH_ASSERT_EQUAL_INT(seen, 4);
+}
+
+GH_TEST(tests_can_never_post_a_real_key_event) {
+    // The runner switched synthetic input off before the first test: every live posting path refuses.
+    GH_ASSERT(GHRealKeyEventsForbidden());
+    GH_ASSERT_FALSE([GHEventTap postKeyCode:GHKeyCodeEscape]);
+    GHTaggedKeyEventSink *sink = [[GHTaggedKeyEventSink alloc] init];
+    GH_ASSERT_FALSE([sink sendKeyCode:GHKeyCodeEscape flags:0 text:nil]);
+    GHKeyPoster *live = [GHKeyPoster livePoster];
+    GHKeyBurstResult *burst = [live postBurst:@[ [GHKeyStroke escape] ] guard:^BOOL(GHKeyStroke *s, pid_t p, id<GHAXNode> f) { return YES; }];
+    GH_ASSERT_FALSE(burst.ok);
+    GH_ASSERT_EQUAL_OBJECTS(burst.reason, GHKeyBurstReasonPostFailed);
 }

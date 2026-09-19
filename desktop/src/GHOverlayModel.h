@@ -14,7 +14,7 @@ typedef NS_ENUM(NSInteger, GHOverlayMode) {
     GHOverlayModeText,        // gray text inside a single-line field
     GHOverlayModeMultiline,   // wrapped gray text inside a text area
     GHOverlayModeSelectPill,  // pill inside a popup / combo box, left of its arrow
-    GHOverlayModePill,        // pill beside a checkbox or radio group
+    GHOverlayModePill,        // pill beside a checkbox or radio group, or an upload control (the file name)
     GHOverlayModeTarget,      // button or link: ring and cursor only (the parked lock ghost)
 };
 
@@ -60,6 +60,7 @@ CGFloat GHGhostTextPadding(CGFloat fieldHeight);
 @property (nonatomic) CGRect windowAXFrame;                        // focused window; CGRectNull when unknown
 @property (nonatomic, strong, nullable) GHOverlayHUDInfo *hud;
 @property (nonatomic, copy, nullable) NSString *error;             // HUD error chip; never contains values
+@property (nonatomic, copy, nullable) NSString *status;            // HUD progress chip ("Picking resume.pdf"); never a value
 @end
 
 typedef NS_ENUM(NSInteger, GHDrawKind) {
@@ -71,6 +72,7 @@ typedef NS_ENUM(NSInteger, GHDrawKind) {
     GHDrawKindLockBadge,
     GHDrawKindHUD,
     GHDrawKindHUDError,
+    GHDrawKindHUDStatus,
 };
 
 /// How a content-sized layer (pill, badge, HUD) sits in its frame. The frame is the room it may use.

@@ -8,7 +8,9 @@
 // Safety:
 //   - Nothing is ever consumed unless the snapshot says `active` (enabled, trusted, app not paused).
 //   - Only an unmodified Tab and an unmodified Escape can be consumed. Every other event passes untouched.
-//   - Events Ghost posted itself (typing fallback) carry GHSyntheticEventUserData and are ignored.
+//   - Events Ghost posted itself (GHKeyPoster, the handed-back Tab) carry GHSyntheticEventUserData and are ignored.
+//   - Every UNTAGGED key-down (the user's, whether consumed or not, whether Ghost is active or not) is reported to
+//     -userKeyObserver on the tap thread: an open-panel or combobox sequence in flight aborts on it.
 //   - A tap the system disabled (timeout or user input) re-enables itself; a watchdog checks every 5 s.
 //   - Key contents are never stored or logged. "Printable" is a yes/no; the characters are dropped at once.
 #import <Foundation/Foundation.h>
@@ -23,6 +25,12 @@ extern const int64_t GHSyntheticEventUserData;
 extern const CGKeyCode GHKeyCodeTab;      // 48
 extern const CGKeyCode GHKeyCodeEscape;   // 53
 
+/// Process-wide kill switch for synthetic input. Once called, no key event ever leaves this process: GHEventTap
+/// +postKeyCode:, GHTaggedKeyEventSink (GHKeyPoster's live sink) and the harness Tab all refuse. The test runner calls
+/// it before the first test, so no code path under test can reach the real keyboard. There is no way back.
+void GHForbidRealKeyEvents(void);
+BOOL GHRealKeyEventsForbidden(void);
+
 /// Shift, Control, Option, Command. Caps Lock, Fn and the numeric-pad bit are not modifiers for this purpose.
 GHKeyModifiers GHKeyModifiersFromFlags(CGEventFlags flags);
 
@@ -30,7 +38,7 @@ GHKeyModifiers GHKeyModifiersFromFlags(CGEventFlags flags);
 
 /// Every call arrives on the main queue, after the event was already consumed or passed.
 @protocol GHEventTapDelegate <NSObject>
-/// `decision` is Accept, Park, Queue or (never reported) Swallow.
+/// `decision` is Accept, Park, Queue, Jump or (never reported) Swallow.
 - (void)eventTap:(GHEventTap *)tap didConsumeTab:(GHKeyDecision)decision isRepeat:(BOOL)isRepeat;
 - (void)eventTapDidConsumeEscape:(GHEventTap *)tap;
 /// A printable key went to the app while focus was in a captured field: typing overrides that field's ghost.
@@ -59,6 +67,9 @@ GHKeyModifiers GHKeyModifiersFromFlags(CGEventFlags flags);
 - (GHWalkSnapshot)publishedSnapshot;
 /// The walk ran out, failed or parked: swallow the rest of the current hold instead of accepting more.
 - (void)haltHold;
+/// Runs ON THE TAP THREAD (or the caller's, in tests) for every untagged key-down, before anything is decided. It
+/// must only flip atomic flags (GHOpenPanelDriver / GHComboBoxDriver -noteUserKeyEvent). Thread safe to set.
+@property (copy, nullable) void (^userKeyObserver)(void);
 
 // ---------- the callback's logic, callable without a real tap (tests) ----------
 /// YES = consume. `userData` is kCGEventSourceUserData; `printable` whether the key produces a visible character.
@@ -69,14 +80,14 @@ GHKeyModifiers GHKeyModifiersFromFlags(CGEventFlags flags);
 /// Tests: call the delegate inline instead of through the main queue.
 @property (nonatomic) BOOL deliversSynchronously;
 
-// ---------- posting (the typing fallback of GHWriter, and the replay of a Tab consumed on a stale snapshot) ----------
-/// Unicode key events in chunks of at most 20 UTF-16 units, never splitting a surrogate pair, each tagged with
-/// GHSyntheticEventUserData and free of modifier flags. Control characters are never posted: a newline becomes
-/// a space (an Enter in a one-line field could submit a form). NO when the event source cannot be created.
-+ (BOOL)postText:(NSString *)text;
+// ---------- posting ----------
+// Typing (GHWriter's fallback, the drivers) goes through GHKeyPoster, which re-checks focus before every chunk.
+// The one key posted here is the Tab handed back to the app when Ghost consumed it on a stale snapshot: GHKeyPoster
+// can never post Tab by design.
 /// One tagged key press (down + up) without modifiers.
 + (BOOL)postKeyCode:(CGKeyCode)keyCode;
-/// What -postText: really sends for `text` (pure; exposed for tests).
+/// Text as it is typed: chunks of at most 20 UTF-16 units, never splitting a surrogate pair. Control characters never
+/// survive: a newline becomes a space (an Enter in a one-line field could submit a form). Pure.
 + (NSArray<NSString *> *)chunksForText:(NSString *)text;
 
 @end

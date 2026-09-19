@@ -1,5 +1,6 @@
 #import "GHWorkflowCoordinator.h"
 #import "GHCapture.h"
+#import "GHComboBoxDriver.h"
 
 static const NSTimeInterval GHWorkflowTimeout = 8.0;
 static const NSUInteger GHWorkflowMaxText = 600;
@@ -19,6 +20,28 @@ static NSString *GHNormalizedURL(NSString *raw) {
     parts.query = nil;
     parts.fragment = nil;
     return parts.string;
+}
+
+static BOOL GHWorkflowTextIsPrivate(NSString *text) {
+    static NSRegularExpression *contact;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        contact = [NSRegularExpression regularExpressionWithPattern:@"[^\\s@]+@[^\\s@]+\\.[^\\s@]+|\\+?\\d[\\d\\s().-]{6,}\\d" options:0 error:NULL];
+    });
+    if (text.length == 0) return NO;
+    if ([contact firstMatchInString:text options:0 range:NSMakeRange(0, text.length)]) return YES;
+    return [GHCapture nativeLooksSensitive:text] || [GHComboBoxDriver isDemographicText:text];
+}
+
+/// A field the workflow request must not describe at all: secure, sensitive-looking or an EEO / demographic question.
+static BOOL GHWorkflowFieldIsPrivate(GHField *field) {
+    if ([field.inputType isEqualToString:@"password"]) return YES;
+    NSString *naming = [NSString stringWithFormat:@"%@ %@ %@ %@", field.label ?: @"", field.identifier ?: @"", field.inputType ?: @"", field.placeholder ?: @""];
+    if ([GHCapture nativeLooksSensitive:naming]) return YES;
+    for (NSString *text in @[ field.label ?: @"", field.identifier ?: @"", field.placeholder ?: @"", field.context ?: @"" ]) {
+        if ([GHComboBoxDriver isDemographicText:text]) return YES;
+    }
+    return NO;
 }
 
 @interface GHWorkflowSuggestion ()
@@ -72,18 +95,18 @@ static NSString *GHNormalizedURL(NSString *raw) {
                                         @"timestamp": @((long long)(NSDate.date.timeIntervalSince1970 * 1000.0)),
                                         @"activeApplication": @{ @"name": GHWorkflowText(applicationName, 100) ?: @"Unknown",
                                                                   @"bundleIdentifier": GHWorkflowText(bundleIdentifier, 180) ?: @"unknown" } } mutableCopy];
-    NSString *title = GHWorkflowText(windowTitle, 240);
-    if (title) snapshot[@"windowTitle"] = title;
+    // `windowTitle` never crosses the wire: titles name documents, mailboxes and tabs. The parameter stays for callers.
+    (void)windowTitle;
 
-    if (focusedField && ![GHCapture nativeLooksSensitive:[NSString stringWithFormat:@"%@ %@ %@", focusedField.label ?: @"", focusedField.identifier ?: @"", focusedField.inputType ?: @""]]) {
+    if (focusedField && !GHWorkflowFieldIsPrivate(focusedField)) {
         NSMutableDictionary *focused = [@{ @"role": GHWorkflowText(focusedField.kind, 80) ?: @"other" } mutableCopy];
         NSString *label = GHWorkflowText(focusedField.label, 180);
         NSString *identifier = GHWorkflowText(focusedField.identifier, 160);
-        NSString *value = GHWorkflowText(focusedField.value, 300);
         NSString *prepared = GHWorkflowText(safeValueToInsert, GHWorkflowMaxText);
         if (label) focused[@"label"] = label;
         if (identifier) focused[@"identifier"] = identifier;
-        if (value) focused[@"editableValue"] = value;
+        // Whether the field holds something, never what: what the user typed stays on the machine.
+        focused[@"hasValue"] = @(focusedField.value.length > 0);
         if (prepared) focused[@"safeValueToInsert"] = prepared;
         snapshot[@"focusedElement"] = focused;
     }
@@ -91,7 +114,8 @@ static NSString *GHNormalizedURL(NSString *raw) {
     NSMutableArray *nearby = [NSMutableArray array];
     for (id item in [nearbyText isKindOfClass:NSArray.class] ? nearbyText : @[]) {
         NSString *line = GHWorkflowText(item, GHWorkflowMaxText);
-        if (line) [nearby addObject:line];
+        // Page text only (the caller's contract): a line with contact data or a sensitive / EEO word is dropped.
+        if (line && !GHWorkflowTextIsPrivate(line)) [nearby addObject:line];
         if (nearby.count == 10) break;
     }
     if (nearby.count) snapshot[@"nearbyText"] = nearby;

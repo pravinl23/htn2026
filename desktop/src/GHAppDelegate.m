@@ -184,6 +184,9 @@ static OSStatus GHHotKeyHandler(EventHandlerCallRef next, EventRef event, void *
 }
 
 - (void)startHarness {
+#if GHOST_NO_HARNESS
+    return;   // the installed library: no request folder, no autotab (make install-lib)
+#endif
     if (!self.harnessChannel) return;
     __weak GHAppDelegate *weakSelf = self;
     _harnessServer = [[GHHarnessServer alloc] initWithChannel:self.harnessChannel controller:^GHController *{ return [weakSelf harnessController]; }];

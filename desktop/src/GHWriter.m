@@ -1,12 +1,18 @@
 #import "GHWriter.h"
+#import "GHComboBoxDriver.h"
 #import "GHEventTap.h"
+#import "GHKeyPoster.h"
 #import "GHLog.h"
+#import "GHOpenPanelDriver.h"
+#import <stdatomic.h>
 
 NSString *const GHWriteMethodNone = @"none";
 NSString *const GHWriteMethodValue = @"value";
 NSString *const GHWriteMethodSelectedText = @"selected-text";
 NSString *const GHWriteMethodTyping = @"typing";
 NSString *const GHWriteMethodPress = @"press";
+NSString *const GHWriteMethodOpenPanel = @"open-panel";
+NSString *const GHWriteMethodComboBox = @"combobox";
 
 NSString *const GHWriteReasonLocked = @"locked";
 NSString *const GHWriteReasonSensitive = @"sensitive";
@@ -19,6 +25,8 @@ NSString *const GHWriteReasonUnsupported = @"unsupported";
 NSString *const GHWriteReasonDidNotHold = @"did-not-hold";
 NSString *const GHWriteReasonNotFocused = @"not-focused";
 NSString *const GHWriteReasonOptionNotFound = @"option-not-found";
+NSString *const GHWriteReasonUploadPrefix = @"upload-";
+NSString *const GHWriteReasonComboBoxPrefix = @"combobox-";
 
 static NSString *const kRoleSecure = @"AXSecureTextField";
 static NSString *const kRolePopUp = @"AXPopUpButton";
@@ -27,6 +35,9 @@ static NSString *const kRoleCheckBox = @"AXCheckBox";
 static NSString *const kRoleRadio = @"AXRadioButton";
 static const NSUInteger kMenuSearchDepth = 4;
 static const NSUInteger kMenuSearchNodes = 600;
+static const NSUInteger kWidgetLevelsUp = 3;
+static const NSUInteger kWidgetSearchDepth = 5;
+static const NSUInteger kWidgetSearchNodes = 300;
 
 #pragma mark - result
 
@@ -35,6 +46,7 @@ static const NSUInteger kMenuSearchNodes = 600;
 @property (nonatomic, readwrite, copy) NSString *method;
 @property (nonatomic, readwrite, copy, nullable) NSString *reason;
 @property (nonatomic, readwrite) BOOL refused;
+@property (nonatomic, readwrite) BOOL sequence;
 @end
 
 @implementation GHWriteResult
@@ -61,15 +73,44 @@ static const NSUInteger kMenuSearchNodes = 600;
     return result;
 }
 
++ (instancetype)failureWithReason:(NSString *)reason method:(NSString *)method sequence:(BOOL)sequence {
+    GHWriteResult *result = [self failure:reason method:method];
+    result.sequence = sequence;
+    return result;
+}
+
+- (instancetype)fromSequence {
+    self.sequence = YES;
+    return self;
+}
+
 - (NSString *)description {
-    return [NSString stringWithFormat:@"<GHWriteResult ok=%d method=%@ reason=%@>", self.ok, self.method, self.reason ?: @"-"];
+    return [NSString stringWithFormat:@"<GHWriteResult ok=%d method=%@ reason=%@%@>", self.ok, self.method, self.reason ?: @"-", self.sequence ? @" sequence" : @""];
 }
 
 @end
 
 #pragma mark - live actuator
 
-@implementation GHAXLiveActuator
+static pid_t GHPidOfNode(id<GHAXNode> node) {
+    pid_t pid = 0;
+    AXUIElementRef element = node.axElement;
+    if (element && AXUIElementGetPid(element, &pid) != kAXErrorSuccess) pid = 0;
+    return pid;
+}
+
+@implementation GHAXLiveActuator {
+    pid_t _menuPID;
+}
+
+- (instancetype)init {
+    return [self initWithPoster:[GHKeyPoster livePoster]];
+}
+
+- (instancetype)initWithPoster:(id<GHKeyPosting>)poster {
+    if ((self = [super init])) _poster = poster;
+    return self;
+}
 
 - (id<GHAXNode>)refreshedNode:(id<GHAXNode>)node {
     AXUIElementRef element = node.axElement;
@@ -118,20 +159,42 @@ static const NSUInteger kMenuSearchNodes = 600;
     return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute, (__bridge CFStringRef)text) == kAXErrorSuccess;
 }
 
-- (BOOL)typeText:(NSString *)text {
-    return [GHEventTap postText:text];
+- (BOOL)typeText:(NSString *)text intoNode:(id<GHAXNode>)node {
+    // What reaches the keyboard is what GHEventTap would have typed: control characters are spaces, never an Enter.
+    NSString *typed = [[GHEventTap chunksForText:text ?: @""] componentsJoinedByString:@""];
+    if (typed.length == 0 || !node) return NO;
+    __block pid_t app = GHPidOfNode(node);
+    GHKeyBurstResult *burst = [self.poster postBurst:@[ [GHKeyStroke text:typed] ] guard:^BOOL(GHKeyStroke *stroke, pid_t frontmost, id<GHAXNode> focused) {
+        if (app <= 0) app = frontmost;   // fakes carry no element: the app in front at the first chunk is the one
+        return frontmost > 0 && frontmost == app && [GHOpenPanelDriver node:focused isInside:node];
+    }];
+    return burst.ok;
 }
 
 - (BOOL)pressNode:(id<GHAXNode>)node {
     AXUIElementRef element = node.axElement;
     if (!element) return NO;
+    _menuPID = GHPidOfNode(node);
     AXError error = AXUIElementPerformAction(element, kAXPressAction);
     // A popup runs its menu inside the press: the call times out while the menu is open, and that is a success.
     return error == kAXErrorSuccess || error == kAXErrorCannotComplete;
 }
 
-- (void)dismissOpenMenu {
-    [GHEventTap postKeyCode:GHKeyCodeEscape];
+- (BOOL)dismissMenuOfPopup:(id<GHAXNode>)popup stillWanted:(BOOL (^)(void))stillWanted {
+    pid_t app = _menuPID;
+    _menuPID = 0;
+    if (app <= 0 || !popup) return NO;   // no menu of ours to close
+    if (stillWanted && !stillWanted()) return NO;
+    GHKeyBurstResult *burst = [self.poster postBurst:@[ [GHKeyStroke escape] ] guard:^BOOL(GHKeyStroke *stroke, pid_t frontmost, id<GHAXNode> focused) {
+        return [GHWriter menuIsOpenForPopup:[self refreshedNode:popup] focused:focused] && frontmost == app;
+    } lastCheck:stillWanted];
+    return burst.ok;
+}
+
+- (BOOL)scrollToVisible:(id<GHAXNode>)node {
+    AXUIElementRef element = node.axElement;
+    if (!element) return NO;
+    return AXUIElementPerformAction(element, CFSTR("AXScrollToVisible")) == kAXErrorSuccess;
 }
 
 @end
@@ -140,6 +203,7 @@ static const NSUInteger kMenuSearchNodes = 600;
 
 @implementation GHFakeAXActuator {
     NSMutableArray<id<GHAXNode>> *_pressed;
+    NSMutableArray<id<GHAXNode>> *_focusRequests;
     __weak GHFakeAXNode *_selectedAll;
 }
 
@@ -149,13 +213,16 @@ static const NSUInteger kMenuSearchNodes = 600;
         _typingSticks = YES;
         _pressWorks = YES;
         _focusWorks = YES;
+        _scrollWorks = YES;
         _pressed = [NSMutableArray array];
+        _focusRequests = [NSMutableArray array];
         _goneNodes = [NSMutableSet set];
     }
     return self;
 }
 
 - (NSArray<id<GHAXNode>> *)pressedNodes { return [_pressed copy]; }
+- (NSArray<id<GHAXNode>> *)focusRequests { return [_focusRequests copy]; }
 
 - (GHFakeAXNode *)fake:(id<GHAXNode>)node {
     return [(id)node isKindOfClass:[GHFakeAXNode class]] ? (GHFakeAXNode *)node : nil;
@@ -172,6 +239,7 @@ static const NSUInteger kMenuSearchNodes = 600;
 
 - (BOOL)focusNode:(id<GHAXNode>)node {
     _focusCount++;
+    if (node) [_focusRequests addObject:node];
     GHFakeAXNode *fake = [self fake:node];
     if (!fake || !self.focusWorks) return NO;
     self.focusedNode.isFocused = NO;
@@ -207,10 +275,12 @@ static const NSUInteger kMenuSearchNodes = 600;
     return YES;
 }
 
-- (BOOL)typeText:(NSString *)text {
+- (BOOL)typeText:(NSString *)text intoNode:(id<GHAXNode>)node {
     _typeCount++;
     GHFakeAXNode *target = self.focusedNode;
-    if (!target || !self.typingSticks) return YES;   // the events were posted; nobody kept them
+    // The live actuator's guard: nothing is typed unless the node (or something inside it) has focus.
+    if (!target || ![GHOpenPanelDriver node:target isInside:node]) return NO;
+    if (!self.typingSticks) return YES;   // the events were posted; nobody kept them
     NSString *before = (_selectedAll == target) ? @"" : (target.value ?: @"");
     target.value = [self shaped:[before stringByAppendingString:[[GHEventTap chunksForText:text] componentsJoinedByString:@""]]];
     _selectedAll = nil;
@@ -238,15 +308,29 @@ static const NSUInteger kMenuSearchNodes = 600;
     return YES;
 }
 
-- (void)dismissOpenMenu {
+- (BOOL)dismissMenuOfPopup:(id<GHAXNode>)popup stillWanted:(BOOL (^)(void))stillWanted {
+    if (stillWanted && !stillWanted()) return NO;
+    if (![GHWriter menuIsOpenForPopup:[self refreshedNode:popup] focused:self.focusedNode]) return NO;
     _dismissMenuCount++;
+    return YES;
+}
+
+- (BOOL)scrollToVisible:(id<GHAXNode>)node {
+    _scrollCount++;
+    GHFakeAXNode *fake = [self fake:node];
+    if (!fake || !self.scrollWorks || [_goneNodes containsObject:fake]) return NO;
+    if (self.onScroll) self.onScroll(fake);
+    return YES;
 }
 
 @end
 
 #pragma mark - writer
 
-@implementation GHWriter
+@implementation GHWriter {
+    _Atomic(bool) _pickActive;    // a popup menu Ghost opened may be showing
+    _Atomic(bool) _pickUserKey;   // the user pressed a key since: no Escape of ours follows it
+}
 
 - (instancetype)initWithActuator:(id<GHAXActuating>)actuator {
     if ((self = [super init])) {
@@ -294,6 +378,75 @@ static NSString *GHNormal(NSString *text) {
     return [[parts filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]] componentsJoinedByString:@" "];
 }
 
+#pragma mark sequences and upload widgets
+
++ (BOOL)ghostRunsSequence:(GHGhost *)ghost field:(GHField *)field {
+    if ([ghost.action isEqualToString:GHGhostActionUpload]) return YES;
+    return [ghost.action isEqualToString:GHGhostActionSelect] && ghost.lazy && (!field || field.lazyOptions);
+}
+
+static BOOL GHNodeIsNamed(id<GHAXNode> node) {
+    NSCharacterSet *space = NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    return [node.title stringByTrimmingCharactersInSet:space].length > 0 || [node.axDescription stringByTrimmingCharactersInSet:space].length > 0;
+}
+
++ (id<GHAXNode>)uploadWidgetOfInput:(id<GHAXNode>)input {
+    id<GHAXNode> widget = nil;
+    id<GHAXNode> cursor = input.parent;
+    for (NSUInteger level = 0; cursor && level < kWidgetLevelsUp; level++, cursor = cursor.parent) {
+        if (![cursor.role isEqualToString:@"AXGroup"]) break;
+        widget = cursor;
+        if (GHNodeIsNamed(cursor)) break;
+    }
+    return widget ?: input.parent;
+}
+
+/// Breadth-first over `root`, bounded; YES as soon as `match` says so. Never looks into the widget's text fields.
+static BOOL GHWidgetHas(id<GHAXNode> root, BOOL (^match)(id<GHAXNode> node)) {
+    if (!root) return NO;
+    NSMutableArray<id<GHAXNode>> *queue = [NSMutableArray arrayWithObject:root];
+    NSMutableArray<NSNumber *> *depths = [NSMutableArray arrayWithObject:@0];
+    NSUInteger visited = 0;
+    while (queue.count && visited < kWidgetSearchNodes) {
+        id<GHAXNode> node = queue.firstObject;
+        NSUInteger depth = depths.firstObject.unsignedIntegerValue;
+        [queue removeObjectAtIndex:0];
+        [depths removeObjectAtIndex:0];
+        visited++;
+        if (match(node)) return YES;
+        if (depth >= kWidgetSearchDepth) continue;
+        for (id<GHAXNode> child in node.children) {
+            [queue addObject:child];
+            [depths addObject:@(depth + 1)];
+        }
+    }
+    return NO;
+}
+
++ (BOOL)widget:(id<GHAXNode>)widget mentionsFile:(NSString *)filename {
+    if (!widget || filename.length == 0) return NO;
+    return GHWidgetHas(widget, ^BOOL(id<GHAXNode> node) {
+        NSString *role = node.role ?: @"";
+        // Page text and control names only: what somebody typed into a field is never read here.
+        NSArray<NSString *> *texts = [role isEqualToString:@"AXStaticText"] ? @[ node.value ?: @"", node.title ?: @"" ] : @[ node.title ?: @"", node.axDescription ?: @"" ];
+        for (NSString *text in texts) {
+            if (text.length >= filename.length && [text rangeOfString:filename options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
+        }
+        return NO;
+    });
+}
+
++ (BOOL)widgetHasRemoveControl:(id<GHAXNode>)widget {
+    static NSRegularExpression *removal;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ removal = [NSRegularExpression regularExpressionWithPattern:@"\\b(remove|delete|clear)\\b" options:NSRegularExpressionCaseInsensitive error:NULL]; });
+    return GHWidgetHas(widget, ^BOOL(id<GHAXNode> node) {
+        if (![node.role isEqualToString:@"AXButton"] && ![node.role isEqualToString:@"AXLink"]) return NO;
+        NSString *name = [NSString stringWithFormat:@"%@ %@", node.title ?: @"", node.axDescription ?: @""];
+        return [removal firstMatchInString:name options:0 range:NSMakeRange(0, name.length)] != nil;
+    });
+}
+
 static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
     NSString *text = GHNormal(shown ?: @"");
     if (text.length == 0) return NO;
@@ -318,6 +471,20 @@ static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
     id<GHAXNode> fresh = node ? [self.actuator refreshedNode:node] : nil;
     if (!fresh || [self looksSensitive:fresh]) return NO;
     return [self.actuator focusNode:fresh];
+}
+
+- (void)noteUserKeyEvent {
+    [self.openPanelDriver noteUserKeyEvent];
+    [self.comboBoxDriver noteUserKeyEvent];
+    if (atomic_load(&_pickActive)) atomic_store(&_pickUserKey, true);
+}
+
++ (BOOL)menuIsOpenForPopup:(id<GHAXNode>)popup focused:(id<GHAXNode>)focused {
+    if (!popup) return NO;
+    for (id<GHAXNode> child in popup.children) if ([child.role isEqualToString:@"AXMenu"]) return YES;
+    NSString *role = focused.role;
+    BOOL inMenu = [role isEqualToString:@"AXMenu"] || [role isEqualToString:kRoleMenuItem];
+    return inMenu && [GHOpenPanelDriver node:focused isInside:popup];
 }
 
 #pragma mark execute
@@ -356,16 +523,58 @@ static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
     }
     if (!fresh.enabled) { finish([GHWriteResult refusal:GHWriteReasonDisabled]); return; }
 
+    if ([ghost.action isEqualToString:GHGhostActionUpload]) { [self upload:ghost field:field button:fresh fileInput:optionNode finish:finish]; return; }
+    if ([field.kind isEqualToString:GHKindFile]) { finish([GHWriteResult refusal:GHWriteReasonUnsupported]); return; }   // a path only goes through the panel
     if ([ghost.action isEqualToString:GHGhostActionCheck]) { [self tick:fresh ghost:ghost finish:finish]; return; }
     if (isRadio) { [self choose:fresh finish:finish]; return; }
     if ([ghost.action isEqualToString:GHGhostActionSelect]) {
         if ([fresh.role isEqualToString:kRolePopUp]) { [self pick:fresh ghost:ghost finish:finish]; return; }
+        if (ghost.lazy) { [self chooseLazy:ghost comboBox:fresh finish:finish]; return; }
         // A combo box is a text field with suggestions: it takes the option's label.
         [self fill:fresh text:ghost.displayText.length ? ghost.displayText : ghost.value finish:finish];
         return;
     }
     if ([ghost.action isEqualToString:GHGhostActionFill]) { [self fill:fresh text:ghost.value finish:finish]; return; }
     finish([GHWriteResult refusal:GHWriteReasonUnsupported]);
+}
+
+#pragma mark upload, lazy select
+
+/// One Tab: press the widget's Attach control (else the file input itself) and drive the open panel. The driver
+/// refuses before touching anything when the path, the button, an already open panel or the page say no.
+- (void)upload:(GHGhost *)ghost field:(GHField *)field button:(id<GHAXNode>)button fileInput:(id<GHAXNode>)fileInput finish:(void (^)(GHWriteResult *))finish {
+    GHOpenPanelDriver *driver = self.openPanelDriver;
+    if (!driver || ![field.kind isEqualToString:GHKindFile]) { finish([GHWriteResult refusal:GHWriteReasonUnsupported]); return; }
+    if (field.value.length > 0) { finish([GHWriteResult refusal:GHWriteReasonHasValue]); return; }   // a file is attached already
+    NSString *path = ghost.value ?: @"";
+    NSString *problem = [GHOpenPanelDriver problemWithUploadPath:path];
+    if (problem) { finish([GHWriteResult refusal:[GHWriteReasonUploadPrefix stringByAppendingString:GHOpenPanelReasonInvalidPath]]); return; }
+    id<GHAXNode> target = [GHOpenPanelDriver isUploadButton:button] ? button : nil;
+    if (!target && fileInput) {
+        id<GHAXNode> input = [self.actuator refreshedNode:fileInput];
+        if (input && [GHOpenPanelDriver isUploadButton:input] && ![self looksSensitive:input]) target = input;
+    }
+    if (!target) { finish([GHWriteResult refusal:[GHWriteReasonUploadPrefix stringByAppendingString:GHOpenPanelReasonNoUploadTarget]]); return; }
+    [driver attachFileAtPath:path uploadButton:target completion:^(GHOpenPanelResult *result) {
+        NSString *reason = [GHWriteReasonUploadPrefix stringByAppendingString:result.reason ?: @"failed"];
+        if (result.ok) finish([[GHWriteResult okWithMethod:GHWriteMethodOpenPanel] fromSequence]);
+        else if (result.finalState == GHOpenPanelStateIdle) finish([[GHWriteResult refusal:reason] fromSequence]);   // nothing was touched
+        else finish([[GHWriteResult failure:reason method:GHWriteMethodOpenPanel] fromSequence]);
+    }];
+}
+
+/// react-select and friends: the driver types the intended answer, chooses a real option and verifies it. Skipped
+/// (nothing left behind) is a refusal, so the walk goes on; Failed stops the walk.
+- (void)chooseLazy:(GHGhost *)ghost comboBox:(id<GHAXNode>)comboBox finish:(void (^)(GHWriteResult *))finish {
+    GHComboBoxDriver *driver = self.comboBoxDriver;
+    NSString *answer = ghost.value.length ? ghost.value : ghost.displayText;
+    if (!driver || ![GHComboBoxDriver isComboBox:comboBox] || answer.length == 0) { finish([GHWriteResult refusal:GHWriteReasonUnsupported]); return; }
+    [driver chooseAnswer:answer inComboBox:comboBox completion:^(GHComboBoxResult *result) {
+        NSString *reason = [GHWriteReasonComboBoxPrefix stringByAppendingString:result.reason ?: @"failed"];
+        if (result.chosen) finish([[GHWriteResult okWithMethod:GHWriteMethodComboBox] fromSequence]);
+        else if (result.skipsField) finish([[GHWriteResult refusal:reason] fromSequence]);
+        else finish([[GHWriteResult failure:reason method:GHWriteMethodComboBox] fromSequence]);
+    }];
 }
 
 #pragma mark fill
@@ -394,7 +603,7 @@ static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
         if (!now) { finish([GHWriteResult failure:GHWriteReasonGone method:GHWriteMethodNone]); return; }
         if (!now.isFocused || [writer looksSensitive:now]) { finish([GHWriteResult failure:GHWriteReasonNotFocused method:GHWriteMethodNone]); return; }
         [writer.actuator selectAllInNode:now];
-        if (![writer.actuator typeText:text]) { finish([GHWriteResult failure:GHWriteReasonDidNotHold method:GHWriteMethodTyping]); return; }
+        if (![writer.actuator typeText:text intoNode:now]) { finish([GHWriteResult failure:GHWriteReasonDidNotHold method:GHWriteMethodTyping]); return; }
         NSTimeInterval wait = writer.verifyDelay + 0.004 * (double)[GHEventTap chunksForText:text].count;
         writer.after(wait, ^{
             finish(held() ? [GHWriteResult okWithMethod:GHWriteMethodTyping] : [GHWriteResult failure:GHWriteReasonDidNotHold method:GHWriteMethodTyping]);
@@ -458,11 +667,23 @@ static void GHCollectMenuItems(id<GHAXNode> node, NSUInteger depth, NSUInteger *
     }
 }
 
-- (void)pick:(id<GHAXNode>)popup ghost:(GHGhost *)ghost finish:(void (^)(GHWriteResult *))finish {
-    if (![GHWriter isPlaceholderChoice:popup.value]) { finish([GHWriteResult refusal:GHWriteReasonHasValue]); return; }
+- (void)pick:(id<GHAXNode>)popup ghost:(GHGhost *)ghost finish:(void (^)(GHWriteResult *))done {
+    if (![GHWriter isPlaceholderChoice:popup.value]) { done([GHWriteResult refusal:GHWriteReasonHasValue]); return; }
     NSString *label = ghost.displayText.length ? ghost.displayText : ghost.value;
-    if (label.length == 0) { finish([GHWriteResult refusal:GHWriteReasonUnsupported]); return; }
+    if (label.length == 0) { done([GHWriteResult refusal:GHWriteReasonUnsupported]); return; }
     __weak GHWriter *weakSelf = self;
+    atomic_store(&_pickUserKey, false);
+    atomic_store(&_pickActive, true);
+    void (^finish)(GHWriteResult *) = ^(GHWriteResult *result) {
+        GHWriter *writer = weakSelf;
+        if (writer) atomic_store(&writer->_pickActive, false);
+        done(result);
+    };
+    // A key the user pressed while the menu was up belongs to them (it may have gone to the menu): no Escape after it.
+    BOOL (^noUserKey)(void) = ^BOOL {
+        GHWriter *writer = weakSelf;
+        return writer != nil && !atomic_load(&writer->_pickUserKey);
+    };
     BOOL (^shows)(void) = ^BOOL {
         id<GHAXNode> now = [weakSelf.actuator refreshedNode:popup];
         return now != nil && GHSameChoice(now.value ?: now.title, ghost);
@@ -483,12 +704,12 @@ static void GHCollectMenuItems(id<GHAXNode> node, NSUInteger depth, NSUInteger *
                 if (item.enabled && GHSameChoice(item.title ?: item.value ?: item.axDescription, ghost)) { match = item; break; }
             }
             if (!match) {
-                [inner.actuator dismissOpenMenu];   // we opened it, we close it
+                [inner.actuator dismissMenuOfPopup:popup stillWanted:noUserKey];   // we opened it, we close it (if it is open)
                 finish([GHWriteResult failure:GHWriteReasonOptionNotFound method:GHWriteMethodPress]);
                 return;
             }
             if (![inner.actuator pressNode:match]) {
-                [inner.actuator dismissOpenMenu];
+                [inner.actuator dismissMenuOfPopup:popup stillWanted:noUserKey];
                 finish([GHWriteResult failure:GHWriteReasonDidNotHold method:GHWriteMethodPress]);
                 return;
             }

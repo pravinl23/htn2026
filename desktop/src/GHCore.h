@@ -18,14 +18,23 @@ typedef NS_ENUM(NSInteger, GHCoreError) {
     GHCoreErrorMissingExport = 4,
 };
 
+/// SHA-256 (lower-case hex) of the ghost-core.js this library was built with (`make lib` embeds it); "" when unpinned.
+NSString *GHCorePinnedSHA256(void);
+/// SHA-256 of a file, lower-case hex; nil when it cannot be read.
+NSString *_Nullable GHCoreSHA256OfFile(NSString *_Nullable path);
+/// YES when `pinned` is empty or equals the file's SHA-256.
+BOOL GHCoreBundleMatchesPin(NSString *_Nullable path, NSString *_Nullable pinned);
+
 /// Conforms to GHSafetyChecking (capture's view of the two shared safety rules); both answers fail CLOSED.
 @interface GHCore : NSObject <GHSafetyChecking>
 
 /// Process-wide instance, loaded from `+defaultBundlePath`. nil (and logged once) when the bundle cannot be loaded.
 + (nullable instancetype)sharedCore;
 
-/// DESKTOP_CORE_PATH (tests), else ghost-core.js beside the image this code was loaded from (libghost.dylib),
-/// else Ghost.app/Contents/Resources/ghost-core.js, else ghost-core.js or build/ghost-core.js next to the executable.
+/// DESKTOP_CORE_PATH (the test runner only: ignored in Ghost itself), else ghost-core.js beside the image this code
+/// was loaded from (libghost.dylib), else Ghost.app/Contents/Resources/ghost-core.js, else ghost-core.js or
+/// build/ghost-core.js next to the executable. Outside the test runner the file must match GHCorePinnedSHA256, or
+/// nil is returned (a swapped core would bypass the fact allowlist and the wire filters).
 + (nullable NSString *)defaultBundlePath;
 
 - (nullable instancetype)initWithBundlePath:(NSString *)path error:(NSError *_Nullable *_Nullable)error;
@@ -85,6 +94,10 @@ typedef NS_ENUM(NSInteger, GHCoreError) {
 
 /// The non-sensitive subset of profile facts allowed to go to /v1/ghost-text.
 - (NSDictionary<NSString *, NSString *> *)textFactsForProfile:(NSDictionary *)profile;
+/// Past answers a /v1/ghost-text draft for `label` may see (core textPastAnswers): at most three, only questions
+/// similar to `label`, never a sensitive, EEO or work-authorization question, never an answer with contact data.
+/// Empty on any error.
+- (NSArray<NSDictionary<NSString *, NSString *> *> *)pastAnswersForProfile:(NSDictionary *)profile label:(NSString *)label;
 
 /// JSON body for POST /v1/predict/form: value-free, non-sensitive fields and fact KEYS only.
 /// nil when there is nothing worth asking (no usable fields or keys).

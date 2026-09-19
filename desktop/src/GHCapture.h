@@ -4,7 +4,18 @@
 // Walk: breadth-first, bounded (nodes, depth, wall clock). When a bound trips the walk stops and the
 // fields found so far are returned. Browser chrome is excluded from results; when the window has a
 // web area, only fields inside a web area are returned. Safari may place that web area below AXTabGroup,
-// so the walker can traverse a tab group while still refusing its controls as page candidates.
+// so the walker can traverse a tab group while still refusing its controls as page candidates. Outside a
+// web area, toolbars, menus, tab-bar items (AXTabButton) and the address field are never entered.
+//
+// Real forms (desktop/tests/fixtures/greenhouse-safari-viam.json):
+// - label = AXTitle, else AXDescription, else AXTitleUIElement, placeholder, help, preceding static text;
+// - kind: role description ("email field", "telephone number field"), then DOM id/classes, then the label
+//   ("LinkedIn Profile", "Github", "Website" are url fields);
+// - AXComboBox without readable options (react-select) is a select with `lazyOptions`; its placeholder / chosen
+//   value sibling gives it a visible box, and its trailing "Toggle flyout" button is part of it, not a field;
+// - an upload widget (file input + "Attach" + Dropbox / Google Drive / "Enter manually") is ONE `file` field,
+//   labelled by the widget ("Resume/CV"), whose element is the visible "Attach" button (fallback: the input);
+// - a site's own "Autofill my application" button is ignored.
 //
 // Safety: AXSecureTextField is never captured, and neither is anything whose naming sources trip the
 // sensitive rules (not even its label). Values never reach a signature, a label or a log.
@@ -49,6 +60,8 @@ typedef NS_ENUM(NSInteger, GHCaptureStop) {
 - (nullable id<GHAXNode>)nodeForSignature:(NSString *)signature;
 /// Radio groups only: option label -> the radio button node.
 - (nullable id<GHAXNode>)radioNodeForSignature:(NSString *)signature optionLabel:(NSString *)label;
+/// `file` fields only: the page's real file input (AXFileUploadButton). nodeForSignature is its "Attach" button.
+- (nullable id<GHAXNode>)uploadNodeForSignature:(NSString *)signature;
 @end
 
 @interface GHCapture : NSObject

@@ -16,6 +16,10 @@ NSString *const GHKindButton = @"button";
 NSString *const GHKindLink = @"link";
 NSString *const GHKindOther = @"other";
 
+NSString *const GHUploadKindResume = @"resume";
+NSString *const GHUploadKindCoverLetter = @"coverLetter";
+NSString *const GHUploadKindOther = @"other";
+
 @implementation GHField {
     AXUIElementRef _axElement;
 }
@@ -68,6 +72,8 @@ NSString *const GHKindOther = @"other";
     copy.rect = self.rect;
     copy.locked = self.locked;
     copy.context = self.context;
+    copy.uploadKind = self.uploadKind;
+    copy.lazyOptions = self.lazyOptions;
     copy.axElement = self.axElement;
     return copy;
 }
@@ -108,6 +114,8 @@ static NSNumber *GHFiniteNumber(CGFloat value) {
     };
     if (self.locked) json[@"locked"] = @YES;
     if (self.context.length) json[@"context"] = self.context;
+    if (self.uploadKind.length) json[@"uploadKind"] = self.uploadKind;
+    if (self.lazyOptions) json[@"lazyOptions"] = @YES;
     return json;
 }
 
@@ -140,6 +148,8 @@ static CGFloat GHNumber(id value) {
     field.placeholder = GHStringOrNil(json[@"placeholder"]);
     field.value = GHStringOrNil(json[@"value"]);
     field.context = GHStringOrNil(json[@"context"]);
+    field.uploadKind = GHStringOrNil(json[@"uploadKind"]);
+    field.lazyOptions = [json[@"lazyOptions"] isKindOfClass:[NSNumber class]] && [json[@"lazyOptions"] boolValue];
     field.required = [json[@"required"] isKindOfClass:[NSNumber class]] && [json[@"required"] boolValue];
     field.locked = [json[@"locked"] isKindOfClass:[NSNumber class]] && [json[@"locked"] boolValue];
     NSArray *options = json[@"options"];

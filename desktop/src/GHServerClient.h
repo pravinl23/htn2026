@@ -130,8 +130,9 @@ extern const NSTimeInterval GHPresenceFreshSeconds;      // 90 s
 @property (atomic, readonly, nullable) NSNumber *lastLatencyMs;
 @property (atomic, readonly, copy, nullable) NSString *lastErrorCode;
 
-/// The cache key part that stands for "where": "app://<bundle id>/<host>" when the page URL or the window
-/// title names a host, else "app://<bundle id>". Never a path or a query.
+/// The cache key part that stands for "where", and what the server sees as the form's origin: "app://<bundle
+/// id>/<host>" when the page URL has a host, else "app://<bundle id>". Never a path or a query, and never anything
+/// from the window title (`windowTitle` is ignored: titles name documents, mailboxes and tabs).
 + (NSString *)originForBundleId:(nullable NSString *)bundleId pageURL:(nullable NSString *)pageURL windowTitle:(nullable NSString *)windowTitle;
 
 /// Cache first (zero calls on a repeat visit), then ONE POST /v1/predict/form for the whole form.

@@ -1,6 +1,7 @@
 #import "GHEventTap.h"
 #import "GHLog.h"
 #import <stdatomic.h>
+#import <os/lock.h>
 
 const int64_t GHSyntheticEventUserData = 0x47484F5354;   // "GHOST"
 const CGKeyCode GHKeyCodeTab = 48;
@@ -18,7 +19,18 @@ typedef NS_OPTIONS(uint32_t, GHTapBits) {
     GHTapBitFocusInWalk    = 1u << 5,
     GHTapBitFocusOnField   = 1u << 6,
     GHTapBitBusy           = 1u << 7,
+    GHTapBitCanJump        = 1u << 8,
 };
+
+static _Atomic(bool) gRealKeyEventsForbidden = false;
+
+void GHForbidRealKeyEvents(void) {
+    atomic_store(&gRealKeyEventsForbidden, true);
+}
+
+BOOL GHRealKeyEventsForbidden(void) {
+    return atomic_load(&gRealKeyEventsForbidden);
+}
 
 GHKeyModifiers GHKeyModifiersFromFlags(CGEventFlags flags) {
     GHKeyModifiers modifiers = GHKeyModifierNone;
@@ -32,7 +44,8 @@ GHKeyModifiers GHKeyModifiersFromFlags(CGEventFlags flags) {
 static uint32_t GHPack(GHWalkSnapshot s) {
     return (s.active ? GHTapBitActive : 0) | (s.hasCurrent ? GHTapBitHasCurrent : 0) | (s.currentVisible ? GHTapBitCurrentVisible : 0)
          | (s.currentLocked ? GHTapBitCurrentLocked : 0) | (s.currentPending ? GHTapBitCurrentPending : 0)
-         | (s.focusInWalk ? GHTapBitFocusInWalk : 0) | (s.focusOnField ? GHTapBitFocusOnField : 0) | (s.busy ? GHTapBitBusy : 0);
+         | (s.focusInWalk ? GHTapBitFocusInWalk : 0) | (s.focusOnField ? GHTapBitFocusOnField : 0) | (s.busy ? GHTapBitBusy : 0)
+         | (s.canJump ? GHTapBitCanJump : 0);
 }
 
 static GHWalkSnapshot GHUnpack(uint32_t bits) {
@@ -45,6 +58,7 @@ static GHWalkSnapshot GHUnpack(uint32_t bits) {
     s.focusInWalk = (bits & GHTapBitFocusInWalk) != 0;
     s.focusOnField = (bits & GHTapBitFocusOnField) != 0;
     s.busy = (bits & GHTapBitBusy) != 0;
+    s.canJump = (bits & GHTapBitCanJump) != 0;
     return s;
 }
 
@@ -65,6 +79,8 @@ static CGEventRef GHEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     // Touched only by whoever feeds events in: the tap thread (or the test, which has no tap thread).
     GHHoldState _hold;
     BOOL _escapeOwned;
+    os_unfair_lock _observerLock;
+    void (^_userKeyObserver)(void);
 
     NSThread *_thread;
     dispatch_semaphore_t _threadDone;
@@ -93,6 +109,29 @@ static CGEventRef GHEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     atomic_store(&_haltRequested, true);
 }
 
+#pragma mark user keys
+
+- (void (^)(void))userKeyObserver {
+    os_unfair_lock_lock(&_observerLock);
+    void (^observer)(void) = _userKeyObserver;
+    os_unfair_lock_unlock(&_observerLock);
+    return observer;
+}
+
+- (void)setUserKeyObserver:(void (^)(void))observer {
+    void (^copied)(void) = [observer copy];
+    os_unfair_lock_lock(&_observerLock);
+    _userKeyObserver = copied;
+    os_unfair_lock_unlock(&_observerLock);
+}
+
+- (void)noteUserKeyDown {
+    @autoreleasepool {
+        void (^observer)(void) = self.userKeyObserver;
+        if (observer) observer();
+    }
+}
+
 #pragma mark delivery
 
 - (void)deliver:(void (^)(id<GHEventTapDelegate> delegate))block {
@@ -108,6 +147,7 @@ static CGEventRef GHEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 
 - (BOOL)handleKeyDown:(CGKeyCode)keyCode flags:(CGEventFlags)flags isRepeat:(BOOL)isRepeat userData:(int64_t)userData printable:(BOOL)printable {
     if (userData == GHSyntheticEventUserData) return NO;   // our own typing
+    [self noteUserKeyDown];
     GHWalkSnapshot snapshot = GHUnpack(atomic_load(&_bits));
     GHKeyModifiers modifiers = GHKeyModifiersFromFlags(flags);
 
@@ -180,8 +220,10 @@ static BOOL GHEventIsPrintable(CGEventRef event) {
         return event;
     }
     if (!event) return event;
-    // Fast path: Ghost is off, untrusted or paused. Nothing is looked at.
+    // Fast path: Ghost is off, untrusted or paused. Nothing is looked at, but a user key still aborts a sequence
+    // in flight (the frontmost app may have changed under it).
     if (!(atomic_load(&_bits) & GHTapBitActive)) {
+        if (type == kCGEventKeyDown && CGEventGetIntegerValueField(event, kCGEventSourceUserData) != GHSyntheticEventUserData) [self noteUserKeyDown];
         _hold.walking = _hold.halted = NO;
         _escapeOwned = NO;
         return event;
@@ -345,6 +387,7 @@ static BOOL GHEventIsPrintable(CGEventRef event) {
 }
 
 + (BOOL)postEventWithSource:(CGEventSourceRef)source keyCode:(CGKeyCode)keyCode text:(NSString *)text {
+    if (GHRealKeyEventsForbidden()) return NO;
     for (int down = 1; down >= 0; down--) {
         CGEventRef event = CGEventCreateKeyboardEvent(source, keyCode, down == 1);
         if (!event) return NO;
@@ -360,21 +403,6 @@ static BOOL GHEventIsPrintable(CGEventRef event) {
         CFRelease(event);
     }
     return YES;
-}
-
-+ (BOOL)postText:(NSString *)text {
-    NSArray<NSString *> *chunks = [self chunksForText:text ?: @""];
-    if (chunks.count == 0) return NO;
-    CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStatePrivate);
-    if (!source) return NO;
-    CGEventSourceSetUserData(source, GHSyntheticEventUserData);
-    BOOL ok = YES;
-    for (NSString *chunk in chunks) {
-        ok = [self postEventWithSource:source keyCode:0 text:chunk] && ok;
-        usleep(2000);   // some web views drop events that arrive in one burst
-    }
-    CFRelease(source);
-    return ok;
 }
 
 + (BOOL)postKeyCode:(CGKeyCode)keyCode {

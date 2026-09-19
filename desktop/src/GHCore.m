@@ -1,14 +1,16 @@
 #import "GHCore.h"
 #import "GHLog.h"
+#import <CommonCrypto/CommonDigest.h>
 #import <JavaScriptCore/JavaScriptCore.h>
 #import <dlfcn.h>
+#import "GHEventTap.h"
 
 NSString *const GHCoreErrorDomain = @"dev.ghost.desktop.core";
 
 /// Everything the native side calls. Loading fails when one is missing (a stale bundle must not half work).
 static NSArray<NSString *> *GHRequiredExports(void) {
     return @[ @"demoProfile", @"defaultSettings", @"mapForm", @"ghostsFor", @"upgradeGhosts", @"isSensitive",
-              @"isLockedAction", @"textFacts", @"formRequest", @"cleanAssignments", @"isPlaceholder" ];
+              @"isLockedAction", @"textFacts", @"formRequest", @"cleanAssignments", @"isPlaceholder", @"textPastAnswers" ];
 }
 
 NSString *GHJSONString(id object) {
@@ -51,9 +53,45 @@ static NSError *GHCoreMakeError(GHCoreError code, NSString *message) {
     return shared;
 }
 
+#ifndef GHOST_CORE_SHA256
+#define GHOST_CORE_SHA256 ""
+#endif
+
+NSString *GHCorePinnedSHA256(void) {
+    return @GHOST_CORE_SHA256;
+}
+
+NSString *GHCoreSHA256OfFile(NSString *path) {
+    NSData *data = path.length ? [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:NULL] : nil;
+    if (!data) return nil;
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(data.bytes, (CC_LONG)data.length, digest);
+    NSMutableString *hex = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
+    for (int i = 0; i < CC_SHA256_DIGEST_LENGTH; i++) [hex appendFormat:@"%02x", digest[i]];
+    return hex;
+}
+
+BOOL GHCoreBundleMatchesPin(NSString *path, NSString *pinned) {
+    if (pinned.length == 0) return YES;   // a build without a pin (never `make lib`)
+    return [GHCoreSHA256OfFile(path) isEqualToString:pinned.lowercaseString];
+}
+
 + (NSString *)defaultBundlePath {
+    NSString *path = [self discoveredBundlePath];
+    // The JavaScript is where the fact allowlist and the wire filters live: only the exact bundle this library was
+    // built with is loaded (the test runner, which points DESKTOP_CORE_PATH at the fresh build, is the exception).
+    if (path && !GHRealKeyEventsForbidden() && !GHCoreBundleMatchesPin(path, GHCorePinnedSHA256())) {
+        GHLog(@"core: %@ is not the ghost-core.js this library was built with; not loaded (make -C desktop core lib)", path.lastPathComponent);
+        return nil;
+    }
+    return path;
+}
+
++ (NSString *)discoveredBundlePath {
     NSFileManager *fm = NSFileManager.defaultManager;
-    NSString *env = NSProcessInfo.processInfo.environment[@"DESKTOP_CORE_PATH"];
+    // Only the test runner may point the core elsewhere: a variable in the agent's environment (launchctl setenv)
+    // must not swap the code that enforces what leaves the machine.
+    NSString *env = GHRealKeyEventsForbidden() ? NSProcessInfo.processInfo.environment[@"DESKTOP_CORE_PATH"] : nil;
     if (env.length && [fm fileExistsAtPath:env]) return env;
     // Beside the image this code was loaded from: libghost.dylib lives OUTSIDE Ghost.app, so that a new core
     // never changes the bundle's seal (docs/desktop-realworld.md section 1). The bundle is only a fallback.
@@ -265,6 +303,18 @@ static NSError *GHCoreMakeError(GHCoreError code, NSString *message) {
     NSString *json = GHJSONString(profile);
     if (!json) return @{};
     return [self dictionaryFrom:@"textFacts" arguments:@[ json ]];
+}
+
+- (NSArray<NSDictionary<NSString *, NSString *> *> *)pastAnswersForProfile:(NSDictionary *)profile label:(NSString *)label {
+    NSString *json = GHJSONString(profile);
+    if (!json) return @[];
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *out = [NSMutableArray array];
+    for (id item in [self arrayFrom:@"textPastAnswers" arguments:@[ json, label ?: @"" ]]) {
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
+        NSString *question = item[@"question"], *answer = item[@"answer"];
+        if ([question isKindOfClass:[NSString class]] && [answer isKindOfClass:[NSString class]]) [out addObject:@{ @"question": question, @"answer": answer }];
+    }
+    return out;
 }
 
 - (NSData *)formRequestBodyForFieldObjects:(NSArray<NSDictionary *> *)fields

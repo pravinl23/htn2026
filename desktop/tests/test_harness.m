@@ -92,6 +92,14 @@ static GHFakeAutotabSubject *Subject(NSArray<NSDictionary *> *ghosts) {
 
 #pragma mark - request parsing
 
+/// An answer path in a private directory of this user (the harness refuses /tmp and anything it does not own).
+static NSString *HOut(NSString *name) {
+    static NSString *directory;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ directory = GHTestTempDirectory(); });
+    return [directory stringByAppendingPathComponent:name];
+}
+
 GH_TEST(harness_request_is_nil_without_a_harness_flag) {
     NSString *error = @"untouched";
     GH_ASSERT([GHHarnessRequest requestWithArguments:@[ @"/path/Ghost", @"-NSDocumentRevisionsDebugMode", @"YES" ] error:&error] == nil);
@@ -101,14 +109,14 @@ GH_TEST(harness_request_is_nil_without_a_harness_flag) {
 GH_TEST(harness_request_parses_autotab_with_every_option) {
     NSString *error;
     GHHarnessRequest *request = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--autotab", @"12", @"--interval", @"300", @"--delay", @"1.5",
-                                                                           @"--frontmost", @"Safari", @"--out", @"/tmp/a.json" ] error:&error];
+                                                                           @"--frontmost", @"Safari", @"--out", HOut(@"a.json") ] error:&error];
     GH_ASSERT_MSG(request != nil, @"%@", error);
     GH_ASSERT_EQUAL_OBJECTS(request.mode, GHHarnessModeAutotab);
     GH_ASSERT_EQUAL_INT(request.count, 12);
     GH_ASSERT_EQUAL_INT(request.intervalMs, 300);
     GH_ASSERT_NEAR(request.delay, 1.5, 0.0001);
     GH_ASSERT_EQUAL_OBJECTS(request.frontmost, @"Safari");
-    GH_ASSERT_EQUAL_OBJECTS(request.outPath, @"/tmp/a.json");
+    GH_ASSERT_EQUAL_OBJECTS(request.outPath, HOut(@"a.json"));
     GH_ASSERT(request.identifier.length > 0 && request.createdAt > 0);
     GH_ASSERT(request.deadline > request.autotabBudget);
 }
@@ -146,7 +154,7 @@ GH_TEST(harness_request_rejects_malformed_invocations) {
 }
 
 GH_TEST(harness_out_path_survives_a_malformed_invocation) {
-    GH_ASSERT_EQUAL_OBJECTS([GHHarnessRequest outPathInArguments:(@[ @"Ghost", @"--autotab", @"999", @"--out", @"/tmp/e.json" ])], @"/tmp/e.json");
+    GH_ASSERT_EQUAL_OBJECTS([GHHarnessRequest outPathInArguments:(@[ @"Ghost", @"--autotab", @"999", @"--out", HOut(@"e.json") ])], HOut(@"e.json"));
     GH_ASSERT([GHHarnessRequest outPathInArguments:(@[ @"Ghost", @"--dump", @"--out", @"relative.json" ])] == nil);
     GH_ASSERT([GHHarnessRequest outPathInArguments:(@[ @"Ghost", @"--dump", @"--out" ])] == nil);
 }
@@ -155,7 +163,7 @@ GH_TEST(harness_out_path_survives_a_malformed_invocation) {
 
 GH_TEST(harness_request_round_trips_through_json) {
     GHHarnessRequest *request = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--autotab", @"7", @"--interval", @"250", @"--delay", @"2",
-                                                                           @"--frontmost", @"com.apple.Safari", @"--out", @"/tmp/r.json" ] error:NULL];
+                                                                           @"--frontmost", @"com.apple.Safari", @"--out", HOut(@"r.json") ] error:NULL];
     NSString *error;
     GHHarnessRequest *copy = [GHHarnessRequest requestWithData:[request data] error:&error];
     GH_ASSERT_MSG(copy != nil, @"%@", error);
@@ -204,11 +212,57 @@ GH_TEST(harness_response_encoding) {
     GH_ASSERT_EQUAL_OBJECTS(decoded[@"error"], @"encoding-failed");
 }
 
-GH_TEST(harness_response_is_written_whole) {
-    NSString *path = [[GHTestTempDirectory() stringByAppendingPathComponent:@"deep/er"] stringByAppendingPathComponent:@"out.json"];
+GH_TEST(harness_response_is_written_whole_and_private) {
+    NSString *directory = GHTestTempDirectory();
+    NSString *path = [directory stringByAppendingPathComponent:@"out.json"];
+    [@"old answer" writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     GH_ASSERT(GHHarnessWriteResponse(@{ @"trusted": @YES, @"fields": @[] }, path));
     NSDictionary *read = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:path] options:0 error:NULL];
     GH_ASSERT_EQUAL_OBJECTS(read, (@{ @"trusted": @YES, @"fields": @[] }));
+    NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:NULL];
+    GH_ASSERT_EQUAL_INT([attributes[NSFilePosixPermissions] unsignedIntegerValue], 0600);   // nobody else can read a dump
+    // No temporary file is left behind.
+    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:directory error:NULL]) GH_ASSERT_FALSE([name hasPrefix:@".ghost-answer"]);
+    // It never creates directories.
+    NSString *deep = [[directory stringByAppendingPathComponent:@"deep/er"] stringByAppendingPathComponent:@"out.json"];
+    GH_ASSERT_FALSE(GHHarnessWriteResponse(@{ @"trusted": @YES }, deep));
+    GH_ASSERT_FALSE([NSFileManager.defaultManager fileExistsAtPath:[directory stringByAppendingPathComponent:@"deep"]]);
+}
+
+GH_TEST(harness_out_never_deletes_or_follows_anything_but_a_plain_answer_file) {
+    NSString *directory = GHTestTempDirectory();
+    // A directory named like an answer (a typo, or a hostile request): refused, never removed, never recursed into.
+    NSString *folder = [directory stringByAppendingPathComponent:@"Projects.json"];
+    [NSFileManager.defaultManager createDirectoryAtPath:[folder stringByAppendingPathComponent:@"src"] withIntermediateDirectories:YES attributes:nil error:NULL];
+    [@"precious" writeToFile:[folder stringByAppendingPathComponent:@"src/main.m"] atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    GH_ASSERT(GHHarnessProblemWithOutPath(folder) != nil);
+    GH_ASSERT_FALSE(GHHarnessRemoveOldAnswer(folder));
+    GH_ASSERT_FALSE(GHHarnessWriteResponse(@{ @"trusted": @YES }, folder));
+    GH_ASSERT([[NSString stringWithContentsOfFile:[folder stringByAppendingPathComponent:@"src/main.m"] encoding:NSUTF8StringEncoding error:NULL] isEqualToString:@"precious"]);
+    NSString *error = nil;
+    GH_ASSERT([GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--trust", @"--out", folder ] error:&error] == nil);
+    GH_ASSERT(error.length > 0);
+    // A link: never followed, never removed through.
+    NSString *target = [directory stringByAppendingPathComponent:@"target.txt"];
+    [@"keep" writeToFile:target atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    NSString *link = [directory stringByAppendingPathComponent:@"link.json"];
+    [NSFileManager.defaultManager createSymbolicLinkAtPath:link withDestinationPath:target error:NULL];
+    GH_ASSERT(GHHarnessProblemWithOutPath(link) != nil);
+    GH_ASSERT_FALSE(GHHarnessRemoveOldAnswer(link));
+    GH_ASSERT([[NSString stringWithContentsOfFile:target encoding:NSUTF8StringEncoding error:NULL] isEqualToString:@"keep"]);
+    // Not a .json name, a relative path, "..", a directory that does not exist or is not the user's: refused.
+    for (NSString *bad in @[ [directory stringByAppendingPathComponent:@"answer.txt"], @"answer.json",
+                             [directory stringByAppendingPathComponent:@"../x.json"], [directory stringByAppendingPathComponent:@"missing/x.json"],
+                             @"/private/tmp/ghost-shared.json", @"/tmp/ghost-shared.json" ]) {
+        GH_ASSERT_MSG(GHHarnessProblemWithOutPath(bad) != nil, @"%@ should be refused", bad);
+    }
+    // A plain old answer is replaced.
+    NSString *answer = [directory stringByAppendingPathComponent:@"answer.json"];
+    [@"old" writeToFile:answer atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    GH_ASSERT(GHHarnessProblemWithOutPath(answer) == nil);
+    GH_ASSERT(GHHarnessRemoveOldAnswer(answer));
+    GH_ASSERT_FALSE([NSFileManager.defaultManager fileExistsAtPath:answer]);
+    GH_ASSERT(GHHarnessRemoveOldAnswer(answer));                          // nothing there is fine too
 }
 
 #pragma mark - untrusted
@@ -241,7 +295,7 @@ GH_TEST(harness_trusted_trust_response_has_no_error) {
 #pragma mark - channel
 
 static GHHarnessRequest *DumpRequest(void) {
-    return [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--dump", @"--out", @"/tmp/ghost-test-out.json" ] error:NULL];
+    return [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--dump", @"--out", HOut(@"ghost-test-out.json") ] error:NULL];
 }
 
 GH_TEST(harness_channel_send_claim_once) {
@@ -424,11 +478,67 @@ GH_TEST(harness_tree_says_nothing_about_secure_and_sensitive_fields) {
         GH_ASSERT_MSG([child[@"sensitive"] isEqual:@YES], @"%@ should be marked sensitive", child);
         GH_ASSERT_MSG(child[@"valueLength"] == nil, @"%@ leaks a length", child);   // not even how long the secret is
     }
-    GH_ASSERT_EQUAL_OBJECTS(children[4][@"labelledBy"], @"Passport number");
+    for (NSDictionary *child in children) {
+        // Only the role and the flag: not even the label of a sensitive field, and nothing below it.
+        NSMutableSet *keys = [NSMutableSet setWithArray:child.allKeys];
+        GH_ASSERT_EQUAL_OBJECTS(keys, ([NSSet setWithArray:@[ @"role", @"sensitive" ]]));
+    }
     NSString *json = TreeJSON(tree);
     for (NSString *secret in @[ @"hunter2", @"another-secret", @"4111", @"046454286", @"X1234567" ]) {
         GH_ASSERT_MSG(![json containsString:secret], @"%@ leaked", secret);
     }
+}
+
+GH_TEST(harness_tree_never_writes_tab_window_or_document_titles_nor_input_inside_controls) {
+    // Safari: window > split group > outer tab group (tab bar items + the page) > ... > web area.
+    GHFakeAXNode *window = [GHFakeAXNode nodeWithRole:@"AXWindow" title:@"Private tab title - Bank statement" frame:CGRectMake(0, 0, 900, 700)];
+    GHFakeAXNode *toolbar = [window addChild:[GHFakeAXNode nodeWithRole:@"AXToolbar"]];
+    GHFakeAXNode *address = [toolbar addChild:[GHFakeAXNode nodeWithRole:@"AXTextField" title:nil frame:CGRectZero]];
+    address.value = @"https://bank.example/statement";
+    GHFakeAXNode *split = [window addChild:[GHFakeAXNode nodeWithRole:@"AXSplitGroup"]];
+    GHFakeAXNode *tabs = [split addChild:[GHFakeAXNode nodeWithRole:@"AXTabGroup" title:@"Another private tab" frame:CGRectZero]];
+    GHFakeAXNode *otherTab = [tabs addChild:[GHFakeAXNode nodeWithRole:@"AXRadioButton" title:@"Medical results - Clinic" frame:CGRectZero]];
+    otherTab.subrole = @"AXTabButton";
+    [otherTab addChild:[GHFakeAXNode staticText:@"Medical results - Clinic" frame:CGRectZero]];
+    GHFakeAXNode *web = [[tabs addChild:[GHFakeAXNode nodeWithRole:@"AXGroup"]] addChild:[GHFakeAXNode nodeWithRole:@"AXWebArea"]];
+    web.axDescription = @"Job Application for Robotics Intern at Acme";
+    web.title = @"Job Application for Robotics Intern at Acme";
+    [web addChild:[GHFakeAXNode staticText:@"First Name" frame:CGRectZero]];
+    GHFakeAXNode *editor = [web addChild:[GHFakeAXNode nodeWithRole:@"AXTextArea" title:@"Cover letter" frame:CGRectZero]];
+    [editor addChild:[GHFakeAXNode staticText:@"Dear team, my private essay" frame:CGRectZero]];
+    GHFakeAXNode *chosen = [web addChild:[GHFakeAXNode nodeWithRole:@"AXGroup"]];
+    chosen.domClassList = @[ @"select__single-value" ];
+    [chosen addChild:[GHFakeAXNode staticText:@"Female" frame:CGRectZero]];
+    // Inside the page the same roles are content: an ARIA tab list is walked.
+    GHFakeAXNode *pageTabs = [web addChild:[GHFakeAXNode nodeWithRole:@"AXToolbar"]];
+    [pageTabs addChild:[GHFakeAXNode nodeWithRole:@"AXButton" title:@"Bold" frame:CGRectZero]];
+
+    NSDictionary *tree = [GHHarnessTree treeFromNode:window maxDepth:60 maxNodes:100 actions:nil visited:NULL truncated:NULL];
+    NSString *json = TreeJSON(tree);
+    for (NSString *secret in @[ @"Bank statement", @"bank.example", @"Another private tab", @"Medical results", @"Job Application for",
+                                @"private essay", @"Female" ]) {
+        GH_ASSERT_MSG(![json containsString:secret], @"%@ leaked", secret);
+    }
+    GH_ASSERT(tree[@"title"] == nil);
+    GH_ASSERT_EQUAL_OBJECTS(ChildWithRole(tree, @"AXToolbar", nil)[@"omitted"], @"browser-chrome");
+    // The path to the page is still there, with its text and controls.
+    GH_ASSERT([json containsString:@"\"AXWebArea\""]);
+    GH_ASSERT([json containsString:@"First Name"]);
+    GH_ASSERT([json containsString:@"Cover letter"]);
+    GH_ASSERT([json containsString:@"Bold"]);
+    GH_ASSERT([json containsString:@"\"childrenOmitted\" : 1"]);
+}
+
+GH_TEST(harness_look_honours_the_users_own_pause_list) {
+    [GHHarness setPauseCheck:nil];
+    GH_ASSERT([GHHarness bundleIdentifierIsPaused:nil]);                       // unknown app: never looked at
+    GH_ASSERT([GHHarness bundleIdentifierIsPaused:@"com.1password.1password"] || [GHHarness bundleIdentifierIsPaused:@"com.agilebits.onepassword7"]);
+    __block NSString *asked = nil;
+    [GHHarness setPauseCheck:^BOOL(NSString *bundleId) { asked = bundleId; return [bundleId isEqualToString:@"com.apple.MobileSMS"]; }];
+    GH_ASSERT([GHHarness bundleIdentifierIsPaused:@"com.apple.MobileSMS"]);
+    GH_ASSERT_EQUAL_OBJECTS(asked, @"com.apple.MobileSMS");
+    GH_ASSERT_FALSE([GHHarness bundleIdentifierIsPaused:@"com.apple.Safari"]);
+    [GHHarness setPauseCheck:nil];
 }
 
 GH_TEST(harness_tree_redacts_contact_data_and_cuts_long_text) {

@@ -93,7 +93,10 @@ harness() {
 
     printed=0
     if [ -z "$out" ]; then
-        out="${TMPDIR:-/tmp}/ghostctl-$$-$mode.json"
+        # A private per-user directory: Ghost refuses to write an answer into a shared one (/tmp) or through a link.
+        answers="${TMPDIR:-}"
+        if [ -z "$answers" ]; then answers="$SUPPORT/harness"; mkdir -p "$answers"; chmod 700 "$answers"; fi
+        out="${answers%/}/ghostctl-$$-$mode.json"
         printed=1
     fi
     rm -f "$out"

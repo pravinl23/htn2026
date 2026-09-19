@@ -9,7 +9,8 @@
 #   make host-force   rebuild the host anyway. This INVALIDATES the Accessibility grant.
 #   make lib          build/libghost.dylib (ghost-core.js sits beside it, which is where the library looks first)
 #   make app          core + host + lib
-#   make install-lib  copy the library + ghost-core.js to ~/Library/Application Support/Ghost/
+#   make install-lib  build the library WITHOUT the harness and install it + ghost-core.js (0444) into a 0700
+#                     ~/Library/Application Support/Ghost/ (refuses launchctl GHOST_LIB / DYLD_INSERT_LIBRARIES)
 #   make run          open -n build/Ghost.app with GHOST_LIB=build/libghost.dylib
 #   make test         build and run the plain test runner (no XCTest); links the sources, not the dylib
 #   make trust / dump / selftest / clean     (trust and dump go through tools/ghostctl, i.e. LaunchServices)
@@ -50,6 +51,12 @@ $(CORE_JS): $(CORE_SRC)
 $(BUILD)/obj/%.o: src/%.m
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+# GHCore.m carries the SHA-256 of the ghost-core.js built with it: Ghost only loads that exact bundle (the core holds
+# the fact allowlist and the wire filters). Read at recipe time, after `make core`, never at parse time.
+$(BUILD)/obj/GHCore.o: src/GHCore.m $(CORE_JS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -DGHOST_CORE_SHA256=\"$$(shasum -a 256 $(CORE_JS) | cut -d' ' -f1)\" -c $< -o $@
 
 $(BUILD)/testobj/%.o: tests/%.m
 	@mkdir -p $(dir $@)
@@ -97,12 +104,53 @@ $(LIB): $(LIB_OBJ) $(CORE_JS)
 
 app: core host lib
 
-# cp to a temporary name + mv: the running agent keeps the inode it has mapped.
-install-lib: lib
-	@mkdir -p "$(SUPPORT)"
-	cp $(LIB) "$(SUPPORT)/libghost.dylib.new" && mv -f "$(SUPPORT)/libghost.dylib.new" "$(SUPPORT)/libghost.dylib"
-	cp $(CORE_JS) "$(SUPPORT)/ghost-core.js.new" && mv -f "$(SUPPORT)/ghost-core.js.new" "$(SUPPORT)/ghost-core.js"
-	@echo "install-lib: $(SUPPORT)/libghost.dylib (the host finds it there without GHOST_LIB)"
+# ---------- the installed library: no harness ----------
+# What the background agent and a Ghost.app started without GHOST_LIB load. Built with GHOST_NO_HARNESS: no
+# --dump / --dump-tree / --autotab, no request folder, so no other process can borrow Ghost's Accessibility grant
+# through it. The developer library (make lib, used with GHOST_LIB and tools/ghostctl) keeps the harness.
+RELEASE     := $(BUILD)/release
+RELEASE_LIB := $(RELEASE)/libghost.dylib
+RELEASE_OBJ := $(patsubst src/%.m,$(RELEASE)/obj/%.o,$(SRC))
+
+$(RELEASE)/obj/%.o: src/%.m
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -DGHOST_NO_HARNESS=1 -c $< -o $@
+
+$(RELEASE)/obj/GHCore.o: src/GHCore.m $(CORE_JS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -DGHOST_NO_HARNESS=1 -DGHOST_CORE_SHA256=\"$$(shasum -a 256 $(CORE_JS) | cut -d' ' -f1)\" -c $< -o $@
+
+$(RELEASE_LIB): $(RELEASE_OBJ) $(CORE_JS)
+	$(CC) -dynamiclib -install_name @rpath/libghost.dylib $(RELEASE_OBJ) $(FRAMEWORKS) -o $(RELEASE_LIB)
+	codesign -s - --force $(RELEASE_LIB)
+
+# The host loads whatever it finds (desktop/README.md "Security: the grant covers any code the host loads"), so
+# the installer refuses a machine that is set up to hand it something else, and installs read-only copies into a
+# private folder. These checks catch misconfiguration only: GHOST_LIB and DYLD_INSERT_LIBRARIES set by another
+# process still get past them. cp to a temporary name + mv: the running agent keeps the inode it has mapped.
+install-lib: $(RELEASE_LIB)
+	@for name in GHOST_LIB DYLD_INSERT_LIBRARIES DESKTOP_CORE_PATH; do \
+		if [ -n "$$(launchctl getenv $$name 2>/dev/null)" ]; then \
+			echo "install-lib: launchctl has $$name set; every app you start inherits it. Remove it: launchctl unsetenv $$name" >&2; exit 1; \
+		fi; \
+	done
+	@if [ -e "$(HOME)/Applications/libghost.dylib" ]; then \
+		echo "install-lib: $(HOME)/Applications/libghost.dylib sits next to Ghost.app (a lookup location of the host); remove it first" >&2; exit 1; \
+	fi
+	@mkdir -p "$(SUPPORT)" && chmod 0700 "$(SUPPORT)"
+	@owner="$$(stat -f '%Su' "$(SUPPORT)")"; mode="$$(stat -f '%Lp' "$(SUPPORT)")"; \
+	if [ "$$owner" != "$$(id -un)" ] || [ "$$mode" != "700" ]; then \
+		echo "install-lib: $(SUPPORT) must be yours and 0700 (it is $$owner, $$mode)" >&2; exit 1; \
+	fi; \
+	if ls -lde "$(SUPPORT)" | tail -n +2 | grep -q .; then \
+		echo "install-lib: $(SUPPORT) carries an ACL; remove it (chmod -N)" >&2; exit 1; \
+	fi
+	rm -f "$(SUPPORT)/lib-path.txt"
+	install -m 0444 $(RELEASE_LIB) "$(SUPPORT)/libghost.dylib.new" && mv -f "$(SUPPORT)/libghost.dylib.new" "$(SUPPORT)/libghost.dylib"
+	install -m 0444 $(CORE_JS) "$(SUPPORT)/ghost-core.js.new" && mv -f "$(SUPPORT)/ghost-core.js.new" "$(SUPPORT)/ghost-core.js"
+	@codesign -dv --verbose=4 "$(SUPPORT)/libghost.dylib" 2>&1 | grep '^CDHash=' | sed 's/^/install-lib: libghost.dylib /'
+	@shasum -a 256 "$(SUPPORT)/ghost-core.js" | cut -d' ' -f1 | sed 's/^/install-lib: ghost-core.js sha256=/'
+	@echo "install-lib: $(SUPPORT)/libghost.dylib, built WITHOUT the harness (the host finds it there without GHOST_LIB)"
 
 $(TEST_BIN): $(LIB_OBJ) $(TEST_OBJ)
 	$(CC) $(LIB_OBJ) $(TEST_OBJ) $(FRAMEWORKS) -o $(TEST_BIN)
@@ -130,8 +178,8 @@ dump: app
 
 clean:
 	@echo "clean: removing objects, the library and the tests. $(APP) stays: it carries the Accessibility grant (make host-force rebuilds it)."
-	rm -rf $(BUILD)/obj $(BUILD)/testobj $(LIB) $(CORE_JS) $(TEST_BIN)
+	rm -rf $(BUILD)/obj $(BUILD)/testobj $(BUILD)/release $(LIB) $(CORE_JS) $(TEST_BIN)
 
--include $(LIB_OBJ:.o=.d) $(TEST_OBJ:.o=.d)
+-include $(LIB_OBJ:.o=.d) $(TEST_OBJ:.o=.d) $(RELEASE_OBJ:.o=.d)
 # Extra targets (overlay-demo, overlay-demo-offscreen). After `all`, so they never become the default goal.
 -include tools/*.mk

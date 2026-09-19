@@ -2,6 +2,46 @@
 
 const float GHAXMessagingTimeoutSeconds = 0.25f;
 
+GHAXWalkBudget GHAXWalkBudgetMake(NSUInteger nodes, NSTimeInterval seconds) {
+    GHAXWalkBudget budget = { nodes, seconds > 0 ? CFAbsoluteTimeGetCurrent() + seconds : 0, NO, NO };
+    return budget;
+}
+
+GHAXWalkBudget GHAXWalkBudgetNested(const GHAXWalkBudget *parent, NSUInteger nodes) {
+    GHAXWalkBudget budget = { nodes, parent ? parent->deadline : 0, parent ? (parent->exhausted || parent->hung) : NO, parent ? parent->hung : NO };
+    return budget;
+}
+
+BOOL GHAXNodeLooksHung(id<GHAXNode> node) {
+    if (!node) return NO;
+    if ([(id)node isKindOfClass:[GHAXElementNode class]]) {
+        (void)node.role;   // the batch fetch, if it has not happened yet
+        return ((GHAXElementNode *)node).lastError == kAXErrorCannotComplete;
+    }
+    if ([(id)node isKindOfClass:[GHFakeAXNode class]]) return ((GHFakeAXNode *)node).lastError == kAXErrorCannotComplete;
+    return NO;
+}
+
+BOOL GHAXWalkBudgetSpend(GHAXWalkBudget *budget, id<GHAXNode> node) {
+    if (!budget || budget->exhausted || budget->hung) return NO;
+    if (budget->nodes == 0 || (budget->deadline > 0 && CFAbsoluteTimeGetCurrent() >= budget->deadline)) {
+        budget->exhausted = YES;
+        return NO;
+    }
+    budget->nodes--;
+    if (GHAXNodeLooksHung(node)) {
+        budget->hung = YES;
+        return NO;
+    }
+    return YES;
+}
+
+void GHAXWalkBudgetAbsorb(GHAXWalkBudget *parent, const GHAXWalkBudget *nested) {
+    if (!parent || !nested) return;
+    if (nested->hung) parent->hung = YES;
+    if (parent->deadline > 0 && CFAbsoluteTimeGetCurrent() >= parent->deadline) parent->exhausted = YES;
+}
+
 // Order matters: the batch reply is positional.
 typedef NS_ENUM(NSUInteger, GHAXSlot) {
     GHAXSlotRole = 0,
@@ -300,6 +340,23 @@ static BOOL GHAXIsElement(id object) {
     for (GHFakeAXNode *child in children) [self addChild:child];
 }
 
+- (void)insertChild:(GHFakeAXNode *)child atIndex:(NSUInteger)index {
+    if (!child) return;
+    child.parent = self;
+    [_children insertObject:child atIndex:MIN(index, _children.count)];
+}
+
+- (BOOL)removeChild:(GHFakeAXNode *)child {
+    NSUInteger index = [_children indexOfObjectIdenticalTo:child];
+    if (index == NSNotFound) return NO;
+    [_children removeObjectAtIndex:index];
+    return YES;
+}
+
+- (NSUInteger)indexOfChild:(id<GHAXNode>)child {
+    return child ? [_children indexOfObjectIdenticalTo:(GHFakeAXNode *)child] : NSNotFound;
+}
+
 - (NSArray<id<GHAXNode>> *)children {
     _childrenReadCount++;
     return [_children copy];
@@ -315,6 +372,90 @@ static BOOL GHAXIsElement(id object) {
 
 - (NSString *)description {
     return [NSString stringWithFormat:@"<GHFakeAXNode %@>", self.role ?: @"?"];
+}
+
+#pragma mark Dump trees
+
+static NSString *GHDumpString(id value) {
+    return [value isKindOfClass:[NSString class]] && [(NSString *)value length] > 0 ? value : nil;
+}
+
+static CGFloat GHDumpNumber(id value) {
+    return [value isKindOfClass:[NSNumber class]] && isfinite([value doubleValue]) ? (CGFloat)[value doubleValue] : 0;
+}
+
+static BOOL GHDumpFlag(id value, BOOL fallback) {
+    return [value isKindOfClass:[NSNumber class]] ? [value boolValue] : fallback;
+}
+
+/// Dumps are bounded (depth, node count), so is this: a hostile or broken file cannot recurse forever.
+static const NSUInteger GHDumpMaxDepth = 200;
+static const NSUInteger GHDumpMaxValueLength = 8192;
+
++ (instancetype)nodeFromDump:(NSDictionary *)raw depth:(NSUInteger)depth {
+    if (![raw isKindOfClass:[NSDictionary class]] || depth > GHDumpMaxDepth) return nil;
+    NSString *role = GHDumpString(raw[@"role"]);
+    if (!role) return nil;
+    GHFakeAXNode *node = [self nodeWithRole:role];
+    node.subrole = GHDumpString(raw[@"subrole"]);
+    node.roleDescription = GHDumpString(raw[@"roleDescription"]);
+    node.title = GHDumpString(raw[@"title"]);
+    node.axDescription = GHDumpString(raw[@"description"]);
+    node.placeholder = GHDumpString(raw[@"placeholder"]);
+    node.help = GHDumpString(raw[@"help"]);
+    node.identifier = GHDumpString(raw[@"identifier"]);
+
+    NSArray *classes = raw[@"classes"];
+    if ([classes isKindOfClass:[NSArray class]]) {
+        NSMutableArray<NSString *> *list = [NSMutableArray array];
+        for (id item in classes) if (GHDumpString(item)) [list addObject:item];
+        if (list.count) node.domClassList = list;
+    }
+
+    BOOL sensitive = GHDumpFlag(raw[@"sensitive"], NO);
+    NSString *text = GHDumpString(raw[@"text"]);
+    id length = raw[@"valueLength"];
+    if (sensitive) {
+        node.value = nil;
+    } else if (text) {
+        node.value = text;
+    } else if ([length isKindOfClass:[NSNumber class]]) {
+        NSUInteger count = (NSUInteger)MIN(MAX([length doubleValue], 0.0), (double)GHDumpMaxValueLength);
+        node.value = [@"" stringByPaddingToLength:count withString:@"x" startingAtIndex:0];
+    }
+
+    NSDictionary *rect = raw[@"rect"];
+    if ([rect isKindOfClass:[NSDictionary class]]) {
+        node.frame = CGRectMake(GHDumpNumber(rect[@"x"]), GHDumpNumber(rect[@"y"]), GHDumpNumber(rect[@"width"]), GHDumpNumber(rect[@"height"]));
+    }
+    node.enabled = GHDumpFlag(raw[@"enabled"], YES);
+    node.required = GHDumpFlag(raw[@"required"], NO);
+    node.isFocused = GHDumpFlag(raw[@"focused"], NO);
+
+    NSString *labelledBy = GHDumpString(raw[@"labelledBy"]);
+    if (labelledBy) node.titleUIElement = [self staticText:labelledBy frame:CGRectZero];
+
+    NSArray *children = raw[@"children"];
+    if ([children isKindOfClass:[NSArray class]]) {
+        for (id child in children) {
+            GHFakeAXNode *built = [self nodeFromDump:child depth:depth + 1];
+            if (built) [node addChild:built];
+        }
+    }
+    return node;
+}
+
++ (instancetype)nodeWithDumpTree:(NSDictionary<NSString *, id> *)dump {
+    if (![dump isKindOfClass:[NSDictionary class]]) return nil;
+    NSDictionary *tree = [dump[@"tree"] isKindOfClass:[NSDictionary class]] ? dump[@"tree"] : dump;
+    return [self nodeFromDump:tree depth:0];
+}
+
++ (instancetype)nodeWithDumpTreeFile:(NSString *)path {
+    NSData *data = path.length ? [NSData dataWithContentsOfFile:path] : nil;
+    if (!data) return nil;
+    id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+    return [json isKindOfClass:[NSDictionary class]] ? [self nodeWithDumpTree:json] : nil;
 }
 
 @end

@@ -6,6 +6,7 @@ NSString *const GHGhostActionFill = @"fill";
 NSString *const GHGhostActionSelect = @"select";
 NSString *const GHGhostActionCheck = @"check";
 NSString *const GHGhostActionClick = @"click";
+NSString *const GHGhostActionUpload = @"upload";
 
 #pragma mark - GHGhost
 
@@ -26,12 +27,12 @@ NSString *const GHGhostActionClick = @"click";
     NSString *signature = dictionary[@"signature"], *action = dictionary[@"action"];
     if (![signature isKindOfClass:[NSString class]] || signature.length == 0) return nil;
     if (![action isKindOfClass:[NSString class]]) return nil;
-    if (![@[ GHGhostActionFill, GHGhostActionSelect, GHGhostActionCheck, GHGhostActionClick ] containsObject:action]) return nil;
+    if (![@[ GHGhostActionFill, GHGhostActionSelect, GHGhostActionCheck, GHGhostActionClick, GHGhostActionUpload ] containsObject:action]) return nil;
     GHGhost *ghost = [[GHGhost alloc] init];
     ghost.signature = signature;
     ghost.action = action;
     id value = dictionary[@"value"], text = dictionary[@"displayText"], confidence = dictionary[@"confidence"];
-    id locked = dictionary[@"locked"], source = dictionary[@"source"], pending = dictionary[@"pending"];
+    id locked = dictionary[@"locked"], source = dictionary[@"source"], pending = dictionary[@"pending"], lazy = dictionary[@"lazy"];
     ghost.value = [value isKindOfClass:[NSString class]] ? value : nil;
     ghost.displayText = [text isKindOfClass:[NSString class]] ? text : @"";
     ghost.confidence = [confidence isKindOfClass:[NSNumber class]] ? [confidence doubleValue] : 0;
@@ -39,6 +40,8 @@ NSString *const GHGhostActionClick = @"click";
     ghost.locked = ([locked isKindOfClass:[NSNumber class]] && [locked boolValue]) || [action isEqualToString:GHGhostActionClick];
     ghost.source = [source isKindOfClass:[NSString class]] ? source : @"offline";
     ghost.pending = [pending isKindOfClass:[NSNumber class]] && [pending boolValue];
+    // Only a select can be lazy: anything else claiming it is an ordinary ghost.
+    ghost.lazy = [action isEqualToString:GHGhostActionSelect] && [lazy isKindOfClass:[NSNumber class]] && [lazy boolValue];
     return ghost;
 }
 
@@ -62,6 +65,7 @@ NSString *const GHGhostActionClick = @"click";
     out[@"locked"] = @(self.locked);
     out[@"source"] = self.source ?: @"offline";
     if (self.pending) out[@"pending"] = @YES;
+    if (self.lazy) out[@"lazy"] = @YES;
     return out;
 }
 
@@ -80,12 +84,14 @@ NSString *const GHGhostActionClick = @"click";
     copy.locked = self.locked;
     copy.source = self.source;
     copy.pending = self.pending;
+    copy.lazy = self.lazy;
     return copy;
 }
 
 - (NSString *)description {
     // Never the value or the display text.
-    return [NSString stringWithFormat:@"<GHGhost %@ %@%@%@>", self.action, self.signature, self.locked ? @" locked" : @"", self.pending ? @" pending" : @""];
+    return [NSString stringWithFormat:@"<GHGhost %@ %@%@%@%@>", self.action, self.signature, self.locked ? @" locked" : @"",
+            self.pending ? @" pending" : @"", self.lazy ? @" lazy" : @""];
 }
 
 @end
@@ -100,9 +106,14 @@ GHKeyDecision GHDecideTab(GHWalkSnapshot snapshot, GHKeyModifiers modifiers, BOO
         hold->walking = hold->halted = NO;
         return GHKeyDecisionPass;
     }
-    // A press during a write is Ghost's: a fresh one is queued (and owns the hold that follows), a repeat is dropped.
+    // A press during a write is Ghost's only while focus is still in the walk: a fresh one is queued (and owns the
+    // hold that follows), a repeat is dropped. Anywhere else (another app, another field) Tab stays native.
     if (snapshot.busy) {
         if (isRepeat) return hold->walking ? GHKeyDecisionSwallow : GHKeyDecisionPass;
+        if (!snapshot.focusInWalk) {
+            hold->walking = hold->halted = NO;
+            return GHKeyDecisionPass;
+        }
         hold->walking = YES;
         hold->halted = NO;
         return GHKeyDecisionQueue;
@@ -110,6 +121,12 @@ GHKeyDecision GHDecideTab(GHWalkSnapshot snapshot, GHKeyModifiers modifiers, BOO
     if (!isRepeat) hold->walking = hold->halted = NO;
     else if (!hold->walking) return GHKeyDecisionPass;   // a hold that started as native Tab stays native
     if (!snapshot.hasCurrent || !snapshot.currentVisible) {
+        // The desktop jump: ghosts exist but the current one is off screen, and focus is in the walk (the page itself,
+        // typically). A fresh press scrolls it into view and writes nothing; a repeat never jumps.
+        if (!isRepeat && snapshot.hasCurrent && snapshot.canJump && snapshot.focusInWalk) {
+            hold->walking = YES;
+            return GHKeyDecisionJump;
+        }
         // The walk ran out mid-hold: do not let focus race off natively. A fresh press is the app's.
         return isRepeat ? GHKeyDecisionSwallow : GHKeyDecisionPass;
     }

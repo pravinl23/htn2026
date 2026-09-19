@@ -24,6 +24,9 @@ NS_ASSUME_NONNULL_BEGIN
 @interface GHWorkflowContextBuilder : NSObject
 
 /// Builds exactly the value allowlist accepted by /v1/workflows/predict. Unknown/native objects never cross the wire.
+/// Never on the wire: the window title (ignored), the focused field's value (only `hasValue`), a secure, sensitive or
+/// EEO / demographic field (no `focusedElement` at all), nearby lines with contact data or sensitive / EEO words.
+/// `nearbyText` must be page static text outside form controls: the caller never passes what the user typed.
 + (NSDictionary<NSString *, id> *)snapshotWithApplicationName:(NSString *)applicationName
                                               bundleIdentifier:(NSString *)bundleIdentifier
                                                    windowTitle:(nullable NSString *)windowTitle

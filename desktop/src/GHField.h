@@ -23,6 +23,11 @@ extern NSString *const GHKindButton;
 extern NSString *const GHKindLink;
 extern NSString *const GHKindOther;
 
+// What a `file` field wants (serialized as `uploadKind`). The core maps them to resumePath / coverLetterPath.
+extern NSString *const GHUploadKindResume;       // "resume"
+extern NSString *const GHUploadKindCoverLetter;  // "coverLetter"
+extern NSString *const GHUploadKindOther;        // "other": never answered
+
 @interface GHField : NSObject <NSCopying>
 
 /// Stable across reloads of the same window. Never contains the field's value.
@@ -45,6 +50,11 @@ extern NSString *const GHKindOther;
 /// Irreversible action: never pressed by Ghost.
 @property (nonatomic) BOOL locked;
 @property (nonatomic, copy, nullable) NSString *context;
+/// `file` fields only: one of the GHUploadKind* strings. Serialized as `uploadKind`.
+@property (nonatomic, copy, nullable) NSString *uploadKind;
+/// Selects whose options only exist once the list is open (react-select, ARIA comboboxes). A ghost for such a
+/// field carries the intended answer; the writer matches it against the real options at accept time.
+@property (nonatomic) BOOL lazyOptions;
 /// Live element. Retained by the setter, released on dealloc. NULL in tests.
 @property (nonatomic, nullable) AXUIElementRef axElement;
 

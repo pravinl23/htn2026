@@ -44,6 +44,26 @@ NS_ASSUME_NONNULL_BEGIN
 /// Seconds an unresponsive app may block one AX call.
 extern const float GHAXMessagingTimeoutSeconds; // 0.25
 
+/// A node count and a wall-clock deadline for one bounded walk on the main thread. Every walk outside GHCapture
+/// (open panel, combobox list, upload widget checks, page context) spends one of these per visited node, so a huge
+/// page cannot freeze Ghost and a hung app (kAXErrorCannotComplete) ends the walk at the first node that says so.
+typedef struct {
+    NSUInteger nodes;          // visits left
+    CFAbsoluteTime deadline;   // CFAbsoluteTimeGetCurrent() value; 0 = no deadline
+    BOOL exhausted;            // out of nodes or time
+    BOOL hung;                 // a node answered kAXErrorCannotComplete: nothing more is read in this walk
+} GHAXWalkBudget;
+
+GHAXWalkBudget GHAXWalkBudgetMake(NSUInteger nodes, NSTimeInterval seconds);
+/// A nested walk: its own node count, the parent's deadline.
+GHAXWalkBudget GHAXWalkBudgetNested(const GHAXWalkBudget *parent, NSUInteger nodes);
+/// Spends one visit on `node`. NO when the budget is out of nodes or time, or `node` looks hung.
+BOOL GHAXWalkBudgetSpend(GHAXWalkBudget *budget, id<GHAXNode> _Nullable node);
+/// Folds a nested walk back into its parent (a hang or a passed deadline stops the parent too).
+void GHAXWalkBudgetAbsorb(GHAXWalkBudget *parent, const GHAXWalkBudget *nested);
+/// The node's attribute fetch failed with kAXErrorCannotComplete (the app did not answer in time).
+BOOL GHAXNodeLooksHung(id<GHAXNode> _Nullable node);
+
 /// Live node. Every scalar attribute is fetched in ONE AXUIElementCopyMultipleAttributeValues round
 /// trip on first access and cached, so a node is a snapshot: make a new one to see new state.
 /// Children, the title element and the parent are fetched lazily, one call each.
@@ -80,6 +100,8 @@ extern const float GHAXMessagingTimeoutSeconds; // 0.25
 @property (nonatomic, readwrite, strong, nullable) id<GHAXNode> titleUIElement;
 @property (nonatomic, readwrite, weak, nullable) id<GHAXNode> parent;
 @property (nonatomic, readwrite) BOOL isFocused;
+/// What a live node's batch fetch would have answered (kAXErrorCannotComplete = a hung app). kAXErrorSuccess default.
+@property (nonatomic, readwrite) AXError lastError;
 
 /// How many times `children` was read: lets tests prove that skipped subtrees are never expanded.
 @property (nonatomic, readonly) NSUInteger childrenReadCount;
@@ -92,6 +114,22 @@ extern const float GHAXMessagingTimeoutSeconds; // 0.25
 /// Appends and returns the child (so trees can be built inline).
 - (GHFakeAXNode *)addChild:(GHFakeAXNode *)child;
 - (void)addChildren:(NSArray<GHFakeAXNode *> *)children;
+/// A page that changes under the walk (a menu opens after its combo box, a sheet hangs below a window). `index`
+/// is clamped to the end; the child's parent is wired.
+- (void)insertChild:(GHFakeAXNode *)child atIndex:(NSUInteger)index;
+/// Detaches `child` (identity); NO when it was not a child.
+- (BOOL)removeChild:(GHFakeAXNode *)child;
+/// Position of `child` among the children (identity), NSNotFound when absent. Does not count as a children read.
+- (NSUInteger)indexOfChild:(id<GHAXNode>)child;
+
+/// Rebuilds a tree saved by `ghostctl dump-tree` (desktop/tests/fixtures), so real dumps become regression tests.
+/// Takes the whole answer (`{ "tree": ... }`) or one bare node. The dump never holds a value: static text keeps
+/// its `text`, any other node with `valueLength` N gets N filler characters ("x"), and a `sensitive` node gets
+/// none. `description` becomes axDescription, `classes` the DOM class list, `labelledBy` a detached AXStaticText
+/// title element. Unknown keys (`actions`, `note`, `childrenOmitted`) are ignored. nil when there is no role.
++ (nullable instancetype)nodeWithDumpTree:(NSDictionary<NSString *, id> *)dump;
+/// The same from a JSON file. nil when it cannot be read or parsed.
++ (nullable instancetype)nodeWithDumpTreeFile:(NSString *)path;
 
 @end
 

@@ -1,8 +1,12 @@
 #import "GHController.h"
 #import "GHCapture.h"
+#import "GHComboBoxDriver.h"
 #import "GHCore.h"
+#import "GHKeyPoster.h"
 #import "GHLog.h"
+#import "GHOpenPanelDriver.h"
 #import "GHOverlayWindow.h"
+#import "GHPageContext.h"
 #import "GHProfileStore.h"
 #import "GHWriter.h"
 
@@ -23,6 +27,10 @@ static const NSTimeInterval kValueRescanSpacing = 0.5;
 static const NSTimeInterval kScrollSettleSeconds = 0.06;
 static const NSTimeInterval kDraftRenderSpacing = 0.08;
 static const NSUInteger kFocusClimb = 3;
+static const NSUInteger kPageContextNodes = 1500;   // a live AX walk on the main thread: bounded, once per page
+static const NSTimeInterval kScrollSettleFirst = 0.12;   // a page that scrolls smoothly has not moved yet right after
+static const NSTimeInterval kScrollSettleLast = 0.4;     // AXScrollToVisible: its rects are read again twice
+static NSString *const kUploadNotVerified = @"upload-not-verified";
 
 /// One free-text draft. The text stays in memory and is never logged.
 @interface GHDraft : NSObject
@@ -36,6 +44,11 @@ static const NSUInteger kFocusClimb = 3;
 @end
 
 @implementation GHDraft
+@end
+
+@interface GHController ()
+/// What the event tap thread reaches for every untagged key-down (the writer's drivers abort on it).
+@property (atomic, strong, nullable) GHWriter *keyRelayWriter;
 @end
 
 @implementation GHController {
@@ -69,8 +82,10 @@ static const NSUInteger kFocusClimb = 3;
     // The accept queue.
     NSInteger _pendingTabs;
     BOOL _drainIsRepeat;
-    BOOL _drainChecksFocus;
+    BOOL _stepMayHandBack;   // the first step of a fresh, unqueued press: a Tab that was not Ghost's goes back to the app
+    BOOL _stepDirect;        // the step in flight follows the user's press at once (no draft wait, no sequence)
     BOOL _rescanDeferred;
+    NSString *_walkBundleId;   // the app whose window the walk belongs to (live captures only)
     NSString *_waitingDraft;
     void (^_waitContinuation)(BOOL ready);
     NSUInteger _waitToken;
@@ -81,9 +96,16 @@ static const NSUInteger kFocusClimb = 3;
     NSString *_lastStatusLine;
     NSString *_lastRescanLog;
     CFAbsoluteTime _stepStartedAt;
+
+    // Sequences (uploads, lazy selects) and the jump.
+    NSMutableSet<NSString *> *_sequenceDone;   // accepted through a driver on this page: never offered again
+    NSString *_jumpFailedSignature;            // AXScrollToVisible could not bring this ghost on screen
+    NSDictionary<NSString *, NSString *> *_pageContext;   // company / role / description, once per page
+    BOOL _pageContextRead;
 }
 
 @synthesize eventTap = _eventTap;
+@synthesize writer = _writer;
 
 - (instancetype)initWithCore:(GHCore *)core store:(GHProfileStore *)store client:(GHServerClient *)client {
     if ((self = [super init])) {
@@ -100,6 +122,7 @@ static const NSUInteger kFocusClimb = 3;
         _provider = kOfflineProvider;
         _orderedFields = @[];
         _fields = @{};
+        _sequenceDone = [NSMutableSet set];
     }
     return self;
 }
@@ -133,11 +156,65 @@ static const NSUInteger kFocusClimb = 3;
 - (void)setEventTap:(GHEventTap *)eventTap {
     _eventTap = eventTap;
     eventTap.delegate = self;
+    // The tap thread: flags only. A sequence in flight (open panel, combobox) aborts on any key of the user's.
+    __weak GHController *weakSelf = self;
+    eventTap.userKeyObserver = ^{ [weakSelf.keyRelayWriter noteUserKeyEvent]; };
 }
 
+/// The live writer: one keyboard (GHKeyPoster) for typing and both drivers, one view of the desktop.
 - (GHWriter *)writer {
-    if (!_writer) _writer = [[GHWriter alloc] initWithActuator:[[GHAXLiveActuator alloc] init]];
+    if (!_writer) {
+        GHKeyPoster *poster = [GHKeyPoster livePoster];
+        GHAXLiveActuator *actuator = [[GHAXLiveActuator alloc] initWithPoster:poster];
+        GHLiveDesktopState *desktop = [[GHLiveDesktopState alloc] init];
+        GHWriter *writer = [[GHWriter alloc] initWithActuator:actuator];
+        writer.openPanelDriver = [[GHOpenPanelDriver alloc] initWithActuator:actuator poster:poster state:desktop];
+        writer.comboBoxDriver = [[GHComboBoxDriver alloc] initWithActuator:actuator poster:poster state:desktop];
+        self.writer = writer;
+    }
     return _writer;
+}
+
+- (void)setWriter:(GHWriter *)writer {
+    _writer = writer;
+    self.keyRelayWriter = writer;
+}
+
+/// Progress lines to the HUD, the same safety oracle as the writer's. Set right before a sequence starts, so a writer
+/// or driver injected later is wired too.
+- (void)prepareDriversOf:(GHWriter *)writer {
+    __weak GHController *weakSelf = self;
+    writer.openPanelDriver.progress = ^(GHOpenPanelState state, NSString *message) {
+        if (state != GHOpenPanelStateFailed) [weakSelf showStatus:message];   // a failure is the error chip's
+    };
+    GHComboBoxDriver *combo = writer.comboBoxDriver;
+    if (combo && !combo.isNodeSensitive) {
+        GHCapture *capture = self.capture;
+        combo.isNodeSensitive = ^BOOL(id<GHAXNode> node) { return [capture isNodeSensitive:node]; };
+    }
+}
+
+- (void)showStatus:(NSString *)message {
+    _hudStatus = [message copy];
+    [self render];
+}
+
+/// Only a started controller with a live accessibility session ever posts: a controller driven by tests (or not
+/// started) records the hand-back and posts nothing.
+- (void)handBackTab {
+    if (self.tabHandBack) { self.tabHandBack(); return; }
+    if (!_running || self.assumesActive || !self.accessibility.running) {
+        GHLog(@"controller: Tab hand-back skipped (not running live)");
+        return;
+    }
+    [GHEventTap postKeyCode:GHKeyCodeTab];
+}
+
+/// A new capture of the window in front, or nil when there is no way to take one.
+- (GHCaptureResult *)freshCapture {
+    if (self.captureProvider) return self.captureProvider();
+    if (_running && self.accessibility.running) return [self.accessibility captureFocusedWindowWithCapture:self.capture];
+    return nil;
 }
 
 #pragma mark - lifecycle
@@ -163,9 +240,18 @@ static const NSUInteger kFocusClimb = 3;
     [self rescanForReasons:GHRescanReasonManual];
 }
 
+/// An upload or combobox sequence in flight stops at once, before the tap that watches the user's keys goes away:
+/// nothing is posted after Ghost was switched off or lost its permission.
+- (void)cancelSequences {
+    GHWriter *writer = _writer;   // never create the live writer just to cancel it
+    [writer.openPanelDriver cancel];
+    [writer.comboBoxDriver cancel];
+}
+
 - (void)stop {
     if (!_running) return;
     _running = NO;
+    [self cancelSequences];
     [NSNotificationCenter.defaultCenter removeObserver:self name:GHProfileStoreDidChangeNotification object:_store];
     [self.eventTap uninstall];
     [self.accessibility stop];
@@ -235,6 +321,7 @@ static const NSUInteger kFocusClimb = 3;
         if (_running && !self.eventTap.installed) return @"Keyboard tap unavailable (check the Accessibility permission)";
     }
     if (_walk.error) return _walk.error;
+    if (_busy && _hudStatus.length) return _hudStatus;
     NSUInteger unlocked = 0;
     for (GHGhost *ghost in _walk.ghosts) if (!ghost.locked) unlocked++;
     if (unlocked > 0) return [NSString stringWithFormat:@"%lu ghost%@ in %@", (unsigned long)unlocked, unlocked == 1 ? @"" : @"s", app];
@@ -260,10 +347,15 @@ static const NSUInteger kFocusClimb = 3;
     [_asked removeAllObjects];
     [_served removeAllObjects];
     [_pinned removeAllObjects];
+    [_sequenceDone removeAllObjects];
     _predictionRequests = 0;
     _provider = kOfflineProvider;
     _cacheState = @"offline";
     _shownAt = 0;
+    _jumpFailedSignature = nil;
+    _pageContext = nil;
+    _pageContextRead = NO;
+    _hudStatus = nil;
     _epoch++;   // an answer still in flight belongs to the page we left
     [self endDraftWait:NO];
 }
@@ -281,6 +373,7 @@ static const NSUInteger kFocusClimb = 3;
 
 - (void)clearBecauseInactive {
     if (_walk.ghosts.count > 0 || _walk.accepted > 0) GHLog(@"controller: inactive here, ghosts removed");
+    [self cancelSequences];
     [self forgetPage];
     _result = nil;
     _orderedFields = @[];
@@ -310,6 +403,8 @@ static const NSUInteger kFocusClimb = 3;
 }
 
 - (void)accessibilityFrontmostAppDidChange:(GHAccessibility *)accessibility {
+    // Another app in front: focus is not in this walk, whatever its window says (a Tab there is never queued).
+    if (_walkBundleId.length && ![accessibility.frontmostBundleIdentifier ?: @"" isEqualToString:_walkBundleId]) [_walk noteFocus:GHWalkFocusElsewhere];
     [self hideUntilNextRender];
     [self noteStateChanged];
 }
@@ -343,6 +438,7 @@ static const NSUInteger kFocusClimb = 3;
     NSString *webOrigin = result.webAreaNode ? [ax originOfWebAreaNode:result.webAreaNode] : nil;
     NSString *pageKey = [@[ bundle, webOrigin ?: @"", title ] componentsJoinedByString:@"\n"];
     NSString *origin = [GHServerClient originForBundleId:bundle pageURL:webOrigin windowTitle:title];
+    _walkBundleId = [bundle copy];
     [self adoptCaptureResult:result pageKey:pageKey origin:origin];
 }
 
@@ -386,13 +482,15 @@ static const NSUInteger kFocusClimb = 3;
         // A ghost needs a live element, and a lock ghost is only ever a captured, locked button.
         if (!field || ![result nodeForSignature:ghost.signature]) continue;
         if (ghost.locked && !(field.locked && [field.kind isEqualToString:GHKindButton])) continue;
+        // A file attached / an option chosen through a driver is never offered twice, whatever the page shows now.
+        if ([_sequenceDone containsObject:ghost.signature]) continue;
         [ghosts addObject:ghost];
     }
     NSArray<GHGhost *> *withDrafts = [self ghostsByAddingDrafts:ghosts offline:offline answers:answers settings:settings];
     if ([_cacheState isEqualToString:@"offline"]) _latencyMs = @(MAX(0.0, (result.elapsed + (CFAbsoluteTimeGetCurrent() - started)) * 1000.0));
 
     // Focus is re-read against the new capture; the walk keeps its current ghost first and follows focus second.
-    if (self.accessibility.running) [_walk noteFocus:[self liveFocusSignature]];
+    if ([self canReadLiveFocus]) [_walk noteFocus:[self liveFocusSignature]];
     [_walk rescanWithGhosts:withDrafts];
     [self preferVisibleCurrent];
     [self pruneDrafts];
@@ -557,11 +655,45 @@ static BOOL GHIsValueKind(NSString *kind) {
         if (!draft || draft.started || draft.failed || ![_walk ghostWithSignature:field.signature]) continue;
         draft.started = YES;
         active++;
-        NSDictionary *context = field.context.length ? @{ @"description": field.context } : @{};
+        NSDictionary *page = [GHController isLongQuestionField:field] ? [self pageContext] : nil;
+        NSDictionary *context = [GHController draftContextForField:field page:page];
         draft.stream = [_client streamGhostTextForFieldLabel:field.label fieldSignature:field.signature pageContext:context
                                                      profile:_store.profile maxChars:kDraftMaxChars delegate:self];
         // nil = refused locally (sensitive label, no server URL): the delegate hears the reason on the next turn.
     }
+}
+
+/// What the posting is about, read once per page from the web area (never an input's value).
+- (NSDictionary<NSString *, NSString *> *)pageContext {
+    if (_pageContextRead) return _pageContext;
+    _pageContextRead = YES;
+    id<GHAXNode> root = _result.webAreaNode;
+    if (!root) return nil;
+    GHPageContext *context = [GHPageContext contextFromNode:root maxNodes:kPageContextNodes];
+    _pageContext = [context dictionary];
+    GHLog(@"controller: page context company=%lu role=%lu description=%lu chars (%lu nodes)", (unsigned long)context.company.length,
+          (unsigned long)context.role.length, (unsigned long)context.jobDescription.length, (unsigned long)context.visitedNodes);
+    return _pageContext;
+}
+
++ (BOOL)isLongQuestionField:(GHField *)field {
+    if ([field.kind isEqualToString:GHKindTextArea]) return YES;
+    if (![field.kind isEqualToString:GHKindText]) return NO;
+    NSString *label = [field.label stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
+    NSUInteger words = 0;
+    for (NSString *part in [label componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]) if (part.length) words++;
+    return words >= 6 || ([label hasSuffix:@"?"] && words >= 3);
+}
+
++ (NSDictionary<NSString *, NSString *> *)draftContextForField:(GHField *)field page:(NSDictionary<NSString *, NSString *> *)page {
+    NSMutableDictionary<NSString *, NSString *> *context = [NSMutableDictionary dictionary];
+    if (page.count > 0 && [self isLongQuestionField:field]) {
+        for (NSString *key in @[ @"company", @"role", @"description" ]) {
+            if ([page[key] isKindOfClass:[NSString class]] && page[key].length) context[key] = page[key];
+        }
+    }
+    if (!context[@"description"] && field.context.length) context[@"description"] = field.context;
+    return context;
 }
 
 /// Drafts whose ghost did not survive the rescan (dismissed, field filled by hand, field gone) stop streaming.
@@ -648,12 +780,21 @@ static BOOL GHIsValueKind(NSString *kind) {
 
 #pragma mark - focus
 
+/// Only a node whose role was really read can be "the window itself": an element whose role came back empty (a slow
+/// app, an element destroyed a moment ago) is somewhere Ghost cannot see.
 static BOOL GHIsWindowItself(id<GHAXNode> node) {
     static NSSet<NSString *> *roles;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ roles = [NSSet setWithArray:@[ @"AXWindow", @"AXWebArea", @"AXApplication", @"AXScrollArea", @"AXSheet", @"AXDialog" ]]; });
     NSString *role = node.role;
-    return role.length == 0 || [roles containsObject:role];
+    return role.length > 0 && [roles containsObject:role];
+}
+
+/// The node's attributes could not be read (a live node whose batch fetch failed, or no role at all).
+static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
+    if (node.role.length == 0) return YES;
+    if ([(id)node isKindOfClass:[GHAXElementNode class]]) return ((GHAXElementNode *)node).lastError != kAXErrorSuccess;
+    return NO;
 }
 
 - (NSString *)signatureOfFieldAtNode:(id<GHAXNode>)node {
@@ -670,7 +811,9 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
 }
 
 - (NSString *)focusSignatureForNode:(id<GHAXNode>)node {
-    if (!node || GHIsWindowItself(node)) return nil;
+    if (!node) return nil;
+    if (GHNodeIsUnreadable(node)) return GHWalkFocusElsewhere;   // fail closed: Tab stays native
+    if (GHIsWindowItself(node)) return nil;
     id<GHAXNode> cursor = node;
     for (NSUInteger level = 0; cursor && level <= kFocusClimb; level++) {
         NSString *signature = [self signatureOfFieldAtNode:cursor];
@@ -681,13 +824,36 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
     return GHWalkFocusElsewhere;
 }
 
+/// Ghost can read where focus is right now: a test seam, or the live AX session.
+- (BOOL)canReadLiveFocus {
+    if (self.focusedNodeProvider) return YES;
+    GHAccessibility *ax = self.accessibility;
+    return ax.running && ax.trusted;
+}
+
+/// The focused element, read live. `*known` is NO when the read failed (never "the window itself").
+- (id<GHAXNode>)liveFocusedNodeKnown:(BOOL *)known {
+    if (self.focusedNodeProvider) { *known = YES; return self.focusedNodeProvider(); }
+    GHAccessibility *ax = self.accessibility;
+    id<GHAXNode> node = [ax focusedElementNode];
+    *known = node != nil || ax.lastError == kAXErrorSuccess;
+    return node;
+}
+
 /// Where the keyboard is, read live. A failed read is NOT "the window itself": when Ghost cannot tell where focus
 /// is, Tab stays native.
 - (NSString *)liveFocusSignature {
-    GHAccessibility *ax = self.accessibility;
-    id<GHAXNode> node = [ax focusedElementNode];
-    if (!node && ax.lastError != kAXErrorSuccess) return GHWalkFocusElsewhere;
+    BOOL known = NO;
+    id<GHAXNode> node = [self liveFocusedNodeKnown:&known];
+    if (!known) return GHWalkFocusElsewhere;
     return [self focusSignatureForNode:node];
+}
+
+/// The app in front is no longer the one whose window the walk belongs to (live only).
+- (BOOL)walkAppLeftTheFront {
+    if (self.focusedNodeProvider || _walkBundleId.length == 0) return NO;
+    GHAccessibility *ax = self.accessibility;
+    return ax.running && ![ax.frontmostBundleIdentifier ?: @"" isEqualToString:_walkBundleId];
 }
 
 - (void)noteFocusSignature:(NSString *)signature {
@@ -723,6 +889,7 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
         input.hud = [GHOverlayHUDInfo infoWithProvider:_provider ?: kOfflineProvider latencyMs:_latencyMs cache:_cacheState keystrokesSaved:_walk.keystrokesSaved];
     }
     input.error = _walk.error;
+    input.status = _walk.error ? nil : _hudStatus;
     return input;
 }
 
@@ -733,7 +900,7 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
         _currentVisible = NO;
     } else {
         GHOverlayInput *input = [self overlayInput];
-        if (input.entries.count == 0 && !input.hud && !input.error) {
+        if (input.entries.count == 0 && !input.hud && !input.error && !input.status) {
             [overlay hideImmediately];
             _currentVisible = NO;
         } else {
@@ -747,7 +914,12 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
 }
 
 - (void)publish {
-    [self.eventTap publishSnapshot:[_walk snapshotWithActive:self.active currentVisible:_currentVisible busy:_busy]];
+    GHWalkSnapshot snapshot = [_walk snapshotWithActive:self.active currentVisible:_currentVisible busy:_busy];
+    GHGhost *current = _walk.current;
+    if (current && _currentVisible && [_jumpFailedSignature isEqualToString:current.signature]) _jumpFailedSignature = nil;
+    snapshot.canJump = current != nil && !_currentVisible && self.overlay != nil && [_result nodeForSignature:current.signature] != nil
+                       && ![_jumpFailedSignature isEqualToString:current.signature];
+    [self.eventTap publishSnapshot:snapshot];
 }
 
 /// Re-reads the rect of one ghost's element. NO when the element is gone.
@@ -781,17 +953,89 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
     return model.currentVisible;
 }
 
+- (BOOL)revealCurrent {
+    return [self revealCurrentScrolled:NULL];
+}
+
+/// AXScrollToVisible on the current ghost's element when it is off screen, then every rect is read again (the page
+/// scrolled) and the overlay redrawn. Writes nothing. YES when the ghost is on screen afterwards. `*scrolled` says
+/// whether the page accepted the scroll: then the rects are read again a little later too (smooth scrolling), and a
+/// ghost still off screen after that is not jumped to again.
+- (BOOL)revealCurrentScrolled:(BOOL *)scrolled {
+    if (scrolled) *scrolled = NO;
+    GHGhost *current = _walk.current;
+    id<GHAXNode> node = current ? [_result nodeForSignature:current.signature] : nil;
+    if (!node || !self.overlay) return NO;
+    if ([self currentIsVisibleNow]) return YES;
+    id<GHAXNode> fresh = [self.writer.actuator refreshedNode:node];
+    if (!fresh || ![self.writer.actuator scrollToVisible:fresh]) {
+        [self render];
+        return NO;
+    }
+    if (scrolled) *scrolled = YES;
+    for (GHGhost *ghost in _walk.ghosts) [self refreshRectOfSignature:ghost.signature];
+    [self render];
+    if (!_currentVisible) [self settleAfterScrollingTo:current.signature];
+    return _currentVisible;
+}
+
+- (void)settleAfterScrollingTo:(NSString *)signature {
+    NSUInteger generation = ++_scrollGeneration;   // a newer scroll (ours or the user's) supersedes these reads
+    __weak GHController *weakSelf = self;
+    for (NSNumber *delay in @[ @(kScrollSettleFirst), @(kScrollSettleLast) ]) {
+        BOOL last = delay.doubleValue >= kScrollSettleLast;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            GHController *controller = weakSelf;
+            if (!controller || generation != controller->_scrollGeneration || !(controller.running || controller.assumesActive)) return;
+            if (controller->_busy) return;   // the step in flight renders when it is done
+            for (GHGhost *ghost in controller.walk.ghosts) [controller refreshRectOfSignature:ghost.signature];
+            [controller render];
+            GHGhost *current = controller.walk.current;
+            if (!last || controller->_currentVisible || ![current.signature isEqualToString:signature]) return;
+            controller->_jumpFailedSignature = [signature copy];   // Tab is native for it from now on
+            GHLog(@"controller: scrolled to label=%@ but it stayed off screen", GHLogLabel(controller->_fields[signature].label));
+            [controller publish];
+        });
+    }
+}
+
+/// The desktop jump: Tab while the current ghost is off screen and focus is on the page. Nothing is written; when the
+/// page cannot bring the ghost into view the Tab goes back to the app and the next one stays native.
+- (void)jumpForTab {
+    _stepStartedAt = CFAbsoluteTimeGetCurrent();
+    GHGhost *current = _walk.current;
+    if (!current || !self.active) { [self recordStep:@"inactive" reason:nil ghost:current]; [self publish]; return; }
+    if ([self userLeftTheWalk]) {
+        [self recordStep:@"handed-back" reason:nil ghost:current];
+        [self handBackTab];
+        return;
+    }
+    BOOL scrolled = NO;
+    if ([self revealCurrentScrolled:&scrolled] || scrolled) {
+        // On screen, or the page is still scrolling to it: either way this Tab was the jump (nothing written).
+        [self recordStep:@"jumped" reason:nil ghost:current];
+        GHLog(@"controller: jumped to label=%@ (scrolled into view, nothing written)", GHLogLabel(_fields[current.signature].label));
+        return;
+    }
+    _jumpFailedSignature = [current.signature copy];
+    [self recordStep:@"not-visible" reason:nil ghost:current];
+    [self publish];
+    [self handBackTab];
+}
+
 #pragma mark - GHEventTapDelegate
 
 - (void)eventTap:(GHEventTap *)tap didConsumeTab:(GHKeyDecision)decision isRepeat:(BOOL)isRepeat {
     if (!_running && !self.assumesActive) return;
     if (_busy) {
-        // A fresh press during a write is queued (never dropped, never native); a repeat is dropped.
+        // A fresh press during a write is queued (the tap only queues it while focus is in the walk); a repeat is
+        // dropped. Every queued press is checked against live focus again right before its own step runs.
         if (!isRepeat) _pendingTabs = MIN(_pendingTabs + 1, (NSInteger)_walk.ghosts.count);
         return;
     }
+    if (decision == GHKeyDecisionJump) { [self jumpForTab]; return; }
     _drainIsRepeat = isRepeat;
-    _drainChecksFocus = !isRepeat && decision != GHKeyDecisionQueue;
+    _stepMayHandBack = !isRepeat && decision != GHKeyDecisionQueue;
     _pendingTabs++;
     [self drain];
 }
@@ -848,6 +1092,7 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
     if (_pendingTabs <= 0 || (!_running && !self.assumesActive)) { [self finishDrain]; return; }
     _pendingTabs--;
     _stepStartedAt = CFAbsoluteTimeGetCurrent();
+    _stepDirect = YES;
     __weak GHController *weakSelf = self;
     [self acceptCurrentThen:^{ [weakSelf drainStep]; }];
 }
@@ -855,21 +1100,47 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
 - (void)finishDrain {
     _busy = NO;
     _pendingTabs = 0;
+    _stepMayHandBack = NO;
     [self publish];
     if (_rescanDeferred) {
         _rescanDeferred = NO;
         if (_running) [self.accessibility setNeedsRescan:GHRescanReasonManual];
-        else if (self.assumesActive && _result) [self adoptCaptureResult:_result pageKey:_pageKey ?: @"" origin:_origin ?: @""];
+        else if (self.assumesActive && _result) {
+            GHCaptureResult *fresh = self.captureProvider ? self.captureProvider() : nil;
+            [self adoptCaptureResult:fresh ?: _result pageKey:_pageKey ?: @"" origin:_origin ?: @""];
+        }
     }
 }
 
 /// The snapshot the tap decided on can be a few milliseconds old. If the user has meanwhile put focus somewhere
 /// that is not part of the walk, the Tab was theirs: hand it back instead of filling anything.
 - (BOOL)userLeftTheWalk {
-    GHAccessibility *ax = self.accessibility;
-    if (!ax.running || !ax.trusted) return NO;
+    if (![self canReadLiveFocus]) return NO;
+    if ([self walkAppLeftTheFront]) { [_walk noteFocus:GHWalkFocusElsewhere]; return YES; }
     [_walk noteFocus:[self liveFocusSignature]];
     return ![_walk snapshotWithActive:YES currentVisible:YES busy:NO].focusInWalk;
+}
+
+/// After a write: focus is still where the write left it (the field just written, anything inside an upload widget,
+/// the window itself, or the next ghost the page moved it to). Anything else means the user went somewhere else
+/// meanwhile, and Ghost does not pull focus away from there.
+- (BOOL)focusStayedWithWrite:(NSString *)signature {
+    if (![self canReadLiveFocus]) return YES;
+    if ([self walkAppLeftTheFront]) return NO;
+    BOOL known = NO;
+    id<GHAXNode> focused = [self liveFocusedNodeKnown:&known];
+    if (!known) return NO;
+    NSString *focus = [self focusSignatureForNode:focused];
+    [_walk noteFocus:focus];
+    if (!focus || [focus isEqualToString:signature] || [focus isEqualToString:_walk.current.signature ?: @""]) return YES;
+    // An upload leaves focus on the widget's own controls (Attach, Remove) or on its file input.
+    for (id<GHAXNode> anchor in @[ [_result uploadNodeForSignature:signature] ?: (id)NSNull.null, [_result nodeForSignature:signature] ?: (id)NSNull.null ]) {
+        if ((id)anchor == (id)NSNull.null) continue;
+        id<GHAXNode> fresh = [self.writer.actuator refreshedNode:anchor] ?: anchor;
+        id<GHAXNode> widget = [GHWriter uploadWidgetOfInput:fresh];
+        if ([GHOpenPanelDriver node:focused isInside:widget ?: fresh]) return YES;
+    }
+    return NO;
 }
 
 - (void)stopTheHold {
@@ -881,16 +1152,23 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
     GHGhost *ghost = _walk.current;
     // Paused, disabled or handed to the extension between the key press and now: nothing is written.
     if (!ghost || !self.active) { [self recordStep:@"inactive" reason:nil ghost:ghost]; [self stopTheHold]; done(); return; }
-    if (_drainChecksFocus) {
-        _drainChecksFocus = NO;
-        if ([self userLeftTheWalk]) {
+    // Every step, whatever brought it here (a fresh press, a queued press, a hold, the end of a draft wait), checks
+    // live focus first. Only the first step of a fresh press gives its Tab back; any later one is simply dropped.
+    BOOL mayHandBack = _stepMayHandBack;
+    _stepMayHandBack = NO;
+    if ([self userLeftTheWalk]) {
+        [self stopTheHold];
+        if (mayHandBack) {
             GHLog(@"controller: focus left the walk before the write; Tab handed back to the app");
             [self recordStep:@"handed-back" reason:nil ghost:ghost];
-            [self stopTheHold];
-            [GHEventTap postKeyCode:GHKeyCodeTab];
-            done();
-            return;
+            [self handBackTab];
+        } else {
+            GHLog(@"controller: focus left the walk; the queued or delayed Tab is dropped");
+            [self recordStep:@"focus-left" reason:nil ghost:ghost];
+            [self publish];
         }
+        done();
+        return;
     }
     GHField *field = _fields[ghost.signature];
     id<GHAXNode> node = [_result nodeForSignature:ghost.signature];
@@ -903,13 +1181,30 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
         return;
     }
     // Rule 3: a locked ghost is never activated. Focus lands on it so Enter or a click can confirm.
-    if (ghost.locked) { [self recordStep:@"parked" reason:GHWriteReasonLocked ghost:ghost]; [self parkOn:node]; done(); return; }
+    if (ghost.locked) {
+        [self revealCurrent];
+        [self recordStep:@"parked" reason:GHWriteReasonLocked ghost:ghost];
+        [self parkOn:node];
+        done();
+        return;
+    }
     if (ghost.pending) { [self acceptPending:ghost then:done]; return; }
+    if (_drainIsRepeat && [GHWriter ghostRunsSequence:ghost field:field]) {
+        // Hold-Tab never starts an upload or a combobox sequence: its own repeats (user keys) would abort it. The
+        // hold stops here, on screen; one fresh press starts it.
+        [self revealCurrent];
+        [self recordStep:@"needs-press" reason:nil ghost:ghost];
+        [self stopTheHold];
+        [self render];
+        done();
+        return;
+    }
     if (![self currentIsVisibleNow]) {
-        // A queued press, but the field got hidden or scrolled away meanwhile: no write the user cannot see.
-        [self recordStep:@"not-visible" reason:nil ghost:ghost];
+        // Never a write the user cannot see: the ghost is scrolled into view (and drawn) first; the next Tab writes.
+        BOOL shown = [self revealCurrent];
+        [self recordStep:shown ? @"jumped" : @"not-visible" reason:nil ghost:ghost];
         _pendingTabs = 0;
-        _rescanDeferred = YES;
+        if (!shown) _rescanDeferred = YES;
         [self render];
         done();
         return;
@@ -935,6 +1230,10 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
     }
     NSString *signature = ghost.signature;
     _waitingDraft = signature;
+    // Seconds may pass: the step that follows is no longer the press itself (focus is checked again when it runs,
+    // and it never parks focus on a lock).
+    _stepDirect = NO;
+    _stepMayHandBack = NO;
     NSUInteger token = ++_waitToken;
     __weak GHController *weakSelf = self;
     _waitContinuation = ^(BOOL ready) {
@@ -977,15 +1276,49 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
             break;
         }
     }
+    BOOL upload = [ghost.action isEqualToString:GHGhostActionUpload];
+    BOOL hadRemoveControl = NO;
+    if (upload) {
+        // For a file field the writer presses the widget's Attach control; the page's file input is the fallback.
+        optionNode = [_result uploadNodeForSignature:ghost.signature];
+        id<GHAXNode> input = optionNode ? [self.writer.actuator refreshedNode:optionNode] : nil;
+        hadRemoveControl = [GHWriter widgetHasRemoveControl:[GHWriter uploadWidgetOfInput:input]];
+    }
+    if ([GHWriter ghostRunsSequence:ghost field:field]) [self prepareDriversOf:self.writer];
+    _hudStatus = nil;
     NSString *signature = ghost.signature;
+    NSString *filename = upload ? ghost.displayText : nil;
     _quietUntil = CFAbsoluteTimeGetCurrent() + 2.0;   // until the write reports back
     __weak GHController *weakSelf = self;
     [self.writer executeGhost:ghost field:field node:node optionNode:optionNode completion:^(GHWriteResult *result) {
         GHController *controller = weakSelf;
         if (!controller) return;
-        [controller finishedWriting:signature result:result];
+        GHWriteResult *outcome = result;
+        if (upload && result.ok && ![controller uploadShowsFile:filename signature:signature hadRemoveControl:hadRemoveControl]) {
+            outcome = [GHWriteResult failureWithReason:kUploadNotVerified method:GHWriteMethodOpenPanel sequence:YES];
+        }
+        [controller finishedWriting:signature result:outcome];
         done();
     }];
+}
+
+/// After the panel closed and the page named the file: a fresh capture must agree. The upload field now holds the
+/// file's name, or its widget names the file or shows a Remove control it did not have before.
+- (BOOL)uploadShowsFile:(NSString *)filename signature:(NSString *)signature hadRemoveControl:(BOOL)hadRemoveControl {
+    if (filename.length == 0) return NO;
+    GHCaptureResult *fresh = [self freshCapture];
+    for (GHField *field in fresh.fields) {
+        if (![field.signature isEqualToString:signature]) continue;
+        if ([field.value rangeOfString:filename options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
+    }
+    id<GHAXNode> input = [fresh uploadNodeForSignature:signature];
+    if (!input) {
+        id<GHAXNode> old = [_result uploadNodeForSignature:signature];
+        input = old ? [self.writer.actuator refreshedNode:old] : nil;
+    }
+    id<GHAXNode> widget = [GHWriter uploadWidgetOfInput:input];
+    if ([GHWriter widget:widget mentionsFile:filename]) return YES;
+    return !hadRemoveControl && [GHWriter widgetHasRemoveControl:widget];
 }
 
 - (void)finishedWriting:(NSString *)signature result:(GHWriteResult *)result {
@@ -993,10 +1326,23 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
     if (!_running && !self.assumesActive) return;
     [self recordStep:result.ok ? @"accepted" : (result.refused ? @"refused" : @"failed") reason:result.ok ? nil : (result.reason ?: @"failed")
                ghost:[_walk ghostWithSignature:signature]];
+    if (result.sequence) {
+        // Keys pressed while the panel or the list was being driven are never replayed as more accepts.
+        [self stopTheHold];
+        if (result.ok) [_sequenceDone addObject:signature];
+        else _hudStatus = nil;
+        GHLog(@"controller: sequence label=%@ %@", GHLogLabel(_fields[signature].label), result.ok ? @"done" : (result.reason ?: @"failed"));
+    }
     if (result.ok) {
         [self rememberWrittenValueOf:[_walk ghostWithSignature:signature]];
         [_walk accept:signature];
-        [self focusCurrent];
+        if ([self focusStayedWithWrite:signature]) {
+            // A lock only ever gets focus straight from the user's press, never after a draft wait or a sequence.
+            [self focusCurrentAllowingLock:_stepDirect && !result.sequence];
+        } else {
+            GHLog(@"controller: focus moved away during the write; it stays where the user put it");
+            [self stopTheHold];
+        }
         [self render];
         if (_walk.finished) GHLog(@"controller: walk finished accepted=%ld keystrokesSaved=%ld", (long)_walk.accepted, (long)_walk.keystrokesSaved);
         _rescanDeferred = YES;   // the page may react to the value (dependent fields, validation)
@@ -1028,6 +1374,7 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
     GHField *field = ghost ? _fields[ghost.signature] : nil;
     if (!field) return;
     if ([ghost.action isEqualToString:GHGhostActionCheck]) field.value = @"true";
+    else if ([ghost.action isEqualToString:GHGhostActionUpload]) field.value = ghost.displayText;   // the name the page shows
     else field.value = ghost.value.length ? ghost.value : ghost.displayText;
 }
 
@@ -1057,6 +1404,7 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
         @"ghosts": @(_walk.ghosts.count), @"unlocked": @(unlocked), @"accepted": @(_walk.accepted),
         @"provider": _provider ?: @"", @"statusLine": [self statusLine] ?: @"",
     } mutableCopy];
+    if (_hudStatus.length) state[@"status"] = _hudStatus;
     GHGhost *current = _walk.current;
     if (current) {
         state[@"current"] = @{ @"label": _fields[current.signature].label ?: @"", @"action": current.action ?: @"",
@@ -1067,13 +1415,20 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
 
 /// Rule 2: focus moves onto the next ghost's element. Cosmetic: when the app ignores AXFocused, focus stays on the
 /// field the walk just left, which still counts as "in the walk".
-- (void)focusCurrent {
+- (void)focusCurrentAllowingLock:(BOOL)lockAllowed {
     GHGhost *next = _walk.current;
     id<GHAXNode> node = next ? [_result nodeForSignature:next.signature] : nil;
     if (!node) return;
-    if (next.locked) { [self.writer focusLockedNode:node]; [self.eventTap haltHold]; }
-    else [self.writer focusNode:node];
+    if (next.locked) {
+        // Parked (drawn, current) either way; keyboard focus lands on it only when the user's Tab just caused it.
+        if (lockAllowed) [self.writer focusLockedNode:node];
+        [self stopTheHold];
+    } else {
+        [self.writer focusNode:node];
+    }
     [self refreshRectOfSignature:next.signature];
+    // AXScrollToVisible before the next ghost is drawn: focusing an element does not always scroll it into view.
+    if (![self currentIsVisibleNow]) [self revealCurrent];
 }
 
 @end

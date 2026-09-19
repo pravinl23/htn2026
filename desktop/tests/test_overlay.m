@@ -550,3 +550,40 @@ GH_TEST(overlay_window_draws_items_on_the_second_display) {
     GH_ASSERT(hud.frame.size.width > 200 && hud.frame.size.width < 700);
     [overlay invalidate];
 }
+
+GH_TEST(overlay_model_upload_ghost_is_a_file_name_pill_and_progress_is_a_hud_chip) {
+    GH_ASSERT_EQUAL_INT(GHOverlayModeForKind(@"file"), GHOverlayModePill);
+    GHOverlayInput *input = [[GHOverlayInput alloc] init];
+    input.entries = @[ Entry(@"resume", @"file", @"resume-alex-chen.pdf", CGRectMake(140, 200, 300, 43)) ];
+    input.currentIndex = 0;
+    input.windowAXFrame = CGRectMake(100, 100, 1000, 700);
+    GHOverlayModel *model = [GHOverlayModel modelWithInput:input layout:OneDisplay()];
+    GHDrawItem *pill = [model itemWithKey:@"pill:resume" screen:0];
+    GH_ASSERT_EQUAL_INT(pill.kind, GHDrawKindPill);
+    GH_ASSERT_EQUAL_OBJECTS(pill.text, @"resume-alex-chen.pdf");
+    GH_ASSERT(pill.showsKeycap);
+    GH_ASSERT(model.currentVisible);
+
+    input.status = @"Picking resume-alex-chen.pdf";
+    model = [GHOverlayModel modelWithInput:input layout:OneDisplay()];
+    GHDrawItem *chip = [model itemWithKey:@"hud-status" screen:0];
+    GH_ASSERT_EQUAL_INT(chip.kind, GHDrawKindHUDStatus);
+    GH_ASSERT_EQUAL_OBJECTS(chip.text, @"Picking resume-alex-chen.pdf");
+    GH_ASSERT_EQUAL_INT(chip.anchor, GHDrawAnchorBottomRight);
+    // Stacked above the HUD and the error chip when they are there too.
+    input.hud = [GHOverlayHUDInfo infoWithProvider:@"offline-heuristic" latencyMs:nil cache:@"offline" keystrokesSaved:3];
+    input.error = @"Ghost could not fill this field (upload-panel-timeout)";
+    model = [GHOverlayModel modelWithInput:input layout:OneDisplay()];
+    GHDrawItem *hud = [model itemWithKey:@"hud" screen:0], *error = [model itemWithKey:@"hud-error" screen:0];
+    chip = [model itemWithKey:@"hud-status" screen:0];
+    GH_ASSERT(CGRectGetMinY(error.frame) >= CGRectGetMaxY(hud.frame));
+    GH_ASSERT(CGRectGetMinY(chip.frame) >= CGRectGetMaxY(error.frame));
+    // The layer for it exists and sits with the HUD.
+    GH_ASSERT([[GHOverlayItemLayer layerForItem:chip] isKindOfClass:[GHOverlayItemLayer class]]);
+    GH_ASSERT_EQUAL_INT([GHOverlayItemLayer zPositionForKind:GHDrawKindHUDStatus], 0);
+    // A status alone is enough to draw something.
+    GHOverlayInput *only = [[GHOverlayInput alloc] init];
+    only.currentIndex = -1;
+    only.status = @"Attached resume-alex-chen.pdf";
+    GH_ASSERT_EQUAL_OBJECTS(Keys([GHOverlayModel modelWithInput:only layout:OneDisplay()].items), (@[ @"hud-status" ]));
+}

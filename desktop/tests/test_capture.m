@@ -232,7 +232,7 @@ GH_TEST(capture_job_application_labels_kinds_and_order) {
     GH_ASSERT_EQUAL_OBJECTS(FieldLabelled(result, @"Contact address").inputType, @"email");
     GH_ASSERT_EQUAL_OBJECTS(FieldLabelled(result, @"Phone").kind, GHKindTel); // from the label
     GH_ASSERT_EQUAL_OBJECTS(FieldLabelled(result, @"Phone").placeholder, @"Phone");
-    GH_ASSERT_EQUAL_OBJECTS(FieldLabelled(result, @"LinkedIn profile").kind, GHKindText);
+    GH_ASSERT_EQUAL_OBJECTS(FieldLabelled(result, @"LinkedIn profile").kind, GHKindURL); // a profile-site name wants a link
     GH_ASSERT_EQUAL_OBJECTS(FieldLabelled(result, @"Why do you want to work here?").kind, GHKindTextArea);
     GH_ASSERT_EQUAL_OBJECTS(FieldLabelled(result, @"I agree to the terms").kind, GHKindCheckbox);
     GH_ASSERT_EQUAL_OBJECTS(FieldLabelled(result, @"I agree to the terms").value, @"false");
@@ -637,6 +637,20 @@ GH_TEST(capture_preceding_text_stops_at_other_fields_and_headings) {
     GH_ASSERT_EQUAL_OBJECTS(result.fields[2].context, @"Education");
 }
 
+GH_TEST(capture_context_keeps_the_legend_and_the_section_heading) {
+    // "Voluntary Self-Identification" must reach the EEO guard even though the question sits in a titled group.
+    GHFakeAXNode *web = Node(@"AXWebArea", nil, 0, 0, 800, 600);
+    [web addChild:Node(@"AXHeading", @"Voluntary Self-Identification", 10, 10, 400, 30)];
+    GHFakeAXNode *group = [web addChild:Node(@"AXGroup", @"How do you identify?", 10, 60, 400, 120)];
+    [group addChild:Text(@"Please select one", 10, 70)];
+    [group addChild:Node(@"AXTextField", nil, 10, 100, 300, 30)];
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:web];
+    GH_ASSERT_EQUAL_INT(result.fields.count, 1);
+    NSString *context = result.fields[0].context;
+    GH_ASSERT_MSG([context containsString:@"How do you identify?"] && [context containsString:@"Voluntary Self-Identification"], @"context: %@", context);
+    GH_ASSERT(context.length <= 83);
+}
+
 GH_TEST(capture_label_cleaning_and_normalizing) {
     GH_ASSERT_EQUAL_OBJECTS([GHCapture cleanLabel:@"  First   name * "], @"First name");
     GH_ASSERT_EQUAL_OBJECTS([GHCapture cleanLabel:@"Email (required)"], @"Email");
@@ -790,22 +804,6 @@ GH_TEST(accessibility_untrusted_state_attempts_nothing) {
     [accessibility stop]; // idempotent
 }
 
-// The redacted harness fixture preserves Safari's AXTabGroup > ... > AXWebArea nesting.
-static GHFakeAXNode *NodeFromHarnessFixture(NSDictionary *raw) {
-    NSDictionary *rect = raw[@"rect"];
-    GHFakeAXNode *node = Node(raw[@"role"], nil, [rect[@"x"] doubleValue], [rect[@"y"] doubleValue],
-                            [rect[@"width"] doubleValue], [rect[@"height"] doubleValue]);
-    NSDictionary *properties = @{ @"title": @"title", @"subrole": @"subrole", @"description": @"axDescription",
-                                  @"roleDescription": @"roleDescription", @"identifier": @"identifier", @"text": @"value" };
-    for (NSString *key in properties) {
-        if ([raw[key] isKindOfClass:NSString.class]) [node setValue:raw[key] forKey:properties[key]];
-    }
-    if (raw[@"enabled"]) node.enabled = [raw[@"enabled"] boolValue];
-    node.required = [raw[@"required"] boolValue];
-    for (NSDictionary *child in raw[@"children"]) [node addChild:NodeFromHarnessFixture(child)];
-    return node;
-}
-
 GH_TEST(capture_safari_tab_group_discovers_page_without_returning_chrome) {
     GHFakeAXNode *window = Node(@"AXWindow", nil, 0, 0, 800, 600);
     GHFakeAXNode *tabs = [window addChild:Node(@"AXTabGroup", nil, 0, 0, 800, 600)];
@@ -839,20 +837,251 @@ GH_TEST(capture_safari_tab_group_discovers_page_without_returning_chrome) {
     GH_ASSERT(FieldLabelled(nativeResult, @"Project title") != nil);
 }
 
-GH_TEST(capture_real_greenhouse_safari_fixture_reaches_form) {
-    NSString *path = [@(__FILE__).stringByDeletingLastPathComponent stringByAppendingPathComponent:@"fixtures/greenhouse-safari-viam.json"];
-    NSData *data = [NSData dataWithContentsOfFile:path];
-    GH_ASSERT(data != nil);
-    if (!data) return;
-    NSDictionary *fixture = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
-    GHCapture *capture = Capture([[GHFakeSafety alloc] init]);
-    capture.keepsScrolledOutFields = YES;
-    capture.clock = ^NSTimeInterval { return 0; }; // deterministic traversal budget for a saved tree
-    GHCaptureResult *result = [capture captureWindow:NodeFromHarnessFixture(fixture[@"tree"])];
-    GH_ASSERT(result.sawWebArea);
+#pragma mark - Browser chrome
+
+GH_TEST(capture_never_turns_tab_bar_items_or_the_address_field_into_fields) {
+    // A browser window whose page has no web area yet (a start page), walked completely: without the chrome
+    // rules the tab items would be one radio group and the address field a text field.
+    GHFakeAXNode *window = Node(@"AXWindow", nil, 0, 0, 800, 600);
+    GHFakeAXNode *tabs = [window addChild:Node(@"AXTabGroup", nil, 0, 0, 800, 600)];
+    GHFakeAXNode *first = [tabs addChild:Radio(@"Private tab one", YES, 0, 0)];
+    first.subrole = @"AXTabButton";
+    GHFakeAXNode *second = [tabs addChild:Radio(@"Private tab two", NO, 200, 0)];
+    second.subrole = @"AXTabButton";
+    GHFakeAXNode *address = [window addChild:Node(@"AXTextField", @"Smart Search field", 100, 40, 500, 30)];
+    address.identifier = @"WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD";
+    [tabs addChild:Node(@"AXTextField", @"Notes", 10, 100, 300, 30)];
+
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:window];
     GH_ASSERT_FALSE(result.partial);
-    GH_ASSERT(FieldLabelled(result, @"First Name") != nil);
-    GH_ASSERT(FieldLabelled(result, @"Last Name") != nil);
-    GH_ASSERT(FieldLabelled(result, @"Email") != nil);
+    GH_ASSERT_EQUAL_OBJECTS(Labels(result, NO), (@[ @"Notes" ]));
+    GH_ASSERT_FALSE([DumpJSON(result) containsString:@"Private tab"]);
+    GH_ASSERT_FALSE([DumpJSON(result) containsString:@"radio"]);
+
+    // Inside a web area the same identifier is the page's business (an app may use any id it likes).
+    GHFakeAXNode *page = Node(@"AXWebArea", nil, 0, 0, 800, 600);
+    GHFakeAXNode *field = [page addChild:Node(@"AXTextField", @"Search our jobs", 10, 10, 300, 30)];
+    field.identifier = @"WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD";
+    GH_ASSERT(FieldLabelled([Capture([[GHFakeSafety alloc] init]) captureWindow:page], @"Search our jobs") != nil);
+}
+
+#pragma mark - Real-form rules
+
+GH_TEST(capture_label_prefers_title_then_description_then_title_element) {
+    GHFakeAXNode *web = Node(@"AXWebArea", nil, 0, 0, 800, 600);
+    GHFakeAXNode *titled = [web addChild:Node(@"AXTextField", @"First Name", 10, 10, 300, 30)];
+    titled.axDescription = @"Given name (description)";
+    titled.titleUIElement = [GHFakeAXNode staticText:@"First Name *" frame:CGRectZero];
+    GHFakeAXNode *described = [web addChild:Node(@"AXTextField", nil, 10, 60, 300, 30)];
+    described.axDescription = @"Last Name";
+    described.titleUIElement = [GHFakeAXNode staticText:@"Surname label" frame:CGRectZero];
+    GHFakeAXNode *labelled = [web addChild:Node(@"AXTextField", nil, 10, 110, 300, 30)];
+    labelled.titleUIElement = [GHFakeAXNode staticText:@"Email *" frame:CGRectZero];
+
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:web];
+    GH_ASSERT_EQUAL_OBJECTS(Labels(result, NO), (@[ @"First Name", @"Last Name", @"Email" ]));
+    GH_ASSERT(FieldLabelled(result, @"Email").required); // the asterisk of the title element still counts
+}
+
+GH_TEST(capture_profile_site_labels_are_url_fields) {
+    GHFakeAXNode *web = Node(@"AXWebArea", nil, 0, 0, 800, 800);
+    NSArray<NSString *> *urls = @[ @"LinkedIn Profile", @"Github", @"GitHub URL", @"Website", @"Portfolio link", @"Personal website" ];
+    NSArray<NSString *> *texts = @[ @"GitHub username", @"How did you hear about us (LinkedIn, a friend...)?", @"LinkedIn headline" ];
+    CGFloat y = 10;
+    for (NSString *label in [urls arrayByAddingObjectsFromArray:texts]) {
+        [web addChild:Node(@"AXTextField", label, 10, y, 300, 30)];
+        y += 40;
+    }
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:web];
+    for (NSString *label in urls) GH_ASSERT_MSG([FieldLabelled(result, label).kind isEqualToString:GHKindURL], @"%@ should be a url field", label);
+    for (NSString *label in texts) GH_ASSERT_MSG([FieldLabelled(result, label).kind isEqualToString:GHKindText], @"%@ should stay text", label);
+}
+
+/// react-select as WebKit exposes it: label text, a 2 px live region, the placeholder (or chosen value) group,
+/// the 4 px input (AXComboBox) and the "Toggle flyout" button, all siblings.
+static GHFakeAXNode *ReactSelect(GHFakeAXNode *parent, NSString *label, CGFloat y, NSString *_Nullable chosen) {
+    [parent addChild:Text(label, 16, y)];
+    GHFakeAXNode *live = [parent addChild:Node(@"AXGroup", nil, 0, y + 18, 2, 2)];
+    live.subrole = @"AXEmptyGroup";
+    GHFakeAXNode *shown = [parent addChild:Node(@"AXGroup", nil, 16, y + 22, 537, 21)];
+    shown.domClassList = chosen ? @[ @"select__single-value" ] : @[ @"select__placeholder" ];
+    [shown addChild:Text(chosen ?: @"Select...", 16, y + 22)];
+    GHFakeAXNode *combo = [parent addChild:Node(@"AXComboBox", label, 16, y + 22, 4, 21)];
+    combo.axDescription = label;
+    combo.value = @"";
+    [parent addChild:Node(@"AXButton", @"Toggle flyout", 568, y + 12, 25, 25)];
+    return combo;
+}
+
+GH_TEST(capture_react_select_is_one_lazy_select_with_a_visible_box) {
+    GHFakeAXNode *web = Node(@"AXWebArea", nil, 0, 0, 800, 800);
+    GHFakeAXNode *form = [web addChild:Node(@"AXGroup", nil, 0, 0, 800, 800)];
+    ReactSelect(form, @"How did you hear about us?", 10, nil);
+    ReactSelect(form, @"Country", 100, @"Canada");
+    // A native combo box that lists its options keeps them and is not lazy.
+    GHFakeAXNode *native = [form addChild:Node(@"AXComboBox", @"Size", 16, 200, 200, 24)];
+    GHFakeAXNode *list = [native addChild:Node(@"AXList", nil, 16, 224, 200, 60)];
+    for (NSString *item in @[ @"Small", @"Large" ]) [list addChild:Text(item, 16, 230)];
+
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:web];
+    GH_ASSERT_EQUAL_OBJECTS(Labels(result, NO), (@[ @"How did you hear about us?", @"Country", @"Size" ]));
+    GHField *heard = FieldLabelled(result, @"How did you hear about us?");
+    GH_ASSERT_EQUAL_OBJECTS(heard.kind, GHKindSelect);
+    GH_ASSERT(heard.lazyOptions);
+    GH_ASSERT(heard.options == nil);
+    GH_ASSERT_EQUAL_OBJECTS(heard.value, @"");
+    GH_ASSERT_EQUAL_INT((NSInteger)heard.rect.origin.x, 16);
+    GH_ASSERT_EQUAL_INT((NSInteger)CGRectGetMaxX(heard.rect), 593); // placeholder + toggle: the box the user sees
+    GH_ASSERT_EQUAL_OBJECTS(FieldLabelled(result, @"Country").value, @"Canada"); // chosen: a filled select
+    GH_ASSERT_FALSE(FieldLabelled(result, @"Size").lazyOptions);
+    GH_ASSERT_EQUAL_INT(FieldLabelled(result, @"Size").options.count, 2);
+    GH_ASSERT_FALSE([DumpJSON(result) containsString:@"Toggle flyout"]);
+    GH_ASSERT([[heard toJSONObject][@"lazyOptions"] isEqual:@YES]);
+}
+
+GH_TEST(capture_toggle_after_an_unrelated_field_stays_a_button) {
+    GHFakeAXNode *web = Node(@"AXWebArea", nil, 0, 0, 800, 800);
+    GHFakeAXNode *combo = [web addChild:Node(@"AXComboBox", @"Team", 16, 10, 4, 21)];
+    combo.value = @"";
+    [web addChild:Node(@"AXTextField", @"Notes", 100, 10, 300, 21)];
+    [web addChild:Node(@"AXButton", @"Toggle flyout", 500, 10, 25, 25)];
+    [web addChild:Node(@"AXButton", @"Open menu", 16, 400, 25, 25)]; // not next to any combo box
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:web];
+    GH_ASSERT(FieldLabelled(result, @"Toggle flyout") != nil);
+    GH_ASSERT(FieldLabelled(result, @"Open menu") != nil);
+}
+
+GH_TEST(capture_ignores_a_sites_own_autofill_button) {
+    GHFakeAXNode *web = Node(@"AXWebArea", nil, 0, 0, 800, 800);
+    [web addChild:Node(@"AXButton", @"Autofill my application", 10, 10, 200, 40)];
+    [web addChild:Node(@"AXButton", @"Auto-fill with resume", 10, 60, 200, 40)];
+    [web addChild:Node(@"AXTextField", @"First Name", 10, 110, 300, 30)];
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:web];
+    GH_ASSERT_EQUAL_OBJECTS(Labels(result, NO), (@[ @"First Name" ]));
+}
+
+#pragma mark - File uploads
+
+/// Greenhouse's upload widget: a named group, its label, Attach + the 2 px file input, cloud alternatives.
+static GHFakeAXNode *UploadWidget(GHFakeAXNode *parent, NSString *title, NSString *identifier, CGFloat y, NSString *_Nullable attached) {
+    GHFakeAXNode *widget = [parent addChild:Node(@"AXGroup", title, 300, y, 853, 252)];
+    widget.subrole = @"AXApplicationGroup";
+    widget.axDescription = title;
+    widget.domClassList = @[ @"file-upload" ];
+    GHFakeAXNode *label = [widget addChild:Node(@"AXGroup", nil, 300, y, 853, 19)];
+    [label addChild:Text(title, 300, y)];
+    GHFakeAXNode *row = [widget addChild:Node(@"AXGroup", nil, 300, y + 30, 301, 51)];
+    [row addChild:Node(@"AXButton", @"Attach", 300, y + 30, 301, 43)];
+    GHFakeAXNode *input = [row addChild:Node(@"AXButton", nil, 599, y + 29, 2, 2)];
+    input.subrole = @"AXFileUploadButton";
+    input.roleDescription = @"file upload button";
+    input.identifier = identifier;
+    for (NSString *alternative in @[ @"Dropbox", @"Google Drive", @"Enter manually" ]) {
+        GHFakeAXNode *wrap = [widget addChild:Node(@"AXGroup", nil, 300, y + 80, 301, 51)];
+        [wrap addChild:Node(@"AXButton", alternative, 300, y + 80, 301, 43)];
+        y += 50;
+    }
+    if (attached) {
+        GHFakeAXNode *chip = [widget addChild:Node(@"AXGroup", nil, 300, y + 90, 301, 22)];
+        [chip addChild:Text(attached, 300, y + 90)];
+        [chip addChild:Node(@"AXButton", @"Remove file", 560, y + 90, 22, 22)];
+    }
+    [widget addChild:Text(@"Accepted file types: pdf, doc, docx, txt, rtf", 300, y + 120)];
+    return input;
+}
+
+GH_TEST(capture_upload_widget_is_one_file_field_acted_on_through_attach) {
+    GHFakeAXNode *web = Node(@"AXWebArea", nil, 0, 0, 1400, 2000);
+    GHFakeAXNode *form = [web addChild:Node(@"AXGroup", nil, 0, 0, 1400, 2000)];
+    [form addChild:Node(@"AXTextField", @"Email", 300, 10, 600, 35)];
+    GHFakeAXNode *resume = UploadWidget(form, @"Resume/CV", @"resume", 100, nil);
+    UploadWidget(form, @"Cover Letter", @"cover_letter", 400, @"letter-draft.pdf");
+    [form addChild:Node(@"AXButton", @"Submit application", 900, 900, 190, 41)];
+
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:web];
+    GH_ASSERT_EQUAL_OBJECTS(Labels(result, NO), (@[ @"Email", @"Resume/CV", @"Cover Letter", @"Submit application" ]));
+    GHField *file = FieldLabelled(result, @"Resume/CV");
+    GH_ASSERT_EQUAL_OBJECTS(file.kind, GHKindFile);
+    GH_ASSERT_EQUAL_OBJECTS(file.uploadKind, GHUploadKindResume);
+    GH_ASSERT_EQUAL_OBJECTS(file.identifier, @"resume");
+    GH_ASSERT_EQUAL_OBJECTS(file.value, @"");
+    GH_ASSERT_EQUAL_INT((NSInteger)file.rect.size.width, 301); // the visible Attach button, not the 2 px input
+    GHFakeAXNode *attach = (GHFakeAXNode *)[result nodeForSignature:file.signature];
+    GH_ASSERT_EQUAL_OBJECTS(attach.title, @"Attach");
+    GH_ASSERT([result uploadNodeForSignature:file.signature] == resume);
+    GH_ASSERT([file.signature containsString:@"AXFileUploadButton"]);
+
+    GHField *letter = FieldLabelled(result, @"Cover Letter");
+    GH_ASSERT_EQUAL_OBJECTS(letter.uploadKind, GHUploadKindCoverLetter);
+    GH_ASSERT_EQUAL_OBJECTS(letter.value, @"letter-draft.pdf"); // already attached: filled, never offered again
+    GH_ASSERT_FALSE([[letter toWireJSONObject] objectForKey:@"value"] != nil);
+    for (NSString *swallowed in @[ @"Attach", @"Dropbox", @"Google Drive", @"Enter manually", @"Remove file" ]) {
+        GH_ASSERT_MSG(FieldLabelled(result, swallowed) == nil, @"%@ must be part of the upload field", swallowed);
+    }
     GH_ASSERT(FieldLabelled(result, @"Submit application").locked);
+}
+
+GH_TEST(capture_upload_label_sources_and_boundaries) {
+    GHFakeAXNode *web = Node(@"AXWebArea", nil, 0, 0, 1400, 2000);
+    // A bare <label for=cv>Curriculum vitae</label><input type=file>: the browser's "Choose File" never names it.
+    GHFakeAXNode *bare = [web addChild:Node(@"AXButton", @"Choose File", 10, 10, 120, 24)];
+    bare.subrole = @"AXFileUploadButton";
+    bare.titleUIElement = [GHFakeAXNode staticText:@"Curriculum vitae" frame:CGRectZero];
+    // A wrapper that also holds a text field is NOT the upload's widget: the field stays, the input stands alone.
+    GHFakeAXNode *mixed = [web addChild:Node(@"AXGroup", nil, 10, 100, 600, 200)];
+    [mixed addChild:Node(@"AXTextField", @"Portfolio URL", 10, 100, 300, 30)];
+    GHFakeAXNode *other = [mixed addChild:Node(@"AXButton", @"Writing sample", 10, 150, 200, 30)];
+    other.subrole = @"AXFileUploadButton";
+    other.identifier = @"attachment_3";
+
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:web];
+    GH_ASSERT_EQUAL_OBJECTS(FieldLabelled(result, @"Curriculum vitae").uploadKind, GHUploadKindResume);
+    GH_ASSERT([result nodeForSignature:FieldLabelled(result, @"Curriculum vitae").signature] == bare); // no Attach: the input itself
+    GH_ASSERT_EQUAL_OBJECTS(FieldLabelled(result, @"Portfolio URL").kind, GHKindURL);
+    GH_ASSERT_EQUAL_OBJECTS(FieldLabelled(result, @"Writing sample").uploadKind, GHUploadKindOther);
+}
+
+GH_TEST(capture_sensitive_upload_is_dropped_with_its_widget) {
+    GHFakeAXNode *web = Node(@"AXWebArea", nil, 0, 0, 1400, 2000);
+    UploadWidget(web, @"Passport scan", @"passport", 100, nil);
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:web];
+    GH_ASSERT_EQUAL_INT(result.fields.count, 0);
+    GH_ASSERT_FALSE([DumpJSON(result) containsString:@"Passport"]);
+}
+
+#pragma mark - Dump-tree loader
+
+GH_TEST(axnode_dump_tree_loader_rebuilds_nodes_without_values) {
+    NSDictionary *dump = @{ @"tree": @{
+        @"role": @"AXWindow", @"rect": @{ @"x": @0, @"y": @34, @"width": @800, @"height": @600 },
+        @"children": @[
+            @{ @"role": @"AXStaticText", @"text": @"First Name", @"identifier": @"first_name-label" },
+            @{ @"role": @"AXTextField", @"title": @"First Name", @"description": @"Given", @"identifier": @"first_name",
+               @"roleDescription": @"text field", @"valueLength": @3, @"required": @YES, @"classes": @[ @"input", @4 ],
+               @"labelledBy": @"First Name", @"actions": @[ @"AXPress" ], @"rect": @{ @"x": @1, @"y": @2, @"width": @3, @"height": @4 } },
+            @{ @"role": @"AXTextField", @"title": @"Card number", @"sensitive": @YES, @"enabled": @NO, @"focused": @YES },
+            @{ @"note": @"no role: dropped" },
+        ] } };
+    GHFakeAXNode *window = [GHFakeAXNode nodeWithDumpTree:dump];
+    GH_ASSERT(window != nil);
+    GH_ASSERT_EQUAL_OBJECTS(window.role, @"AXWindow");
+    GH_ASSERT_EQUAL_INT((NSInteger)window.frame.origin.y, 34);
+    GH_ASSERT_EQUAL_INT(window.children.count, 3);
+    GHFakeAXNode *label = (GHFakeAXNode *)window.children[0], *field = (GHFakeAXNode *)window.children[1], *card = (GHFakeAXNode *)window.children[2];
+    GH_ASSERT_EQUAL_OBJECTS(label.value, @"First Name");
+    GH_ASSERT_EQUAL_OBJECTS(field.value, @"xxx"); // length only, never the real value
+    GH_ASSERT_EQUAL_OBJECTS(field.axDescription, @"Given");
+    GH_ASSERT_EQUAL_OBJECTS(field.domClassList, (@[ @"input" ]));
+    GH_ASSERT_EQUAL_OBJECTS(field.titleUIElement.value, @"First Name");
+    GH_ASSERT(field.required);
+    GH_ASSERT(field.parent == window);
+    GH_ASSERT(CGRectEqualToRect(field.frame, CGRectMake(1, 2, 3, 4)));
+    GH_ASSERT(card.value == nil);
+    GH_ASSERT_FALSE(card.enabled);
+    GH_ASSERT(card.isFocused);
+    // A bare node works too; garbage does not.
+    GH_ASSERT_EQUAL_OBJECTS([GHFakeAXNode nodeWithDumpTree:@{ @"role": @"AXGroup" }].role, @"AXGroup");
+    GH_ASSERT([GHFakeAXNode nodeWithDumpTree:@{ @"tree": @"nope" }] == nil);
+    GH_ASSERT([GHFakeAXNode nodeWithDumpTree:(NSDictionary *)@[]] == nil);
+    GH_ASSERT([GHFakeAXNode nodeWithDumpTreeFile:@"/nonexistent/ghost-dump.json"] == nil);
 }

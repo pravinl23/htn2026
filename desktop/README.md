@@ -10,7 +10,51 @@ does not match the SDK).
 
 ## Current status
 
-The native form agent and its offline/server-upgraded prediction path are implemented and unit-tested (199 native tests): capture, overlay rendering, Tab/Escape state, verified writes, form caching and streamed text drafts. The stable host + hot-swappable library split and the `ghostctl` harness (`trust`, `dump`, `dump-tree`, `autotab`) exist, and the host at `~/Applications/Ghost.app` holds a live Accessibility grant: `ghostctl trust` and `ghostctl dump-tree` have run trusted against a real Greenhouse page in Safari. Not yet done: real-page capture (Safari nests the web area inside its tab group, which the tree walk currently skips), file upload through the open panel, react-select comboboxes, and a recorded end-to-end run. The server now exposes `/v1/presence`; the extension heartbeat is not wired yet, so do not run both clients in the same browser.
+`make -C desktop core lib test`: 316 native tests, 0 failures, zero compiler warnings (2026-09-19, after the review fixes
+below; none of them has run live).
+
+**Verified live** (a real app, a real Accessibility grant):
+
+- `ghostctl trust` and `ghostctl dump-tree` ran trusted from the granted host at `~/Applications/Ghost.app` against a real
+  Greenhouse application in Safari (433 nodes, about 0.5 s); that dump is the fixture `tests/fixtures/greenhouse-safari-viam.json`.
+- `ghostctl dump` ran read-only once (library of the capture work, before this integration), against a desktop app that
+  happened to be in front (not Safari): trusted, 0 fields. Nothing of the integration below has run live.
+
+**Verified only with fakes and the saved fixture** (never run live yet, in any browser):
+
+- Capture of the real Greenhouse form (Safari's web area inside its tab group; browser chrome and tab titles skipped): the
+  whole form in reading order, react-select comboboxes as lazy selects, one `file` field per upload widget.
+- The whole Tab walk over that fixture (`tests/test_integration.m`): capture -> core -> controller -> writer, with a fake
+  page that scrolls, a fake react-select, a fake macOS open panel and a fake keyboard (`GHFakeKeyPoster`: the production
+  guard logic over a recording sink). Accept order: the first Tab jumps to First Name (scrolled into view, nothing written),
+  then First Name, Last Name, Email, Country (combobox: types "Canada", presses "Canada +1", verifies), Phone, Resume/CV
+  (one Tab: Attach, Command+Shift+G, the path typed only into the go-to field, Return, Return on Upload, the page and a fresh
+  capture show the file name), LinkedIn Profile, Github, Website, "How did you hear" (Hack the North), and it ends parked on
+  the locked Submit application, focused, never pressed. The US work-authorization question and the four EEO questions are
+  never focused, typed into or opened.
+- Hold-Tab stops at an upload or combobox ghost without starting it (one fresh press starts it) and never accepts a pending
+  draft; any untagged key while the panel or a list is driven aborts the sequence and the keys pressed meanwhile are dropped;
+  an upload the widget does not show is a failure; a combobox without the answer is skipped and left as it was.
+- The jump: Tab on the page with the current ghost off screen scrolls it into view and writes nothing; a page that scrolls
+  smoothly is read again before Ghost gives up; a page that refuses gets the Tab back, and Tab stays native afterwards.
+- `GHPageContext` (company, role, posting text) feeds `/v1/ghost-text` for text areas and long questions (stub server).
+- Profile file facts (`resumePath`, `coverLetterPath`) are validated on load; `profile.example.json` loads through the store.
+- Review fixes (fakes only): every step of a walk re-reads live focus (a queued Tab, a held Tab, the end of a draft wait),
+  and only the first step of a fresh press hands its Tab back; focus is moved on after a write only while it is still where
+  the write left it, and a lock gets keyboard focus only straight from the user's Tab (never after a draft wait or a
+  sequence). During a write Tab is queued only while focus is in the walk (another app or field keeps its Tab). Every key
+  post re-reads focus and the app after its guard and asks the driver's user-key flag last. The combobox and popup Escapes
+  only go to a list or menu that is really open. Turning Ghost off or losing the permission cancels an upload or combobox
+  sequence at once. The open panel's Upload button is read from a fresh panel. Tree walks outside the capture have a
+  wall-clock budget and stop at a hung app. Focus whose role cannot be read counts as "somewhere else".
+
+**Assumptions nobody has checked live yet**: that AXPress on Greenhouse's "Attach" opens Safari's open panel and that the
+panel shows up as an AXSheet (or an AXDialog window) with an "Open"/"Choose"/"Upload" button while Safari stays frontmost;
+that Command+Shift+G focuses a text field in it; how WebKit exposes react-select's option list and whether AXPress on an
+option selects it; that AXScrollToVisible scrolls Safari's page; that the controller's 120 ms capture budget reaches the form
+on a long posting (the Greenhouse page is about 360 nodes; `ghostctl dump` uses 2 s). Chrome, Firefox and Arc structures have
+not been looked at. The server exposes `/v1/presence`; the extension heartbeat is not wired yet, so do not run both clients in
+the same browser.
 
 ## Build: a host that never changes, a library that always can
 
@@ -28,7 +72,7 @@ make -C desktop app          # core + host + lib. The host is built ONLY if buil
 make -C desktop lib          # just the library: the everyday rebuild. Never touches the host.
 make -C desktop test         # plain test runner (links the sources, not the dylib), exits non-zero on failure
 make -C desktop run          # open -n build/Ghost.app with GHOST_LIB=build/libghost.dylib
-make -C desktop install-lib  # copy the library + ghost-core.js to ~/Library/Application Support/Ghost/
+make -C desktop install-lib  # a harness-free library + ghost-core.js, read-only, into a 0700 ~/Library/Application Support/Ghost/
 ```
 
 Other targets: `core`, `host`, `selftest`, `trust`, `dump`, `clean`. `make clean` removes objects, the library and the
@@ -45,7 +89,29 @@ Where the host looks for the library, in order: `$GHOST_LIB` (when set, the only
 `~/Library/Application Support/Ghost/lib-path.txt` (used when this macOS has no `open --env`). A missing library, or one
 without the `GhostMain` symbol, is a clear message on stderr, an alert when there is no terminal, and an
 `{ "error": "library not loaded" }` answer when the launch carried `--out`. The library loads `ghost-core.js` from beside
-itself first and from the bundle's Resources only as a fallback.
+itself first and from the bundle's Resources only as a fallback, and only the exact file it was built with: `make lib`
+embeds its SHA-256, and a different `ghost-core.js` is not loaded (rebuild with `make -C desktop core lib`).
+`DESKTOP_CORE_PATH` is honoured by the test runner only.
+
+### Security: the grant covers any code the host loads
+
+The Accessibility grant belongs to `Ghost.app`, and the host loads whatever library it finds: `$GHOST_LIB`, then the
+user-writable lookup paths above, and (ad-hoc signed, no hardened runtime) `DYLD_INSERT_LIBRARIES` too. So **any process
+running as you can borrow the grant**: read every window, post keystrokes. Until the host is rebuilt with a Developer ID,
+the hardened runtime, library validation and no `GHOST_LIB` (do that together with the next re-grant that is needed
+anyway; it cannot be done without one):
+
+- Switch Ghost off in System Settings -> Privacy & Security -> Accessibility when you are not developing with it, and
+  never install it on a shared or untrusted machine.
+- `make install-lib` builds the installed copy **without the harness** (no `--dump`, `--dump-tree`, `--autotab`, no
+  request folder), installs it and `ghost-core.js` read-only (0444) into a 0700 folder it checks is yours without an ACL,
+  removes `lib-path.txt`, refuses when `launchctl getenv` has `GHOST_LIB`, `DYLD_INSERT_LIBRARIES` or `DESKTOP_CORE_PATH`
+  or when a `libghost.dylib` sits next to `~/Applications/Ghost.app`, and prints the library's CDHash and the core's SHA-256.
+- The library only loads the `ghost-core.js` it was built with (its SHA-256 is compiled in): that JavaScript is where the
+  fact allowlist and the wire filters live.
+- These checks catch misconfiguration only. `GHOST_LIB` or `DYLD_INSERT_LIBRARIES` set by another process still get past
+  them, and the developer library (`make lib`, used with `GHOST_LIB` and `tools/ghostctl`) keeps the harness, which any
+  process running as you can drive through its request folder or `open -n Ghost.app --args ...`.
 
 Requirements: macOS 13 or later, the Command Line Tools (`xcode-select --install`), Node 22.
 
@@ -90,7 +156,8 @@ Always start Ghost through LaunchServices (`make run`, `tools/ghostctl run`, Fin
 
 | Path | What |
 | --- | --- |
-| `~/Library/Application Support/Ghost/profile.json` | `{ "facts": { "firstName": "...", ... }, "pastAnswers": [] }`. Seeded with the fictional demo profile (Alex Chen). Mode 0600. Edit it in any editor: Ghost reloads within a second. A file that is not valid JSON is ignored (the last good profile stays active) and never overwritten. |
+| `~/Library/Application Support/Ghost/profile.json` | `{ "facts": { "firstName": "...", ... }, "pastAnswers": [] }`. Seeded with the fictional demo profile (Alex Chen). Mode 0600. Edit it in any editor: Ghost reloads within a second. A file that is not valid JSON is ignored (the last good profile stays active) and never overwritten. Optional `resumePath` / `coverLetterPath`: see `profile.example.json` below. |
+| `desktop/profile.example.json` | Documented example: the fictional demo profile plus `"resumePath": "~/Projects/htn2026/demo/fixtures/resume-alex-chen.pdf"` (the fictional resume in this repo; adjust for your checkout). File facts are validated on every load: an absolute path (`~/` expanded) to an existing, readable, regular pdf/doc/docx/rtf/txt/odt/pages file under 25 MB, no `..`, no control characters; anything else is dropped and the log names only the key and a reason code. Paths never leave the machine, and the HUD shows the file name only. |
 | `~/Library/Application Support/Ghost/settings.json` | `enabled`, `confidenceThreshold` (clamped to 0.5...0.99), `serverUrl`, `showHud`, `learningEnabled`, plus `pausedBundleIds`. Mode 0600. |
 | `~/Library/Application Support/Ghost/form-cache.json` | Per-window form mappings, so a repeat visit makes zero server calls. Hashed keys, fact **keys** and confidences only, never values. Mode 0600. Safe to delete. |
 | `~/Library/Logs/Ghost/desktop.log` | Numbers, names and truncated labels. Never a field value, never a profile value. Rotates at 2 MB. |
@@ -100,9 +167,16 @@ Always start Ghost through LaunchServices (`make run`, `tools/ghostctl run`, Fin
 Only requests to the local prediction server (`settings.serverUrl`, default `http://localhost:8787`):
 
 - `POST /v1/predict/form`: field labels/kinds/options and profile fact **keys**. Never a profile value, never what is
-  typed in a field, never a sensitive field (not even its label), never buttons or links.
+  typed in a field, never a sensitive field (not even its label), never buttons or links, never an EEO / demographic
+  question (by label, section or answer options) and never a demographic fact key (`gender`, `veteranStatus`,
+  `dateOfBirth`...). The `origin` is `app://<bundle id>/<page host>`, or `app://<bundle id>` alone: never anything from a
+  window title.
 - `POST /v1/ghost-text`: the question's label and an allowlist of facts (name, school, degree, major, graduation date,
-  location, GitHub, website). Email, phone, LinkedIn, work authorization and sponsorship are never sent.
+  location, GitHub, website). Email, phone, LinkedIn, work authorization and sponsorship are never sent. Up to three past
+  answers, only to questions similar to this one (the extension's rule), never one to a sensitive, EEO or
+  work-authorization question and never one containing an e-mail address or a phone number. For text areas and long
+  questions also the posting's company, role and up to 2000 characters of its description (page text, never an input's
+  value).
 - `GET /v1/health`. The client also attempts `GET /v1/presence`, but that server route is not implemented yet.
 
 With the server down Ghost still works: the keyword heuristic runs in-process.
@@ -115,14 +189,17 @@ LaunchServices launch has no stdout, which is why every answer travels through a
 ```sh
 tools/ghostctl trust                               # { "trusted": bool, "pid", "library" }
 tools/ghostctl dump --frontmost Safari             # captured fields: labels, kinds, options, rects, locked. NO values.
-tools/ghostctl dump-tree --frontmost Safari --depth 60 --out /tmp/tree.json   # raw AX tree, values -> their length
+tools/ghostctl dump-tree --frontmost Safari --depth 60 --out ~/tree.json     # raw AX tree, values -> their length
 tools/ghostctl autotab 30 --interval 450           # 30 real Tab presses through Ghost, one record per press
 tools/ghostctl run | quit | log [LINES] | selftest
 ```
 
 Options: `--frontmost "App"` (name or bundle id; the run fails with `frontmost-failed` rather than look at the wrong
 window), `--delay S`, `--interval MS`, `--depth N`, `--out FILE`, `--timeout S`. Exit status: 0 an answer without an
-error, 1 an answer with `"error"`, 2 no answer, 64 usage.
+error, 1 an answer with `"error"`, 2 no answer, 64 usage. `--out` must be a `.json` name in an existing directory of
+yours (never `/tmp`, never through a link): the answer is written 0600 through a private temporary file and a rename, an
+old answer is removed only when it is a plain file, and nothing else at that path (a directory, a link) is ever touched.
+Without `--out`, ghostctl uses `$TMPDIR` (per user), else `~/Library/Application Support/Ghost/harness`.
 
 - **Untrusted:** every mode answers `{ "error": "not trusted", "trusted": false }` at once. Nothing waits out a delay,
   nothing prompts, nothing hangs.
@@ -131,19 +208,23 @@ error, 1 an answer with `"error"`, 2 no answer, 64 usage.
   a row Ghost did not consume) or `timeout`. It **refuses to press Tab while the current ghost is locked**
   (`"stopped": "locked"`, `"lockedLabel"`), and Tab is the only key the harness can post at all: never Return, Enter
   or Space. Each step records `ghost`, `action`, `consumed`, `outcome`, `verified`, `ms`.
-- **`dump-tree`** never contains an AXValue: `valueLength` stands in for it, and secure or sensitive-looking fields
-  get `"sensitive": true` and not even a length. Page text (AXStaticText) is kept so labels stay readable; anything
-  that looks like an e-mail address or a phone number becomes `[redacted:N]`.
+- **`dump-tree`** never contains an AXValue: `valueLength` stands in for it. A secure or sensitive-looking field is only
+  `{ role, "sensitive": true }` (no label, no length, no subtree). Window, document and tab titles are never written
+  (the AXWindow title, the AXWebArea title and description, the outer AXTabGroup's), browser chrome outside the page
+  (toolbars, tab-bar items, the address field) is `{ role, "omitted": "browser-chrome" }`, and text-entry controls and
+  chosen-value widgets (react-select's single value) are not entered. Other page text (AXStaticText) is kept so labels
+  stay readable; anything that looks like an e-mail address or a phone number becomes `[redacted:N]`.
 - **A running agent answers.** A second `open -n` instance shares nothing with the agent in the menu bar, so `dump`,
   `dump-tree` and `autotab` are handed to it as a JSON file in `~/Library/Application Support/Ghost/harness/requests/`
   and it writes `--out`. With no agent running they run in the launched process (`autotab` then starts the whole
-  pipeline for the length of the run). Paused apps (terminals, password managers...) answer `paused-app`.
+  pipeline for the length of the run). Paused apps (terminals, password managers, and every app on your own pause
+  list in `settings.json`) answer `paused-app`. The installed library (`make install-lib`) has no harness at all.
 - Every run appends a line to `~/Library/Logs/Ghost/desktop.log`: mode, id, app, counts. Never a value.
 
 `Ghost --selftest` is the one mode that is fine to run directly (`tools/ghostctl selftest`): it needs no permission.
 
 Environment: `GHOST_LOG_STDERR=1` mirrors the log to stderr, `GHOST_NO_PROMPT=1` skips the permission dialog at
-launch, `DESKTOP_CORE_PATH=/path/ghost-core.js` loads another core bundle (the tests use it).
+launch, `DESKTOP_CORE_PATH=/path/ghost-core.js` loads another core bundle in the test runner only (Ghost itself ignores it).
 
 ## Layout
 
@@ -161,14 +242,20 @@ src/GHCapture        AX tree of the focused window -> GHFields (reading order, l
 src/GHWalkState      PURE walk state machine + the Tab / Escape rule (GHDecideTab, GHDecideEscape)
 src/GHController     capture -> offline ghosts -> cache/server upgrade (once per form) -> drafts over SSE -> overlay; accept queue
 src/GHEventTap       session-level CGEventTap on its own thread; reads a lock-free snapshot, consumes only Ghost's Tab/Escape
-src/GHWriter         the accept path: AXValue -> verify -> AXSelectedText -> real typing -> verify; AXPress for choices; never a lock
+src/GHWriter         the accept path: AXValue -> verify -> AXSelectedText -> real typing -> verify; AXPress for choices; uploads and
+                     lazy selects through the drivers below; never a lock
+src/GHKeyPoster      the only keyboard: every chunk re-checks the frontmost app and the focused element; can never post Space, Tab, keypad Enter
+src/GHOpenPanelDriver  upload: press Attach, drive the macOS open panel (go-to sheet), verify the panel closed and the page names the file
+src/GHComboBoxDriver   react-select: type the answer, pick an exact / high-confidence option, verify; else Escape, clean up, skip
+src/GHPageContext    company / role / posting text of a job page, for drafts
 src/GHOverlay*       click-through panels, Core Animation drawing, pure view-model
 src/GHAppDelegate    status item (live), trust polling, hotkey, drives the pipeline through GHDesktopPipeline
 src/GHHarness        --trust / --dump / --dump-tree / --autotab: request encoding, file channel, tree redaction, Tab-only poster
 src/GhostMain.m      `int GhostMain(int, const char **)`: the library's one exported entry point (agent, harness, selftest)
 host/main.m          the host: dlopen + GhostMain and nothing else. Do not edit: a rebuilt host loses the grant
 tools/ghostctl       shell wrapper around the harness
-tests/               GHTest.h (tiny macros), main.m (runner), test_*.m
+profile.example.json the documented example profile (fictional Alex Chen + the fictional resume)
+tests/               GHTest.h (tiny macros), main.m (runner), test_*.m; test_integration.m walks the real Greenhouse fixture
 tools/               overlay-demo (make overlay-demo / overlay-demo-offscreen)
 ```
 
@@ -185,10 +272,24 @@ tools/               overlay-demo (make overlay-demo / overlay-demo-offscreen)
 3. The controller re-reads where focus is (the snapshot can be a few ms old). If the user has left the walk in the
    meantime, the Tab is handed back to the app (a tagged synthetic Tab). Otherwise `GHWriter` re-checks the element
    (secure? sensitive? has a value? still there?), writes, reads back, and the walk advances or stops with a reason.
+   After every accept the next ghost is focused and, when the page has it off screen, scrolled into view
+   (AXScrollToVisible) before it is drawn.
 4. A locked ghost is never pressed: focus moves onto it, the rest of the hold is swallowed, Enter is the user's.
+5. **The jump.** When ghosts exist but the current one is off screen (a long job posting above the form) and focus is on
+   the page, Tab scrolls it into view and writes nothing; the next Tab accepts. If the page cannot bring it on screen, that
+   Tab goes back to the app and later ones stay native: Ghost never traps the key.
+6. **Sequences.** An `upload` ghost (one Tab: Attach, then the open panel through `GHOpenPanelDriver`, HUD "Picking
+   <file>") and a lazy select on a web combobox (`GHComboBoxDriver`) post keys, always through `GHKeyPoster`, whose guard
+   re-reads the frontmost app and the focused element before every chunk. Every untagged key-down the tap sees (the user's)
+   aborts a sequence in flight; keys pressed meanwhile are never replayed. Hold-Tab stops at a sequence ghost and never
+   starts one. After an upload a fresh capture must show the file name in the upload field or its widget (or a new Remove
+   control), else the walk stops with `upload-not-verified`. A combobox without a matching option is closed, cleaned up
+   and skipped. Return is only ever posted inside the open panel (go-to field, then Open) or into an open combobox list on
+   the highlighted, chosen option.
 
 The typing fallback never sends a control character: a line break in a draft is typed as a space, because an Enter in
-the wrong field submits a form.
+the wrong field submits a form. The test runner calls `GHForbidRealKeyEvents()` before the first test, so no code path
+under test can post a real key event.
 
 ## Keeping in step with the extension
 
