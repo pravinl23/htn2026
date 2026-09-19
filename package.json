@@ -11,7 +11,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r --workspace-concurrency=1 test",
     "e2e": "pnpm build && pnpm --filter @ghost/e2e e2e",
-    "test:live": "node scripts/test-live.mjs"
+    "test:live": "node scripts/test-live.mjs",
+    "test:terminal": "if command -v zsh >/dev/null 2>&1; then zsh -f terminal/tests/ghost.test.zsh; else echo 'test:terminal skipped: zsh is not installed'; fi"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
