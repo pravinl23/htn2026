@@ -9,7 +9,7 @@ if (existsSync(".env")) {
     if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
   }
 }
-const keys = ["TYPESAFE_API_KEY", "AI_GATEWAY_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY"];
+const keys = ["TYPESAFE_API_KEY", "AI_GATEWAY_API_KEY", "BASETEN_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY"];
 const present = keys.filter((k) => process.env[k]);
 if (present.length === 0) {
   console.log("test:live skipped: no provider keys set (" + keys.join(", ") + ")");

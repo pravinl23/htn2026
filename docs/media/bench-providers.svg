@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 420" width="760" height="420" role="img" aria-labelledby="t d">
+<title id="t">Ghost provider benchmark</title>
+<desc id="d">Decision latency and streamed draft latency per provider, measured 2026-09-19 17:21 UTC. The same numbers are in the table in bench-providers.md.</desc>
+<style>
+  svg { --surface: #fcfcfb; --text: #0b0b0b; --text2: #52514e; --grid: #e6e5e0; --series: #2a78d6; }
+  @media (prefers-color-scheme: dark) { svg { --surface: #1a1a19; --text: #ffffff; --text2: #c3c2b7; --grid: #33332f; --series: #3987e5; } }
+  text { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--text); }
+  .bg { fill: var(--surface); }
+  .t { font-size: 16px; font-weight: 600; }
+  .h { font-size: 13px; font-weight: 600; }
+  .s, .tick { font-size: 11px; fill: var(--text2); }
+  .l { font-size: 12px; }
+  .v { font-size: 12px; fill: var(--text2); font-variant-numeric: tabular-nums; }
+  .bar { fill: var(--series); }
+  .mark { stroke: var(--text); stroke-width: 2; stroke-linecap: round; }
+  .grid { stroke: var(--grid); stroke-width: 1; }
+  .axis { stroke: var(--text2); stroke-width: 1; }
+</style>
+<rect class="bg" width="760" height="420" rx="8"/>
+<text class="t" x="20" y="30">Ghost provider benchmark · 2026-09-19 17:21 UTC · N=8 decisions, 4 drafts</text>
+<text class="h" x="150" y="56">Decision latency, 12-field form</text><text class="s" x="150" y="73">bar: p50 · tick: p95 (slowest of the run)</text>
+<line class="grid" x1="150" y1="90" x2="150" y2="192"/><text class="tick" x="150" y="207" text-anchor="middle">0</text>
+<line class="grid" x1="226.66666666666666" y1="90" x2="226.66666666666666" y2="192"/><text class="tick" x="226.66666666666666" y="207" text-anchor="middle">250</text>
+<line class="grid" x1="303.3333333333333" y1="90" x2="303.3333333333333" y2="192"/><text class="tick" x="303.3333333333333" y="207" text-anchor="middle">500</text>
+<line class="grid" x1="380" y1="90" x2="380" y2="192"/><text class="tick" x="380" y="207" text-anchor="middle">750</text>
+<line class="grid" x1="456.66666666666663" y1="90" x2="456.66666666666663" y2="192"/><text class="tick" x="456.66666666666663" y="207" text-anchor="middle">1000</text>
+<line class="grid" x1="533.3333333333334" y1="90" x2="533.3333333333334" y2="192"/><text class="tick" x="533.3333333333334" y="207" text-anchor="middle">1250</text>
+<line class="grid" x1="610" y1="90" x2="610" y2="192"/><text class="tick" x="610" y="207" text-anchor="middle">1500 ms</text>
+<g><title>baseten: 1052 ms, p95 1150 ms</title><rect x="150" y="90" width="600" height="34" fill="transparent"/><text class="l" x="140" y="111" text-anchor="end">baseten</text><path class="bar" d="M150,100h318.61333333333334a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-318.61333333333334z"/>
+<line class="mark" x1="502.6666666666667" y1="97" x2="502.6666666666667" y2="117"/>
+<text class="v" x="510.6666666666667" y="111">1052 ms · p95 1150</text></g>
+<g><title>llm (xai): 1275 ms, p95 1448 ms</title><rect x="150" y="124" width="600" height="34" fill="transparent"/><text class="l" x="140" y="145" text-anchor="end">llm (xai)</text><path class="bar" d="M150,134h387a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-387z"/>
+<line class="mark" x1="594.0533333333333" y1="131" x2="594.0533333333333" y2="151"/>
+<text class="v" x="602.0533333333333" y="145">1275 ms · p95 1448</text></g>
+<g><title>heuristic: 0 ms, p95 9 ms</title><rect x="150" y="158" width="600" height="34" fill="transparent"/><text class="l" x="140" y="179" text-anchor="end">heuristic</text><path class="bar" d="M150,168h1a1,1 0 0 1 1,1v12a1,1 0 0 1 -1,1h-1z"/>
+<line class="mark" x1="152.76" y1="165" x2="152.76" y2="185"/>
+<text class="v" x="160.76" y="179">0 ms · p95 9</text></g>
+<line class="axis" x1="150" y1="90" x2="150" y2="192"/>
+<text class="h" x="150" y="242">Streamed draft, time to first token</text><text class="s" x="150" y="259">bar: TTFT p50 · tick: total p50</text>
+<line class="grid" x1="150" y1="276" x2="150" y2="378"/><text class="tick" x="150" y="393" text-anchor="middle">0</text>
+<line class="grid" x1="242" y1="276" x2="242" y2="378"/><text class="tick" x="242" y="393" text-anchor="middle">500</text>
+<line class="grid" x1="334" y1="276" x2="334" y2="378"/><text class="tick" x="334" y="393" text-anchor="middle">1000</text>
+<line class="grid" x1="426" y1="276" x2="426" y2="378"/><text class="tick" x="426" y="393" text-anchor="middle">1500</text>
+<line class="grid" x1="518" y1="276" x2="518" y2="378"/><text class="tick" x="518" y="393" text-anchor="middle">2000</text>
+<line class="grid" x1="610" y1="276" x2="610" y2="378"/><text class="tick" x="610" y="393" text-anchor="middle">2500 ms</text>
+<g><title>baseten: 1213 ms, total 2135 ms</title><rect x="150" y="276" width="600" height="34" fill="transparent"/><text class="l" x="140" y="297" text-anchor="end">baseten</text><path class="bar" d="M150,286h219.192a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-219.192z"/>
+<line class="mark" x1="542.8399999999999" y1="283" x2="542.8399999999999" y2="303"/>
+<text class="v" x="550.8399999999999" y="297">1213 ms · total 2135</text></g>
+<g><title>llm (xai): 421 ms, total 1201 ms</title><rect x="150" y="310" width="600" height="34" fill="transparent"/><text class="l" x="140" y="331" text-anchor="end">llm (xai)</text><path class="bar" d="M150,320h73.464a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-73.464z"/>
+<line class="mark" x1="370.98400000000004" y1="317" x2="370.98400000000004" y2="337"/>
+<text class="v" x="378.98400000000004" y="331">421 ms · total 1201</text></g>
+<g><title>template: 0 ms, total 0 ms</title><rect x="150" y="344" width="600" height="34" fill="transparent"/><text class="l" x="140" y="365" text-anchor="end">template</text><path class="bar" d="M150,354h1a1,1 0 0 1 1,1v12a1,1 0 0 1 -1,1h-1z"/>
+<line class="mark" x1="150" y1="351" x2="150" y2="371"/>
+<text class="v" x="158" y="365">0 ms · total 0</text></g>
+<line class="axis" x1="150" y1="276" x2="150" y2="378"/>
+</svg>

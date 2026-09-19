@@ -4,7 +4,7 @@ import { bodyLimit } from "hono/body-limit";
 import type { ServerConfig } from "../config";
 import { getMetrics, type Metrics } from "../lib/metrics";
 import { createFormPredictor } from "../providers/formPredict";
-import { createDecisionProvider, providerModel } from "../providers/index";
+import { createDecisionProvider, providerModel, textModel } from "../providers/index";
 import { createNextPredictor } from "../providers/nextPredict";
 import { BadRequest, LIMITS, parseFormRequest, parseNextRequest, readJsonBody } from "../providers/validation";
 
@@ -50,6 +50,9 @@ export function registerPredictRoutes(app: Hono, config: ServerConfig, deps: Pre
       calibrated: provider.calibrated,
       textProvider: config.textProvider,
       model: providerModel(provider, config),
+      textModel: textModel(config),
+      // Baseten only: every decision costs samples + hedge parallel requests, and confidence is their vote.
+      ...(provider.name === "baseten" && config.baseten ? { sampling: { samples: config.baseten.samples, hedge: config.baseten.hedge, confidenceSource: "consensus" } } : {}),
       version: VERSION,
     }),
   );

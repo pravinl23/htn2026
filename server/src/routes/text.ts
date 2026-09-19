@@ -1,13 +1,14 @@
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { isSensitive, type PastAnswer } from "@ghost/shared";
-import type { ServerConfig } from "../config";
+import type { LlmConfig, ServerConfig } from "../config";
 import { getMetrics } from "../lib/metrics";
 import { sseResponse } from "../lib/sse";
 import type { DraftInput } from "../lib/template";
 import { createLlmClient } from "../llm/client";
 import { createGhostTextService } from "../llm/ghostText";
 import { extractProfile } from "../llm/profileExtract";
+import { basetenTextLlm } from "../providers/baseten";
 
 /** Test seam: the third argument is optional so `registerTextRoutes(app, config)` stays the public signature. */
 export interface TextRouteDeps {
@@ -21,7 +22,8 @@ const LIMITS = { label: 300, signature: 500, name: 200, description: 2000, facts
 class BadRequest extends Error {}
 
 export function registerTextRoutes(app: Hono, config: ServerConfig, deps: TextRouteDeps = {}): void {
-  const client = config.textProvider !== "template" && config.llm ? createLlmClient(config.llm, { fetch: deps.fetch }) : undefined;
+  const llm = textLlm(config);
+  const client = llm ? createLlmClient(llm, { fetch: deps.fetch }) : undefined;
   const ghostText = createGhostTextService(client);
   const metrics = getMetrics(config);
   const tooLarge = (c: Context): Response => c.json({ error: "request body too large" }, 413);
@@ -55,6 +57,13 @@ export function registerTextRoutes(app: Hono, config: ServerConfig, deps: TextRo
     record(EXTRACT, result);
     return c.json({ ...result, pastAnswers: [] });
   });
+}
+
+/** Which OpenAI-compatible endpoint drafts text. `template` (and a provider without credentials) means no client, so zero network. */
+function textLlm(config: ServerConfig): LlmConfig | undefined {
+  if (config.textProvider === "template") return undefined;
+  if (config.textProvider === "baseten") return config.baseten ? basetenTextLlm(config.baseten) : undefined;
+  return config.llm;
 }
 
 /** One line per model call: numbers and names only, never field values, profile values or keys. */
