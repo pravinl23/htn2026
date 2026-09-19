@@ -682,13 +682,19 @@ GH_TEST(combobox_list_that_never_opens_skips_after_one_and_a_half_seconds) {
     GH_ASSERT_FALSE(result.pressedEscape);
     GH_ASSERT_EQUAL_OBJECTS(world.combo.value, @"");                // the typed text is taken back with backspaces
 
-    // A list that only says "No options" is no list: "No" is never matched against the notice.
+    // A list that only says "No options" IS open: the notice is never matched ("No" stays unanswered), but the menu
+    // is closed at once with one Escape instead of waiting out the whole timeout with it hanging open.
     GHCBWorld *notice = [GHCBWorld syntheticWorld];
     notice.filters = YES;
+    NSTimeInterval noticeStart = notice.clock.now;
     GHComboBoxResult *none = [notice answer:@"No"];
-    GH_ASSERT_EQUAL_OBJECTS(none.reason, GHComboBoxReasonNoList);
+    GH_ASSERT_EQUAL_OBJECTS(none.reason, GHComboBoxReasonNoMatchingOption);
+    GH_ASSERT(none.skipsField);
+    GH_ASSERT(none.pressedEscape);
+    GH_ASSERT(notice.clock.now - noticeStart < 1.0);   // not the 1.5 s "no list at all" timeout
     GH_ASSERT_EQUAL_INT(notice.presses, 0);
     GH_ASSERT_EQUAL_INT([notice.poster countOfKind:GHKeyStrokeKindReturn], 0);
+    GH_ASSERT_EQUAL_OBJECTS(notice.combo.value, @"");
 }
 
 GH_TEST(combobox_highlight_that_never_reaches_the_choice_gives_up) {

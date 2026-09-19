@@ -105,8 +105,15 @@ static NSString *GWResumePath(void) {
 @property (nonatomic) NSUInteger returnsInGoTo, returnsOnOpen, returnsElsewhere, escapes, scrolls;
 @property (nonatomic) BOOL keepPanelOpen;                    // the "app" ignores the Return on Open
 @property (nonatomic) BOOL fileShownOutsideWidget;           // the page names the file in a toast, the widget stays as it was
+@property (nonatomic) NSTimeInterval attachmentShowsAfter;   // Greenhouse uploads the file first: the widget names it late
+@property (nonatomic) BOOL pageDropsUploadControls;          // ... and then takes Attach and the file input out of the page
+/// React: writing into this node destroys it and puts an identical one in its place (the live page does this to the
+/// first field of the form). `replacementKeepsValue` says whether the new element carries the value that was written.
+@property (nonatomic, weak, nullable) GHFakeAXNode *replacedOnWrite;
+@property (nonatomic) BOOL replacementKeepsValue;
 @property (nonatomic, copy, nullable) void (^afterPost)(GHKeyStroke *stroke);
 - (void)focus:(nullable GHFakeAXNode *)node;
+- (void)replaceFieldNode:(GHFakeAXNode *)node withValue:(NSString *)value;
 - (BOOL)panelOpen;
 - (void)openPanelFrom:(GHFakeAXNode *)button;
 - (void)choose:(NSString *)option;
@@ -139,6 +146,12 @@ static GHFakeAXNode *GWNode(NSString *role, NSString *title, CGRect frame) {
 - (BOOL)focusNode:(id<GHAXNode>)node {
     BOOL ok = [super focusNode:node];
     if (ok) self.world.state.focusedNode = node;
+    return ok;
+}
+- (BOOL)setValue:(NSString *)value ofNode:(id<GHAXNode>)node {
+    BOOL ok = [super setValue:value ofNode:node];
+    GWWorld *world = self.world;
+    if (ok && world.replacedOnWrite && node == world.replacedOnWrite) [world replaceFieldNode:world.replacedOnWrite withValue:value];
     return ok;
 }
 - (BOOL)pressNode:(id<GHAXNode>)node {
@@ -238,24 +251,65 @@ static GHFakeAXNode *GWNode(NSString *role, NSString *title, CGRect frame) {
     [self focus:self.fileList];
 }
 
+/// React replaces an input while Ghost writes into it: the old element dies, an identical one (same role, label and
+/// DOM identifier, so the same signature) takes its place, with or without the value that was just written.
+- (void)replaceFieldNode:(GHFakeAXNode *)node withValue:(NSString *)value {
+    GHFakeAXNode *parent = (GHFakeAXNode *)node.parent;
+    NSUInteger index = [parent indexOfChild:node];
+    if (index == NSNotFound) return;
+    GHFakeAXNode *fresh = [GHFakeAXNode nodeWithRole:node.role title:node.title frame:node.frame];
+    fresh.identifier = node.identifier;
+    fresh.roleDescription = node.roleDescription;
+    fresh.value = self.replacementKeepsValue ? value : @"";
+    [parent removeChild:node];
+    [parent insertChild:fresh atIndex:index];
+    [self.actuator.goneNodes addObject:node];
+    self.replacedOnWrite = nil;
+    if (self.state.focusedNode == node) [self focus:fresh];
+}
+
 - (void)closePanelWithFile:(BOOL)chosen {
     [self.window removeChild:self.panel];
     if ([self goToOpen]) [self.panel removeChild:self.goToSheet];
     GHFakeAXNode *widget = self.uploadWidget;
     GHFakeAXNode *attach = GWFind(widget, ^BOOL(GHFakeAXNode *node) { return [node.title isEqualToString:@"Attach"]; });
+    if (chosen && !self.fileShownOutsideWidget && self.attachmentShowsAfter > 0) {
+        // The page uploads the file before it shows it: nothing names it for a while.
+        GHFakeAXNode *late = widget;
+        NSString *name = self.expectedPath.lastPathComponent;
+        __weak GWWorld *weakSelf = self;
+        self.clock.after(self.attachmentShowsAfter, ^{ [weakSelf showFile:name inWidget:late]; });
+        [self focus:attach];
+        return;
+    }
     if (chosen && self.fileShownOutsideWidget) {
         CGRect page = self.web.frame;
         [self.web addChild:[GHFakeAXNode staticText:[self.expectedPath.lastPathComponent stringByAppendingString:@" uploaded"]
                                               frame:CGRectMake(page.origin.x + 20, CGRectGetMaxY(page) - 40, 300, 20)]];
     } else if (chosen && widget) {
-        // What Greenhouse shows once a file is attached: its name and a way to remove it.
-        CGRect box = widget.frame;
-        GHFakeAXNode *row = [GHFakeAXNode nodeWithRole:@"AXGroup" title:nil frame:CGRectMake(box.origin.x, box.origin.y + 30, 400, 24)];
-        [row addChild:[GHFakeAXNode staticText:self.expectedPath.lastPathComponent frame:CGRectMake(box.origin.x, box.origin.y + 32, 200, 20)]];
-        [row addChild:GWNode(@"AXButton", @"Remove file", CGRectMake(box.origin.x + 210, box.origin.y + 30, 24, 24))];
-        [widget insertChild:row atIndex:1];
+        [self showFile:self.expectedPath.lastPathComponent inWidget:widget];
     }
     [self focus:attach];
+}
+
+/// What Greenhouse shows once a file is attached: its name and a way to remove it. With `pageDropsUploadControls`
+/// the page also takes the Attach button and the file input away, so nothing of the upload field is left to find.
+- (void)showFile:(NSString *)name inWidget:(GHFakeAXNode *)widget {
+    if (!widget || name.length == 0) return;
+    if (self.pageDropsUploadControls) {
+        NSMutableArray<GHFakeAXNode *> *inside = [NSMutableArray array];
+        GWCollect(widget, inside);
+        for (GHFakeAXNode *node in inside) {
+            if (![node.title isEqualToString:@"Attach"] && ![GHOpenPanelDriver isUploadButton:node]) continue;
+            [(GHFakeAXNode *)node.parent removeChild:node];
+            [self.actuator.goneNodes addObject:node];
+        }
+    }
+    CGRect box = widget.frame;
+    GHFakeAXNode *row = [GHFakeAXNode nodeWithRole:@"AXGroup" title:nil frame:CGRectMake(box.origin.x, box.origin.y + 30, 400, 24)];
+    [row addChild:[GHFakeAXNode staticText:name frame:CGRectMake(box.origin.x, box.origin.y + 32, 200, 20)]];
+    [row addChild:GWNode(@"AXButton", @"Remove file", CGRectMake(box.origin.x + 210, box.origin.y + 30, 24, 24))];
+    [widget insertChild:row atIndex:1];
 }
 
 #pragma mark react-select
@@ -432,6 +486,7 @@ static GHFakeAXNode *GWNode(NSString *role, NSString *title, CGRect frame) {
 
     GHController *controller = [[GHController alloc] initWithCore:rig.core store:rig.store client:nil];
     controller.assumesActive = YES;
+    controller.after = world.clock.after;   // the upload check waits for the page on this clock too
     controller.capture = capture;
     controller.overlay = [[GHOverlayWindow alloc] initWithLayout:[GHScreenLayout layoutWithFrames:@[ [NSValue valueWithRect:NSMakeRect(0, 0, 1470, 956)] ] scales:@[ @2 ]]];
     controller.writer = writer;
@@ -715,6 +770,66 @@ GH_TEST(integration_losing_the_permission_mid_upload_cancels_it_before_another_k
     GH_ASSERT_EQUAL_INT(world.poster.posted.count, before + 1);
 }
 
+/// Live, Safari: the panel closed and Greenhouse only named the file a moment later (it uploads it first), so the one
+/// look right after the sequence called a good upload "upload-not-verified". The check waits for the page.
+GH_TEST(integration_an_upload_the_page_shows_late_is_still_accepted) {
+    GW_RIG(rig);
+    GWWorld *world = rig.world;
+    world.attachmentShowsAfter = 1.2;   // longer than one look, well inside the check's own window
+    [rig rescan];
+    GH_ASSERT([rig tabUntilCurrentIs:@"Resume/CV" limit:10]);
+    [rig tab];
+    GH_ASSERT_EQUAL_INT(world.returnsOnOpen, 1);
+    GH_ASSERT_EQUAL_OBJECTS(rig.steps.lastObject[@"outcome"], @"accepted");
+    GH_ASSERT(rig.steps.lastObject[@"reason"] == nil);
+    GH_ASSERT(rig.controller.walk.error == nil);
+
+    // Live, Safari: Greenhouse also takes Attach and the file input out of the page, so the upload field cannot be
+    // found again at all. The Remove button it leaves where the field was is the proof.
+    GW_RIG(dropped);
+    dropped.world.attachmentShowsAfter = 1.2;
+    dropped.world.pageDropsUploadControls = YES;
+    [dropped rescan];
+    GH_ASSERT([dropped tabUntilCurrentIs:@"Resume/CV" limit:10]);
+    [dropped tab];
+    GH_ASSERT_EQUAL_OBJECTS(dropped.steps.lastObject[@"outcome"], @"accepted");
+    GH_ASSERT(GWFind(dropped.world.web, ^BOOL(GHFakeAXNode *node) { return [node.title isEqualToString:@"Remove file"]; }) != nil);
+    GH_ASSERT(dropped.controller.walk.error == nil);
+
+    // And a page that never shows it still stops the walk, after the check has waited.
+    GW_RIG(other);
+    other.world.fileShownOutsideWidget = YES;
+    [other rescan];
+    GH_ASSERT([other tabUntilCurrentIs:@"Resume/CV" limit:10]);
+    [other tab];
+    GH_ASSERT_EQUAL_OBJECTS(other.steps.lastObject[@"reason"], @"upload-not-verified");
+}
+
+/// Live, Safari: Greenhouse replaced the First Name input while Ghost wrote into it, and the write was reported as
+/// "gone" although the value had landed. A fresh capture decides: the new element holds it, or it is written once more.
+GH_TEST(integration_a_field_the_page_replaces_mid_write_is_not_lost) {
+    for (NSUInteger keepsValue = 0; keepsValue < 2; keepsValue++) {
+        GW_RIG(rig);
+        GWWorld *world = rig.world;
+        [rig rescan];
+        GH_ASSERT([rig tabUntilCurrentIs:@"First Name" limit:8]);
+        GHFakeAXNode *input = GWFind(world.web, ^BOOL(GHFakeAXNode *node) { return [node.title isEqualToString:@"First Name"]; });
+        GH_ASSERT(input != nil);
+        world.replacedOnWrite = input;
+        world.replacementKeepsValue = keepsValue == 1;
+        [rig tab];
+        // The first Tab on a form below the posting only scrolls it into view; the next one writes.
+        if ([rig.steps.lastObject[@"outcome"] isEqualToString:@"jumped"]) [rig tab];
+        GH_ASSERT_MSG([rig.steps.lastObject[@"outcome"] isEqualToString:@"accepted"], @"keepsValue=%lu outcome=%@ reason=%@",
+                      (unsigned long)keepsValue, rig.steps.lastObject[@"outcome"], rig.steps.lastObject[@"reason"] ?: @"-");
+        GHFakeAXNode *now = GWFind(world.web, ^BOOL(GHFakeAXNode *node) { return [node.title isEqualToString:@"First Name"]; });
+        GH_ASSERT(now != input);                       // the page really did replace it
+        GH_ASSERT_EQUAL_OBJECTS(now.value, @"Alex");   // and the name is in the new element either way
+        GH_ASSERT(rig.controller.walk.error == nil);
+        GH_ASSERT_EQUAL_INT(rig.controller.walk.accepted, 1);
+    }
+}
+
 GH_TEST(integration_an_upload_the_widget_does_not_show_is_not_accepted) {
     GW_RIG(rig);
     GWWorld *world = rig.world;
@@ -738,11 +853,11 @@ GH_TEST(integration_a_combobox_without_the_answer_is_skipped_and_the_walk_goes_o
     GH_ASSERT([rig tabUntilCurrentIs:@"Country" limit:10]);
     [rig tab];
     GH_ASSERT_EQUAL_OBJECTS(rig.steps.lastObject[@"outcome"], @"refused");
-    GH_ASSERT_EQUAL_OBJECTS(rig.steps.lastObject[@"reason"], @"combobox-no-list");
+    GH_ASSERT_EQUAL_OBJECTS(rig.steps.lastObject[@"reason"], @"combobox-no-matching-option");
     GH_ASSERT(rig.controller.walk.error == nil);                  // skipped, not broken
     GH_ASSERT_EQUAL_INT(world.chosen.count, 0);
     GH_ASSERT_EQUAL_INT([rig comboTitled:@"Country"].value.length, 0);   // what was typed is gone again (backspaces)
-    GH_ASSERT_EQUAL_INT(world.escapes, 0);                        // only "No options" showed: no Escape to leak to the page
+    GH_ASSERT_EQUAL_INT(world.escapes, 1);                        // one Escape, into the open "No options" menu
     GH_ASSERT_EQUAL_OBJECTS([rig currentLabel], @"Phone");
     [rig tab];
     GH_ASSERT([rig textFieldTitled:@"Phone"].value.length > 0);

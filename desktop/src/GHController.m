@@ -31,6 +31,10 @@ static const NSUInteger kPageContextNodes = 1500;   // a live AX walk on the mai
 static const NSTimeInterval kScrollSettleFirst = 0.12;   // a page that scrolls smoothly has not moved yet right after
 static const NSTimeInterval kScrollSettleLast = 0.4;     // AXScrollToVisible: its rects are read again twice
 static NSString *const kUploadNotVerified = @"upload-not-verified";
+// Live, Safari: Greenhouse uploads the file to its storage before the widget names it or grows a Remove button, so
+// one look right after the panel closed says "not attached" for an upload that worked. The check is repeated.
+static const NSTimeInterval kUploadVerifyPoll = 0.35;
+static const NSUInteger kUploadVerifyTries = 8;
 
 /// One free-text draft. The text stays in memory and is never logged.
 @interface GHDraft : NSObject
@@ -1278,33 +1282,96 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
     }
     BOOL upload = [ghost.action isEqualToString:GHGhostActionUpload];
     BOOL hadRemoveControl = NO;
+    id<GHAXNode> uploadWidget = nil;
     if (upload) {
         // For a file field the writer presses the widget's Attach control; the page's file input is the fallback.
         optionNode = [_result uploadNodeForSignature:ghost.signature];
         id<GHAXNode> input = optionNode ? [self.writer.actuator refreshedNode:optionNode] : nil;
-        hadRemoveControl = [GHWriter widgetHasRemoveControl:[GHWriter uploadWidgetOfInput:input]];
+        uploadWidget = [GHWriter uploadWidgetOfInput:input];
+        hadRemoveControl = [GHWriter widgetHasRemoveControl:uploadWidget];
     }
     if ([GHWriter ghostRunsSequence:ghost field:field]) [self prepareDriversOf:self.writer];
     _hudStatus = nil;
+    _quietUntil = CFAbsoluteTimeGetCurrent() + 2.0;   // until the write reports back
+    [self runWrite:ghost field:field node:node optionNode:optionNode upload:upload widget:uploadWidget
+      widgetRect:uploadWidget ? uploadWidget.frame : field.rect hadRemoveControl:hadRemoveControl mayRetry:YES then:done];
+}
+
+- (void)runWrite:(GHGhost *)ghost field:(GHField *)field node:(id<GHAXNode>)node optionNode:(id<GHAXNode>)optionNode
+          upload:(BOOL)upload widget:(id<GHAXNode>)widget widgetRect:(CGRect)widgetRect
+hadRemoveControl:(BOOL)hadRemoveControl mayRetry:(BOOL)mayRetry then:(dispatch_block_t)done {
     NSString *signature = ghost.signature;
     NSString *filename = upload ? ghost.displayText : nil;
-    _quietUntil = CFAbsoluteTimeGetCurrent() + 2.0;   // until the write reports back
     __weak GHController *weakSelf = self;
     [self.writer executeGhost:ghost field:field node:node optionNode:optionNode completion:^(GHWriteResult *result) {
         GHController *controller = weakSelf;
         if (!controller) return;
-        GHWriteResult *outcome = result;
-        if (upload && result.ok && ![controller uploadShowsFile:filename signature:signature hadRemoveControl:hadRemoveControl]) {
-            outcome = [GHWriteResult failureWithReason:kUploadNotVerified method:GHWriteMethodOpenPanel sequence:YES];
+        if (upload && result.ok) {
+            [controller whenUploadShowsFile:filename signature:signature widget:widget widgetRect:widgetRect
+                          hadRemoveControl:hadRemoveControl tries:kUploadVerifyTries completion:^(BOOL shown) {
+                GHWriteResult *outcome = shown ? result : [GHWriteResult failureWithReason:kUploadNotVerified method:GHWriteMethodOpenPanel sequence:YES];
+                [controller finishedWriting:signature result:outcome];
+                done();
+            }];
+            return;
         }
-        [controller finishedWriting:signature result:outcome];
+        // The page replaced the element while Ghost was writing into it (React does, on the first field of a
+        // Greenhouse form). The write is not necessarily lost: a fresh capture either shows the new element holding
+        // the value, or hands it over for ONE retry. Never for a sequence: an upload or a list is never redriven.
+        if (mayRetry && !result.ok && !result.sequence && [result.reason isEqualToString:GHWriteReasonGone]) {
+            GHCaptureResult *fresh = [controller freshCapture];
+            GHField *freshField = nil;
+            for (GHField *candidate in fresh.fields) {
+                if ([candidate.signature isEqualToString:signature]) { freshField = candidate; break; }
+            }
+            id<GHAXNode> freshNode = [fresh nodeForSignature:signature];
+            NSString *wanted = ghost.value.length ? ghost.value : (ghost.displayText ?: @"");
+            if (freshField && freshNode && wanted.length && [GHWriter value:freshField.value holds:wanted]) {
+                GHLog(@"controller: the element was replaced during the write; the new one holds the value");
+                [controller finishedWriting:signature result:[GHWriteResult okWithMethod:result.method]];
+                done();
+                return;
+            }
+            if (freshField && freshNode) {
+                GHLog(@"controller: the element was replaced during the write; one retry on the new one");
+                [controller runWrite:ghost field:freshField node:freshNode optionNode:optionNode upload:upload widget:widget
+                          widgetRect:widgetRect hadRemoveControl:hadRemoveControl mayRetry:NO then:done];
+                return;
+            }
+        }
+        [controller finishedWriting:signature result:result];
         done();
     }];
 }
 
+/// The upload check, repeated while the page catches up (it uploads the file before it names it). Every look is a
+/// fresh capture, so the polling stops as soon as one of them shows the file.
+- (void)whenUploadShowsFile:(NSString *)filename signature:(NSString *)signature widget:(id<GHAXNode>)widget
+                 widgetRect:(CGRect)widgetRect hadRemoveControl:(BOOL)hadRemoveControl tries:(NSUInteger)tries
+                 completion:(void (^)(BOOL))completion {
+    if ([self uploadShowsFile:filename signature:signature widget:widget widgetRect:widgetRect hadRemoveControl:hadRemoveControl]) {
+        completion(YES);
+        return;
+    }
+    if (tries == 0 || (!_running && !self.assumesActive)) { completion(NO); return; }
+    __weak GHController *weakSelf = self;
+    [self after:kUploadVerifyPoll do:^{
+        GHController *controller = weakSelf;
+        if (!controller) { completion(NO); return; }
+        [controller whenUploadShowsFile:filename signature:signature widget:widget widgetRect:widgetRect
+                       hadRemoveControl:hadRemoveControl tries:tries - 1 completion:completion];
+    }];
+}
+
+- (void)after:(NSTimeInterval)delay do:(dispatch_block_t)block {
+    if (self.after) { self.after(delay, block); return; }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), block);
+}
+
 /// After the panel closed and the page named the file: a fresh capture must agree. The upload field now holds the
 /// file's name, or its widget names the file or shows a Remove control it did not have before.
-- (BOOL)uploadShowsFile:(NSString *)filename signature:(NSString *)signature hadRemoveControl:(BOOL)hadRemoveControl {
+- (BOOL)uploadShowsFile:(NSString *)filename signature:(NSString *)signature widget:(id<GHAXNode>)widget
+             widgetRect:(CGRect)widgetRect hadRemoveControl:(BOOL)hadRemoveControl {
     if (filename.length == 0) return NO;
     GHCaptureResult *fresh = [self freshCapture];
     for (GHField *field in fresh.fields) {
@@ -1316,9 +1383,22 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
         id<GHAXNode> old = [_result uploadNodeForSignature:signature];
         input = old ? [self.writer.actuator refreshedNode:old] : nil;
     }
-    id<GHAXNode> widget = [GHWriter uploadWidgetOfInput:input];
-    if ([GHWriter widget:widget mentionsFile:filename]) return YES;
-    return !hadRemoveControl && [GHWriter widgetHasRemoveControl:widget];
+    id<GHAXNode> around = [GHWriter uploadWidgetOfInput:input] ?: (widget ? [self.writer.actuator refreshedNode:widget] : nil);
+    if ([GHWriter widget:around mentionsFile:filename]) return YES;
+    if (!hadRemoveControl && [GHWriter widgetHasRemoveControl:around]) return YES;
+    // Live, Safari: Greenhouse takes the file input AND the Attach button out of the page once the file is attached,
+    // so neither the field nor its widget can be found again. What it leaves behind is the file name and a Remove
+    // button where the upload field was: the fresh capture is searched there.
+    if (hadRemoveControl || !GHRectIsUsable(widgetRect)) return NO;
+    CGRect box = CGRectInset(widgetRect, -16, -16);
+    for (GHField *field in fresh.fields) {
+        if (![field.kind isEqualToString:GHKindButton] && ![field.kind isEqualToString:GHKindLink]) continue;
+        if (![GHWriter labelIsRemoveControl:field.label]) continue;
+        CGRect rect = field.rect;
+        if (!GHRectIsUsable(rect)) continue;
+        if (CGRectContainsPoint(box, CGPointMake(CGRectGetMidX(rect), CGRectGetMidY(rect)))) return YES;
+    }
+    return NO;
 }
 
 - (void)finishedWriting:(NSString *)signature result:(GHWriteResult *)result {

@@ -512,20 +512,63 @@ GH_TEST(capture_node_budget_aborts_and_keeps_partial_results) {
 }
 
 GH_TEST(capture_time_budget_aborts_and_keeps_partial_results) {
-    GHFakeAXNode *web = Node(@"AXWebArea", nil, 0, 0, 800, 600);
-    [web addChild:Node(@"AXTextField", @"City", 10, 10, 300, 30)];
-    for (NSUInteger i = 0; i < 1000; i++) [web addChild:Text(@"row", 10, 50)];
-    [web addChild:Node(@"AXTextField", @"Country", 10, 100, 300, 30)];
+    GHFakeAXNode *window = Node(@"AXWindow", nil, 0, 0, 800, 600);
+    [window addChild:Node(@"AXTextField", @"City", 10, 10, 300, 30)];
+    for (NSUInteger i = 0; i < 1000; i++) [window addChild:Text(@"row", 10, 50)];
+    [window addChild:Node(@"AXTextField", @"Country", 10, 100, 300, 30)];
     GHCapture *capture = Capture([[GHFakeSafety alloc] init]);
     __block NSTimeInterval now = 1000;
     capture.clock = ^NSTimeInterval { now += 0.001; return now; }; // every look at the clock costs a millisecond
-    GHCaptureResult *result = [capture captureWindow:web];
+    GHCaptureResult *result = [capture captureWindow:window];
     GH_ASSERT_EQUAL_INT(result.stop, GHCaptureStopTime);
     GH_ASSERT(result.partial);
     GH_ASSERT(result.visitedNodes > 50 && result.visitedNodes < 200);
     NSArray *expected = @[ @"City" ];
     GH_ASSERT_EQUAL_OBJECTS(Labels(result, NO), expected);
     GH_ASSERT(result.elapsed > 0.120);
+}
+
+/// Live, Safari: the controller's 120 ms walk of the Greenhouse posting stopped at ~270 of ~380 nodes (about 0.4 ms of
+/// IPC per node), so the bottom of the form and the locked Submit were missing and the form signature changed with
+/// every rescan. A walk that has met a web area gets the web-area budget instead.
+GH_TEST(capture_web_area_gets_its_own_budget_so_a_long_posting_reaches_submit) {
+    GHFakeAXNode *window = Node(@"AXWindow", nil, 0, 0, 1470, 810);
+    GHFakeAXNode *tabs = [window addChild:Node(@"AXTabGroup", nil, 0, 34, 1470, 810)];
+    GHFakeAXNode *web = [tabs addChild:Node(@"AXWebArea", nil, 0, 124, 1453, 720)];
+    [web addChild:Node(@"AXTextField", @"First Name", 300, 200, 600, 35)];
+    for (NSUInteger i = 0; i < 360; i++) [web addChild:Text(@"posting text", 300, 260)];
+    GHFakeAXNode *submit = [web addChild:Node(@"AXButton", @"Submit application", 900, 700, 190, 41)];
+    (void)submit;
+    GHCapture *capture = Capture([[GHFakeSafety alloc] init]);
+    __block NSTimeInterval now = 1000;
+    capture.clock = ^NSTimeInterval { now += 0.0004; return now; };
+    GHCaptureResult *result = [capture captureWindow:window];
+    GH_ASSERT_EQUAL_INT(result.stop, GHCaptureStopNone);
+    GH_ASSERT_FALSE(result.partial);
+    GH_ASSERT(result.elapsed > 0.120);   // the native budget alone would have cut this walk short
+    GH_ASSERT([Labels(result, NO) containsObject:@"Submit application"]);
+    GH_ASSERT(FieldLabelled(result, @"Submit application").locked);
+
+    // Still bounded: a page that never ends stops at the web-area budget and keeps what it found.
+    GHFakeAXNode *huge = Node(@"AXWebArea", nil, 0, 0, 800, 600);
+    [huge addChild:Node(@"AXTextField", @"City", 10, 10, 300, 30)];
+    for (NSUInteger i = 0; i < 1400; i++) [huge addChild:Text(@"row", 10, 50)];
+    now = 1000;
+    capture.clock = ^NSTimeInterval { now += 0.001; return now; };
+    GHCaptureResult *bounded = [capture captureWindow:huge];
+    GH_ASSERT_EQUAL_INT(bounded.stop, GHCaptureStopTime);
+    GH_ASSERT(bounded.partial);
+    GH_ASSERT(bounded.elapsed > 0.600 && bounded.elapsed < 0.700);
+    GH_ASSERT_EQUAL_OBJECTS(Labels(bounded, NO), (@[ @"City" ]));
+
+    // The web-area budget never shortens a caller's larger budget (the harness walks with 2 s).
+    GHCaptureLimits *limits = [GHCaptureLimits defaultLimits];
+    GH_ASSERT(limits.webAreaTimeBudget > limits.timeBudget);
+    limits.timeBudget = 2.0;
+    capture.limits = limits;
+    now = 1000;
+    GHCaptureResult *harness = [capture captureWindow:huge];
+    GH_ASSERT_EQUAL_INT(harness.stop, GHCaptureStopNone);
 }
 
 GH_TEST(capture_depth_bound_stops_descending) {

@@ -67,6 +67,9 @@ extern NSString *const GHWriteReasonComboBoxPrefix;   // "combobox-"
 @property (nonatomic, readonly) BOOL sequence;
 /// A failure decided after the write (the controller's upload check). `reason` is a short code.
 + (instancetype)failureWithReason:(NSString *)reason method:(NSString *)method sequence:(BOOL)sequence;
+/// A success decided after the write: the element the write went into was replaced by the page (React), and a fresh
+/// capture shows the new one holding the value.
++ (instancetype)okWithMethod:(NSString *)method;
 @end
 
 /// The few AX operations that change something. Live: GHAXLiveActuator. Tests: GHFakeAXActuator.
@@ -185,6 +188,8 @@ extern NSString *const GHWriteReasonComboBoxPrefix;   // "combobox-"
 + (BOOL)widget:(nullable id<GHAXNode>)widget mentionsFile:(NSString *)filename;
 /// The widget holds a Remove / Delete / Clear control (what upload widgets show once a file is attached).
 + (BOOL)widgetHasRemoveControl:(nullable id<GHAXNode>)widget;
+/// "Remove file", "Delete", "Clear": the control a page shows INSTEAD of Attach once a file is attached.
++ (BOOL)labelIsRemoveControl:(nullable NSString *)label;
 
 @end
 

@@ -135,6 +135,8 @@ extern NSString *const GHComboBoxMethodKeys;
 /// next control (up to 4 levels up), else a portal at the end of the web area. Content lists never count.
 + (nullable id<GHAXNode>)listForComboBox:(id<GHAXNode>)comboBox;
 + (NSArray<id<GHAXNode>> *)optionsInList:(id<GHAXNode>)list;
+/// An open list that says "No options" / "No results found": the page's answer that nothing matches what was typed.
++ (BOOL)listSaysNothingFound:(nullable id<GHAXNode>)list;
 + (NSString *)textOfOption:(id<GHAXNode>)option;
 /// What the combobox displays as its choice: its own value (unless that is just `typed`) and the texts right before
 /// it (react-select's single value), stopping at its label or the previous control. Placeholders and live regions

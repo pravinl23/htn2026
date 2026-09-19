@@ -10,28 +10,60 @@ does not match the SDK).
 
 ## Current status
 
-`make -C desktop core lib test`: 316 native tests, 0 failures, zero compiler warnings (2026-09-19, after the review fixes
-below; none of them has run live).
+`make -C desktop core lib test`: 319 native tests, 0 failures, zero compiler warnings (2026-09-19, after the first live
+Safari run and the three fixes it forced).
 
-**Verified live** (a real app, a real Accessibility grant):
+**Verified LIVE in Safari** (2026-09-19, 18:00-18:20 EDT, granted host `~/Applications/Ghost.app`, real Jev/TypeSafe server,
+the real Greenhouse posting `job-boards.greenhouse.io/viamrobotics/jobs/6185046004`, the fictional Alex Chen profile):
 
-- `ghostctl trust` and `ghostctl dump-tree` ran trusted from the granted host at `~/Applications/Ghost.app` against a real
-  Greenhouse application in Safari (433 nodes, about 0.5 s); that dump is the fixture `tests/fixtures/greenhouse-safari-viam.json`.
-- `ghostctl dump` ran read-only once (library of the capture work, before this integration), against a desktop app that
-  happened to be in front (not Safari): trusted, 0 fields. Nothing of the integration below has run live.
+- **The whole Tab walk, with nothing but Tab**: `ghostctl autotab 30 --interval 700 --frontmost Safari` posted **11 real Tab
+  presses in 13.8 s** and stopped itself with `"stopped": "locked"`, parked on **Submit application** (`Parked on the locked
+  action in Safari (Enter confirms)`). **8 accepted**: First Name, Last Name, Email, Phone, LinkedIn Profile, Github, Website
+  (AXValue + read-back, 67 to 157 ms each) and **Resume/CV through the real macOS open panel** (Attach, Command+Shift+G, the
+  path only in the go-to field, 3.65 s). Nothing was submitted; **Submit was never pressed**, and the harness refuses to Tab
+  past a locked ghost.
+- **Untouched, as designed**: the US work-authorization question and all four EEO questions (Gender, Hispanic/Latino, Veteran
+  Status, Disability Status) were never focused, typed into or opened. The phone widget's Country combobox already had a
+  value, so it was refused with `combobox-has-value`.
+- **Independently checked afterwards** with `ghostctl dump-tree` (values reduced to their length): First Name 4, Last Name 4,
+  Email 25, Phone 15, LinkedIn 36, Github 31, Website 20 characters; the resume widget shows `resume-alex-chen.pdf` and a
+  **Remove file** button; every EEO and work-authorization combobox still empty. Saved as
+  `docs/media/desktop-greenhouse-autotab.json` and `docs/media/desktop-greenhouse-final-form.json`.
+- **Capture**: 31 fields out of 377 nodes in 142 to 248 ms, **complete** (`"partial": false`), form signature stable across
+  rescans. `/v1/predict/form` through TypeSafe/Jev: 575 ms the first time (10 assignments), then cache hits (2 ms), so each
+  Tab after the first is a 2 ms rescan plus the write.
+- Earlier: `ghostctl trust` and `ghostctl dump-tree` (433 nodes, about 0.5 s); that dump is the fixture
+  `tests/fixtures/greenhouse-safari-viam.json`.
 
-**Verified only with fakes and the saved fixture** (never run live yet, in any browser):
+**What the live run fixed** (each with tests over fakes/fixtures):
 
-- Capture of the real Greenhouse form (Safari's web area inside its tab group; browser chrome and tab titles skipped): the
-  whole form in reading order, react-select comboboxes as lazy selects, one `file` field per upload widget.
+1. **The 120 ms capture budget was too small for a real posting.** The controller saw 261 to 278 of 377 nodes, 25 to 27
+   fields, lost the bottom of the form (the locked Submit with it) and changed the form signature between rescans. A walk that
+   has met an `AXWebArea` now gets `GHCaptureLimits.webAreaTimeBudget` (0.6 s) instead; `maxNodes` still bounds it.
+2. **React replaced the First Name input while Ghost wrote into it**, and the write was reported `gone` although the value had
+   landed. The controller now takes one fresh capture: the new element either already holds the value (accepted) or is written
+   once more. Never for a sequence.
+3. **Greenhouse names an attached file late, and then takes Attach and the file input out of the page.** One look right after
+   the panel closed called a good upload `upload-not-verified`. The check is now repeated (8 x 0.35 s) and also looks at the
+   widget node captured before the upload and at a Remove control where the field was.
+
+**Known live gap**: on the "How did you hear about this opportunity at Viam?" react-select, no option list ever appears in the
+AX tree after Ghost types the answer, so the field is **skipped cleanly** (`combobox-no-list`: nothing chosen, nothing left
+behind, no stray keys, the walk goes on). Whether the typing reaches the react-select input at all is the next thing to look
+at. A list that opens and says "No options" is now recognised as an open list and closed with one Escape
+(`combobox-no-matching-option`) instead of waiting out the 1.5 s timeout.
+
+**Verified only with fakes and the saved fixture** (still not seen live):
+
 - The whole Tab walk over that fixture (`tests/test_integration.m`): capture -> core -> controller -> writer, with a fake
   page that scrolls, a fake react-select, a fake macOS open panel and a fake keyboard (`GHFakeKeyPoster`: the production
   guard logic over a recording sink). Accept order: the first Tab jumps to First Name (scrolled into view, nothing written),
   then First Name, Last Name, Email, Country (combobox: types "Canada", presses "Canada +1", verifies), Phone, Resume/CV
   (one Tab: Attach, Command+Shift+G, the path typed only into the go-to field, Return, Return on Upload, the page and a fresh
   capture show the file name), LinkedIn Profile, Github, Website, "How did you hear" (Hack the North), and it ends parked on
-  the locked Submit application, focused, never pressed. The US work-authorization question and the four EEO questions are
-  never focused, typed into or opened.
+  the locked Submit application, focused, never pressed.
+- Choosing an option in a combobox (live, the only two comboboxes Ghost was allowed to touch were refused: one already had a
+  value, the other never showed a list).
 - Hold-Tab stops at an upload or combobox ghost without starting it (one fresh press starts it) and never accepts a pending
   draft; any untagged key while the panel or a list is driven aborts the sequence and the keys pressed meanwhile are dropped;
   an upload the widget does not show is a failure; a combobox without the answer is skipped and left as it was.
@@ -48,13 +80,14 @@ below; none of them has run live).
   sequence at once. The open panel's Upload button is read from a fresh panel. Tree walks outside the capture have a
   wall-clock budget and stop at a hung app. Focus whose role cannot be read counts as "somewhere else".
 
-**Assumptions nobody has checked live yet**: that AXPress on Greenhouse's "Attach" opens Safari's open panel and that the
-panel shows up as an AXSheet (or an AXDialog window) with an "Open"/"Choose"/"Upload" button while Safari stays frontmost;
-that Command+Shift+G focuses a text field in it; how WebKit exposes react-select's option list and whether AXPress on an
-option selects it; that AXScrollToVisible scrolls Safari's page; that the controller's 120 ms capture budget reaches the form
-on a long posting (the Greenhouse page is about 360 nodes; `ghostctl dump` uses 2 s). Chrome, Firefox and Arc structures have
-not been looked at. The server exposes `/v1/presence`; the extension heartbeat is not wired yet, so do not run both clients in
-the same browser.
+**Checked live in Safari** (the list above): AXPress on Greenhouse's "Attach" really does open the macOS open panel while
+Safari stays frontmost, Command+Shift+G focuses its go-to field, the whole upload sequence verifies, AXScrollToVisible
+scrolls Safari's page, and the capture budget question is answered (see fix 1).
+
+**Still unchecked**: how WebKit exposes react-select's option list and whether AXPress on an option selects it (the live
+posting never showed a list at all); Chrome, Firefox and Arc structures. The server exposes `/v1/presence`; the extension
+heartbeat is not wired yet, so do not run both clients in the same browser. Note that `autotab --frontmost Safari` only
+makes sure **Safari** is in front, not which tab: check the page with `ghostctl dump` right before a run.
 
 ## Build: a host that never changes, a library that always can
 

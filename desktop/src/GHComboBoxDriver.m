@@ -192,6 +192,12 @@ static BOOL GHIsNotice(NSString *text) {
     return GHMatches(GHTrimmed(text), @"^(no options?|no results?( found)?|no matches( found)?|nothing found|loading\\W*|searching\\W*|type to search.*)$");
 }
 
+/// The notice that ends the wait: the list is open and says that nothing matches what was typed. "Loading..." and
+/// "Searching..." are not this: those are worth waiting out.
+static BOOL GHIsNothingFoundNotice(NSString *text) {
+    return GHMatches(GHTrimmed(text), @"^(no options?|no results?( found)?|no matches( found)?|nothing found)$");
+}
+
 /// Document-order walk (depth first), bounded by `budget` (nodes and wall clock; a hung app stops it). `visit`
 /// returns NO to skip the node's children.
 static void GHWalk(id<GHAXNode> root, NSUInteger maxDepth, GHAXWalkBudget *budget, BOOL (^visit)(id<GHAXNode> node, NSUInteger depth, BOOL *stop)) {
@@ -325,7 +331,10 @@ static BOOL GHLooksLikeList(id<GHAXNode> node) {
 
 static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget *outer);
 
-/// A list of options: list-like, holds options, and no form control inside (a checkbox group is not a menu).
+static BOOL GHListSaysNothingFound(id<GHAXNode> list, GHAXWalkBudget *outer);
+
+/// A list of options: list-like, holds options (or says it has none for what was typed), and no form control
+/// inside (a checkbox group is not a menu).
 static BOOL GHIsOptionList(id<GHAXNode> node, GHAXWalkBudget *outer) {
     if (!GHLooksLikeList(node)) return NO;
     __block BOOL hasControl = NO;
@@ -336,7 +345,10 @@ static BOOL GHIsOptionList(id<GHAXNode> node, GHAXWalkBudget *outer) {
     });
     GHAXWalkBudgetAbsorb(outer, &budget);
     if (budget.hung) return NO;   // the app stopped answering: nothing it shows is trusted as a list
-    return !hasControl && GHOptionsInList(node, outer).count > 0;
+    if (hasControl) return NO;
+    // An open menu that says "No options" is a list: it is what the page answers when nothing matches, and Ghost
+    // closes it (one Escape) instead of waiting out the whole timeout with the menu hanging open.
+    return GHOptionsInList(node, outer).count > 0 || GHListSaysNothingFound(node, outer);
 }
 
 static id<GHAXNode> GHFindOptionList(id<GHAXNode> root, NSUInteger maxDepth, GHAXWalkBudget *outer) {
@@ -399,6 +411,28 @@ static id<GHAXNode> GHFindOptionList(id<GHAXNode> root, NSUInteger maxDepth, GHA
         if (overall.hung || overall.exhausted) return nil;
     }
     return nil;
+}
+
+static BOOL GHListSaysNothingFound(id<GHAXNode> list, GHAXWalkBudget *outer) {
+    __block BOOL nothing = NO;
+    GHAXWalkBudget budget = GHAXWalkBudgetNested(outer, kOptionSearchNodes);
+    GHWalk(list, 5, &budget, ^BOOL(id<GHAXNode> node, NSUInteger depth, BOOL *stop) {
+        if (depth == 0) return YES;
+        for (NSString *text in @[ node.value ?: @"", node.title ?: @"", node.axDescription ?: @"" ]) {
+            if (!GHIsNothingFoundNotice(text)) continue;
+            nothing = YES;
+            *stop = YES;
+            return NO;
+        }
+        return YES;
+    });
+    GHAXWalkBudgetAbsorb(outer, &budget);
+    return nothing;
+}
+
++ (BOOL)listSaysNothingFound:(id<GHAXNode>)list {
+    GHAXWalkBudget budget = GHAXWalkBudgetMake(NSUIntegerMax, GHComboBoxListSearchSeconds);
+    return list != nil && GHListSaysNothingFound(list, &budget);
 }
 
 + (NSArray<id<GHAXNode>> *)optionsInList:(id<GHAXNode>)list {
@@ -555,6 +589,8 @@ static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget 
     id<GHAXNode> list = [self currentList];
     NSArray<id<GHAXNode>> *options = list ? [GHComboBoxDriver optionsInList:list] : @[];
     if (options.count) { [self pickFrom:options]; return; }
+    // The page itself says nothing matches what was typed: close the menu, take the typing back, skip the field.
+    if (list && [GHComboBoxDriver listSaysNothingFound:list]) { [self abandon:GHComboBoxReasonNoMatchingOption]; return; }
     if (self.clock() >= deadline) { [self abandon:GHComboBoxReasonNoList]; return; }
     self.after(self.pollInterval, ^{ [self waitForListUntil:deadline generation:generation]; });
 }

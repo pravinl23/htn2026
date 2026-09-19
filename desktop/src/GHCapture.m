@@ -360,6 +360,7 @@ static BOOL GHIsValueKind(NSString *kind) {
     limits.maxNodes = 1500;
     limits.maxDepth = 40;
     limits.timeBudget = 0.120;
+    limits.webAreaTimeBudget = 0.600;
     limits.maxLinks = 40;
     limits.maxOptions = 255;
     return limits;
@@ -370,6 +371,7 @@ static BOOL GHIsValueKind(NSString *kind) {
     copy.maxNodes = self.maxNodes;
     copy.maxDepth = self.maxDepth;
     copy.timeBudget = self.timeBudget;
+    copy.webAreaTimeBudget = self.webAreaTimeBudget;
     copy.maxLinks = self.maxLinks;
     copy.maxOptions = self.maxOptions;
     return copy;
@@ -1265,7 +1267,8 @@ static BOOL GHIsBrowserChrome(id<GHAXNode> node, NSString *role) {
 
     while (head < queue.count) {
         if (visited >= limits.maxNodes) { result.stop = GHCaptureStopNodes; break; }
-        if (clock() - started > limits.timeBudget) { result.stop = GHCaptureStopTime; break; }
+        NSTimeInterval budget = result.sawWebArea ? MAX(limits.timeBudget, limits.webAreaTimeBudget) : limits.timeBudget;
+        if (clock() - started > budget) { result.stop = GHCaptureStopTime; break; }
         GHWalkEntry *entry = queue[head++];
         visited++;
         id<GHAXNode> node = entry.node;

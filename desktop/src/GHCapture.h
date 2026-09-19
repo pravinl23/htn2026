@@ -37,6 +37,10 @@ typedef NS_ENUM(NSInteger, GHCaptureStop) {
 @property (nonatomic) NSUInteger maxNodes;        // 1500
 @property (nonatomic) NSUInteger maxDepth;        // 40 (children below it are not visited)
 @property (nonatomic) NSTimeInterval timeBudget;  // 0.120 s
+/// Replaces timeBudget once the walk has met an AXWebArea: a real job posting is ~400 nodes of IPC into
+/// WebKit (~0.4 ms each), and a walk cut short there drops the bottom of the form, the locked Submit with it,
+/// and changes the form signature from one rescan to the next. maxNodes still bounds the walk. 0.6 s
+@property (nonatomic) NSTimeInterval webAreaTimeBudget;
 @property (nonatomic) NSUInteger maxLinks;        // 40: links never get a ghost, keep the state small
 @property (nonatomic) NSUInteger maxOptions;      // 255: Jev's choice limit
 + (instancetype)defaultLimits;

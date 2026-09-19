@@ -436,14 +436,18 @@ static BOOL GHWidgetHas(id<GHAXNode> root, BOOL (^match)(id<GHAXNode> node)) {
     });
 }
 
-+ (BOOL)widgetHasRemoveControl:(id<GHAXNode>)widget {
++ (BOOL)labelIsRemoveControl:(NSString *)label {
     static NSRegularExpression *removal;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ removal = [NSRegularExpression regularExpressionWithPattern:@"\\b(remove|delete|clear)\\b" options:NSRegularExpressionCaseInsensitive error:NULL]; });
+    NSString *name = label ?: @"";
+    return [removal firstMatchInString:name options:0 range:NSMakeRange(0, name.length)] != nil;
+}
+
++ (BOOL)widgetHasRemoveControl:(id<GHAXNode>)widget {
     return GHWidgetHas(widget, ^BOOL(id<GHAXNode> node) {
         if (![node.role isEqualToString:@"AXButton"] && ![node.role isEqualToString:@"AXLink"]) return NO;
-        NSString *name = [NSString stringWithFormat:@"%@ %@", node.title ?: @"", node.axDescription ?: @""];
-        return [removal firstMatchInString:name options:0 range:NSMakeRange(0, name.length)] != nil;
+        return [self labelIsRemoveControl:[NSString stringWithFormat:@"%@ %@", node.title ?: @"", node.axDescription ?: @""]];
     });
 }
 

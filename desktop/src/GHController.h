@@ -74,6 +74,9 @@ extern const NSUInteger GHMaxConcurrentDrafts;        // 3
 /// A fresh capture of the window in front (upload check, the rescan after a walk step). nil = the live
 /// GHAccessibility capture while running. Tests hand in the fake window's capture.
 @property (nonatomic, copy, nullable) GHCaptureResult *_Nullable (^captureProvider)(void);
+/// Waits `delay` seconds and runs the block on the main queue (the upload check, which is repeated while the page
+/// finishes the upload). nil = dispatch_after; tests hand in their own clock.
+@property (nonatomic, copy, nullable) void (^after)(NSTimeInterval delay, dispatch_block_t block);
 /// Gives a consumed Tab back to the app (a stale snapshot, a jump the page refused). nil = a tagged synthetic Tab
 /// (GHEventTap +postKeyCode:), and only while the controller runs live (-start, trusted AX): a controller driven by
 /// tests posts nothing. Tests record it here.
