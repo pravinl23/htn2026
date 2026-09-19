@@ -2,6 +2,7 @@ import type { Ghost } from "@ghost/shared";
 import { TARGET_ATTR } from "../lib/messages";
 import type { DebuggerReply, GhostMessage } from "../lib/messages";
 import { isElementLocked, isElementSensitive } from "./capture";
+import { markSynthetic } from "./trace";
 
 export interface ExecResult {
   ok: boolean;
@@ -168,6 +169,7 @@ function clickElement(el: HTMLElement): ExecResult {
   // The ghost said unlocked, but the DOM is the source of truth right before an activation.
   if (isElementLocked(el)) return refuse("locked");
   if ((el as HTMLButtonElement).disabled) return refuse("not-editable");
+  markSynthetic(); // the trace records this click (and the navigation it causes) as Ghost's own, not the user's
   el.click();
   return { ok: true, method: "click" };
 }

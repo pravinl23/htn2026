@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "build:firefox": "node build.mjs --target=firefox",
     "dev": "node build.mjs --watch",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
   "dependencies": {
-    "@ghost/shared": "workspace:*"
+    "@ghost/shared": "workspace:*",
+    "pdfjs-dist": "^6.3.289"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.304",

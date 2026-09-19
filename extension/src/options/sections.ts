@@ -7,9 +7,15 @@ export interface OptionsSection {
   mount(panel: HTMLElement): void | Promise<void>;
 }
 
+/** Fired on a panel each time its tab is opened, so a section can refresh what it shows. */
+export const SECTION_SHOWN = "ghost:section-shown";
+
 function select(id: string, tabs: HTMLElement[], panels: HTMLElement[]): void {
   for (const tab of tabs) tab.setAttribute("aria-selected", String(tab.dataset.section === id));
-  for (const panel of panels) panel.hidden = panel.dataset.section !== id;
+  for (const panel of panels) {
+    panel.hidden = panel.dataset.section !== id;
+    if (!panel.hidden) panel.dispatchEvent(new CustomEvent(SECTION_SHOWN));
+  }
 }
 
 export async function mountSections(nav: HTMLElement, host: HTMLElement, sections: OptionsSection[]): Promise<void> {

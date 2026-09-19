@@ -2,6 +2,10 @@
 import { onStorageChanged } from "../lib/storage";
 import { handleDebuggerMessage, isDebuggerMessage } from "./debugger-input";
 import { seedDefaults } from "./install";
+import { registerLoopBackground } from "./loopBackground";
+import { handleMetricsMessage, isMetricsMessage } from "./metrics";
+import { handleServerMessage, isServerMessage } from "./serverClient";
+import { createTextStreamHub } from "./textStream";
 import { paintBadge, refreshBadge, toggleEnabled } from "./toggle";
 
 const logFailure = (what: string) => (err: unknown) => console.warn(`[ghost] ${what} failed`, err);
@@ -28,9 +32,18 @@ onStorageChanged((changes) => {
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
-  if (sender.id !== chrome.runtime.id || !isDebuggerMessage(message)) return false;
-  void handleDebuggerMessage(message, sender.tab?.id).then(sendResponse);
+  if (sender.id !== chrome.runtime.id) return false;
+  if (isDebuggerMessage(message)) void handleDebuggerMessage(message, sender.tab?.id).then(sendResponse);
+  else if (isServerMessage(message)) void handleServerMessage(message, sender).then(sendResponse);
+  else if (isMetricsMessage(message)) void handleMetricsMessage(message).then(sendResponse);
+  else return false;
   return true; // keep the channel open for the async reply
 });
+
+// Free-text drafts stream over a port per draft; the open port also keeps this worker alive while it streams.
+const textStreams = createTextStreamHub({ extensionId: chrome.runtime.id });
+chrome.runtime.onConnect.addListener((port) => textStreams.onConnect(port));
+
+registerLoopBackground(); // action trace, loop detection and loop runs (docs/loops.md): its own onMessage listener, registered synchronously
 
 refreshBadge().catch(logFailure("badge refresh"));

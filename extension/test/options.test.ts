@@ -108,8 +108,87 @@ describe("options page", () => {
     await settle();
     $("profile-reset").click();
     await settle();
+    expect((await getProfile()).facts.firstName).toBe("Sam");
+    expect($("profile-reset").textContent).toMatch(/Click again/);
+    $("profile-reset").click();
+    await settle();
     expect(await getProfile()).toEqual(DEMO_PROFILE);
     expect(JSON.parse($<HTMLTextAreaElement>("profile-json").value)).toEqual(DEMO_PROFILE);
+    expect($("profile-reset").textContent).toBe("Reset to demo profile");
+  });
+
+  const factRows = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('[data-testid="fact-row"]')];
+  const rowInputs = (row: HTMLElement | undefined): [HTMLInputElement, HTMLInputElement] => {
+    const [key, value] = [...(row?.querySelectorAll("input") ?? [])];
+    if (!key || !value) throw new Error("missing fact row inputs");
+    return [key, value];
+  };
+
+  it("opens on the key/value editor with one row per fact and keeps the JSON in step", async () => {
+    expect($("profile-view-fields").getAttribute("aria-pressed")).toBe("true");
+    expect($<HTMLTextAreaElement>("profile-json").hidden).toBe(true);
+    expect(factRows()).toHaveLength(19);
+    const [, value] = rowInputs(factRows().find((row) => rowInputs(row)[0].value === "city"));
+    type(value, "Toronto");
+    expect(JSON.parse($<HTMLTextAreaElement>("profile-json").value).facts.city).toBe("Toronto");
+    $("profile-save").click();
+    await settle();
+    expect((await getProfile()).facts.city).toBe("Toronto");
+  });
+
+  it("adds and removes facts in the key/value editor", async () => {
+    $("fact-add").click();
+    const [key, value] = rowInputs(factRows().at(-1));
+    type(key, "extra.languages");
+    type(value, "English, Mandarin");
+    factRows()[0]?.querySelector("button")?.click();
+    $("profile-save").click();
+    await settle();
+    const facts = (await getProfile()).facts;
+    expect(facts["extra.languages"]).toBe("English, Mandarin");
+    expect(facts.firstName).toBeUndefined();
+    expect($("profile-summary").textContent).toContain("19 facts");
+  });
+
+  it.each([
+    ["email", "x", /appears twice/],
+    ["cardNumber", "4111", /looks sensitive/],
+    ["", "orphan value", /Give every fact a name/],
+    ["2fast", "x", /not a valid name/],
+  ])("blocks Save for the fact name %j", (name, value, message) => {
+    $("fact-add").click();
+    const [key, val] = rowInputs(factRows().at(-1));
+    type(key, name);
+    type(val, value);
+    expect($("profile-error").textContent).toMatch(message);
+    expect($<HTMLButtonElement>("profile-save").disabled).toBe(true);
+    $("profile-view-json").click();
+    expect($("profile-view-json").getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("lists past answers, deletes one, and never renders them as HTML", async () => {
+    const pastAnswers = [{ question: "Why us?", answer: "<img src=x onerror=alert(1)>" }, { question: "A project", answer: "Built a robot." }];
+    type($<HTMLTextAreaElement>("profile-json"), JSON.stringify({ facts: { firstName: "Alex" }, pastAnswers }));
+    $("profile-save").click();
+    await settle();
+    expect(document.querySelectorAll('[data-testid="past-answer"]')).toHaveLength(2);
+    expect(document.querySelector('[data-testid="past-answers"] img')).toBeNull();
+    $("answer-delete").click();
+    $("profile-save").click();
+    await settle();
+    expect((await getProfile()).pastAnswers).toEqual([{ question: "A project", answer: "Built a robot." }]);
+  });
+
+  it("carries JSON edits into the fields view and refuses to leave broken JSON", () => {
+    $("profile-view-json").click();
+    expect($<HTMLTextAreaElement>("profile-json").hidden).toBe(false);
+    type($<HTMLTextAreaElement>("profile-json"), "{ nope");
+    $("profile-view-fields").click();
+    expect($("profile-view-json").getAttribute("aria-pressed")).toBe("true");
+    type($<HTMLTextAreaElement>("profile-json"), '{"facts":{"firstName":"Sam"}}');
+    $("profile-view-fields").click();
+    expect(factRows()).toHaveLength(1);
+    expect(rowInputs(factRows()[0])[1].value).toBe("Sam");
   });
 
   it("reflects stored settings and saves each control", async () => {

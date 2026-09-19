@@ -2,7 +2,7 @@ import type { Ghost } from "@ghost/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Overlay } from "../src/content/overlay";
 import type { OverlayState } from "../src/content/overlay";
-import { PAGE_CSS } from "../src/content/overlay-style";
+import { OVERLAY_CSS, PAGE_CSS } from "../src/content/overlay-style";
 
 type Entry = OverlayState["ghosts"][number];
 
@@ -406,5 +406,120 @@ describe("Overlay HUD", () => {
     expect(hostEl().getAttribute("data-ghost-error")).toBe("verify-failed");
     expect(part(".hud-error").textContent).toBe("verify-failed");
     expect(part(".hud-error").hidden).toBe(false);
+  });
+});
+
+describe("Overlay jump pill", () => {
+  it("shows the count, the hint and the direction, and mirrors it to data-ghost-jump", () => {
+    overlay.render({ ghosts: [entry("first", "current")], jump: { count: 14, direction: "down" } });
+    const pill = part(".jump");
+    expect(pill.getAttribute("data-visible")).toBe("true");
+    expect(pill.getAttribute("data-direction")).toBe("down");
+    expect(pill.textContent).toContain("14 ghosts ready");
+    expect(pill.textContent).toContain("Tab");
+    expect(pill.textContent).toContain("to jump");
+    expect(hostEl().getAttribute("data-ghost-jump")).toBe("true");
+
+    overlay.render({ ghosts: [entry("first", "current")], jump: { count: 1, direction: "up" } });
+    expect(pill.getAttribute("data-direction")).toBe("up");
+    expect(pill.textContent).toContain("1 ghost ready");
+  });
+
+  it("is hidden when no hint is given", () => {
+    overlay.render({ ghosts: [entry("first", "current")], jump: { count: 2, direction: "down" } });
+    overlay.render({ ghosts: [entry("first", "current")] });
+    expect(part(".jump").getAttribute("data-visible")).toBe("false");
+    expect(hostEl().getAttribute("data-ghost-jump")).toBe("false");
+    overlay.render({ ghosts: [], jump: null });
+    expect(hostEl().getAttribute("data-ghost-jump")).toBe("false");
+  });
+
+  it("never carries a profile value", () => {
+    overlay.render({ ghosts: [entry("first", "current", { displayText: "Alex", value: "Alex" })], jump: { count: 1, direction: "down" } });
+    expect(part(".jump").textContent).not.toContain("Alex");
+    expect(hostEl().outerHTML).not.toContain("Alex");
+  });
+});
+
+describe("Overlay multi-line drafts (Stage 3)", () => {
+  const draft = (text: string, partial: Partial<Ghost> = {}): Entry => entry("why", "current", { value: text, displayText: text, source: "llm", ...partial });
+
+  /** jsdom lays nothing out: give the label the scroll box a real engine would report. */
+  function layoutLabel(scrollHeight: number, clientHeight: number): void {
+    const label = nodeFor("sig-why")?.querySelector(".label");
+    if (!label) throw new Error("the draft has no label yet");
+    Object.defineProperty(label, "scrollHeight", { configurable: true, get: () => scrollHeight });
+    Object.defineProperty(label, "clientHeight", { configurable: true, get: () => clientHeight });
+  }
+
+  it("grows one node in place as deltas stream in, marked as streaming until the draft is done", () => {
+    overlay.render({ ghosts: [draft("I want", { pending: true })] });
+    const node = nodeFor("sig-why");
+    expect(node?.getAttribute("data-mode")).toBe("multiline");
+    expect(node?.getAttribute("data-streaming")).toBe("true");
+    overlay.render({ ghosts: [draft("I want to build\nrobots.", { pending: true })] });
+    expect(nodeFor("sig-why")).toBe(node);
+    expect(node?.querySelector(".label")?.textContent).toBe("I want to build\nrobots.");
+    overlay.render({ ghosts: [draft("I want to build\nrobots. Really.")] });
+    expect(node?.hasAttribute("data-streaming")).toBe(false);
+    expect(shadow().querySelectorAll(".ghost")).toHaveLength(1);
+  });
+
+  it("does not look the field up again for every delta: clipping ancestors are read once per element", () => {
+    const why = document.getElementById("why") as HTMLElement;
+    const parentLookups = vi.spyOn(why, "parentElement", "get");
+    overlay.render({ ghosts: [draft("I", { pending: true })] });
+    const afterFirst = parentLookups.mock.calls.length;
+    for (const text of ["I want", "I want to", "I want to build"]) overlay.render({ ghosts: [draft(text, { pending: true })] });
+    expect(parentLookups.mock.calls.length).toBe(afterFirst);
+  });
+
+  it("fades the bottom edge only while the draft is taller than the textarea, measured again when the text changes", () => {
+    overlay.render({ ghosts: [draft("Short.", { pending: true })] });
+    expect(nodeFor("sig-why")?.hasAttribute("data-overflow")).toBe(false);
+    layoutLabel(260, 120);
+    overlay.render({ ghosts: [draft("Short.", { pending: true })] }); // same text, same box: nothing is measured
+    expect(nodeFor("sig-why")?.hasAttribute("data-overflow")).toBe(false);
+    overlay.render({ ghosts: [draft("A much longer draft. ".repeat(30), { pending: true })] });
+    expect(nodeFor("sig-why")?.getAttribute("data-overflow")).toBe("true");
+    layoutLabel(90, 120);
+    overlay.render({ ghosts: [draft("Short again.")] });
+    expect(nodeFor("sig-why")?.hasAttribute("data-overflow")).toBe(false);
+  });
+
+  it("shimmers while Tab waits for the rest of the draft, and stops when the wait is over", () => {
+    overlay.render({ ghosts: [{ ...draft("I want", { pending: true }), waiting: true }] });
+    expect(nodeFor("sig-why")?.getAttribute("data-waiting")).toBe("true");
+    overlay.render({ ghosts: [draft("I want to build robots.")] });
+    expect(nodeFor("sig-why")?.hasAttribute("data-waiting")).toBe(false);
+  });
+
+  it("hides the draft the moment the textarea holds the user's own text", () => {
+    overlay.render({ ghosts: [draft("I want to build robots.")] });
+    expect(nodeFor("sig-why")?.style.visibility).not.toBe("hidden");
+    (document.getElementById("why") as HTMLTextAreaElement).value = "My own words";
+    overlay.render({ ghosts: [draft("I want to build robots.")] });
+    expect(nodeFor("sig-why")?.style.visibility).toBe("hidden");
+    expect(document.getElementById("why")?.hasAttribute("data-ghost-hint")).toBe(false);
+  });
+
+  it("wraps like the textarea: pre-wrap text, a label clipped to the box, and a keycap that takes no room from the text", () => {
+    expect(OVERLAY_CSS).toMatch(/\[data-mode="multiline"\] \.label \{[^}]*white-space: pre-wrap/);
+    expect(OVERLAY_CSS).toMatch(/\[data-mode="multiline"\] \.keycap \{[^}]*position: absolute/);
+    expect(OVERLAY_CSS).toMatch(/\[data-overflow="true"\] \.label \{[^}]*mask-image: linear-gradient\(to bottom/);
+    expect(OVERLAY_CSS).toMatch(/\[data-waiting="true"\] \.label \{[^}]*animation: ghost-shimmer/);
+  });
+
+  it("shows the last draft's provider, first-token and total latency on their own HUD row", () => {
+    const hud = { provider: "jev-gateway", latencyMs: 142, cache: "miss" as const, keystrokesSaved: 8 };
+    overlay.render({ ghosts: [], hud });
+    expect(part(".hud-text").hidden).toBe(true);
+    overlay.render({ ghosts: [], hud: { ...hud, text: { provider: "xai", firstTokenMs: 210.4, totalMs: 1234 } } });
+    expect(part(".hud-text").hidden).toBe(false);
+    expect(part(".hud-text").textContent).toBe("draft viaxaifirst token210 mstotal1234 ms");
+    overlay.render({ ghosts: [], hud: { ...hud, text: { provider: "template", firstTokenMs: null, totalMs: 3 } } });
+    expect(part(".hud-text").textContent).toBe("draft viatemplatefirst token—total3 ms");
+    overlay.render({ ghosts: [] });
+    expect(part(".hud-text").hidden).toBe(true);
   });
 });

@@ -1,8 +1,13 @@
 import { DEFAULT_SETTINGS, DEMO_PROFILE } from "@ghost/shared";
 import type { GhostSettings, PastAnswer, Profile } from "@ghost/shared";
+import { cleanCounters, cleanPair, COUNTER_NAMES } from "./messages";
+import type { MetricsBatch, MetricsCounters, MetricsPair } from "./messages";
 
 export const PROFILE_KEY = "ghost.profile";
 export const SETTINGS_KEY = "ghost.settings";
+export const METRICS_KEY = "ghost.metrics";
+/** The reliability chart reads the newest pairs; older ones fall off. */
+export const MAX_CALIBRATION_PAIRS = 1000;
 
 export interface StorageChanges {
   profile?: Profile;
@@ -101,6 +106,23 @@ export async function saveProfile(profile: Profile): Promise<void> {
   await backend().set(PROFILE_KEY, clean);
 }
 
+let profileWrites: Promise<unknown> = Promise.resolve();
+
+/**
+ * Read-modify-write of the stored profile, one at a time (learning adds a fact while an answer is being
+ * saved). `mutate` sees the LATEST profile and returns the next one, or null to leave storage alone.
+ */
+export function updateProfile(mutate: (current: Profile) => Profile | null): Promise<Profile | null> {
+  const write = async (): Promise<Profile | null> => {
+    const next = mutate(await getProfile());
+    if (next) await saveProfile(next);
+    return next;
+  };
+  const result = profileWrites.then(write, write);
+  profileWrites = result.catch(() => undefined);
+  return result;
+}
+
 export async function getSettings(): Promise<GhostSettings> {
   return normalizeSettings(await backend().get(SETTINGS_KEY));
 }
@@ -131,6 +153,41 @@ export function onStorageChanged(cb: (changes: StorageChanges) => void): () => v
     const changes = toStorageChanges(raw);
     if (changes.profile || changes.settings) cb(changes);
   });
+}
+
+// ---------- metrics (Stage 7): the exact shape the options page reads ----------
+
+export interface StoredMetrics extends MetricsCounters {
+  calibration: MetricsPair[];
+}
+
+const LIFETIME_MAX = Number.MAX_SAFE_INTEGER;
+
+export function normalizeMetrics(raw: unknown): StoredMetrics {
+  const record = isRecord(raw) ? raw : {};
+  const list = Array.isArray(record.calibration) ? record.calibration.slice(-MAX_CALIBRATION_PAIRS) : [];
+  const calibration = list.map(cleanPair).filter((p): p is MetricsPair => p !== null);
+  return { ...cleanCounters(record, LIFETIME_MAX), calibration };
+}
+
+export async function getMetrics(): Promise<StoredMetrics> {
+  return normalizeMetrics(await backend().get(METRICS_KEY));
+}
+
+let metricsWrites: Promise<unknown> = Promise.resolve();
+
+/** Adds one batch of deltas. Runs one at a time, so batches from several tabs never lose each other. */
+export function addMetrics(batch: MetricsBatch): Promise<StoredMetrics> {
+  const write = async (): Promise<StoredMetrics> => {
+    const next = await getMetrics();
+    for (const name of COUNTER_NAMES) next[name] = Math.min(LIFETIME_MAX, next[name] + batch.counters[name]);
+    next.calibration = [...next.calibration, ...batch.pairs].slice(-MAX_CALIBRATION_PAIRS);
+    await backend().set(METRICS_KEY, next);
+    return next;
+  };
+  const result = metricsWrites.then(write, write);
+  metricsWrites = result.catch(() => undefined);
+  return result;
 }
 
 /** Test seam: wipes the in-memory fallback. Has no effect on chrome.storage. */

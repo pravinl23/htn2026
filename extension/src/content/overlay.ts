@@ -1,11 +1,20 @@
 import type { Ghost } from "@ghost/shared";
+import { jumpLabel } from "./jump";
+import type { JumpHint } from "./jump";
 import { CURSOR_PATH, CURSOR_TIP, OVERLAY_CSS, PAGE_CSS } from "./overlay-style";
 import { clippingAncestors, intersect, isCovered } from "./visibility";
 import type { Box } from "./visibility";
 
 export interface OverlayState {
-  ghosts: Array<{ ghost: Ghost; el: HTMLElement; status: "pending" | "current" }>;
-  hud?: { provider: string; latencyMs: number | null; cache: "hit" | "miss" | "offline"; keystrokesSaved: number };
+  /** `waiting`: Tab was pressed on a draft that is still streaming; the ghost shimmers until the rest arrives. */
+  ghosts: Array<{ ghost: Ghost; el: HTMLElement; status: "pending" | "current"; waiting?: boolean }>;
+  hud?: {
+    provider: string; latencyMs: number | null; cache: "hit" | "miss" | "offline"; keystrokesSaved: number;
+    /** The last finished free-text draft: who wrote it, time to the first token, time to the whole text. */
+    text?: { provider: string; firstTokenMs: number | null; totalMs: number | null };
+  };
+  /** The jump pill ("14 ghosts ready · Tab to jump"). Mirrored to `data-ghost-jump`; omitted or null hides it. */
+  jump?: JumpHint | null;
   /** Mirrored to `data-ghost-accepted`. When omitted the attribute is left as it is. */
   accepted?: number;
   /** Mirrored to `data-ghost-error` and shown in the HUD. Undefined leaves it alone, null or "" clears it. */
@@ -35,6 +44,8 @@ interface GhostNode {
   radius: number;
   css: string;
   hinted: HTMLElement | null;
+  /** Multi-line only: the text or the box changed, so whether the draft overflows the box must be measured again. */
+  remeasure: boolean;
 }
 
 interface Measured {
@@ -59,8 +70,11 @@ interface Parts {
   hud: HTMLDivElement;
   hudMain: HTMLDivElement;
   hudError: HTMLDivElement;
-  hudValues: Record<"provider" | "latency" | "cache" | "saved", HTMLSpanElement>;
+  hudText: HTMLDivElement;
+  hudValues: Record<"provider" | "latency" | "cache" | "saved" | "textProvider" | "firstToken" | "textTotal", HTMLSpanElement>;
   hudCache: HTMLSpanElement;
+  jump: HTMLDivElement;
+  jumpCount: HTMLSpanElement;
 }
 
 const HOST_ID = "ghost-overlay-host";
@@ -80,6 +94,7 @@ export class Overlay {
   private currentSig = "";
   private glideUntil = 0;
   private hudKey = "";
+  private savedTitle = "";
   private ringCss = "";
   private readonly clipCache = new WeakMap<HTMLElement, HTMLElement[]>();
 
@@ -102,6 +117,13 @@ export class Overlay {
     return this.mount().shadow;
   }
 
+  /** Hover text of the HUD's "saved" item (lifetime totals, from the metrics reporter). Survives re-mounts; never mounts. */
+  setSavedTitle(title: string): void {
+    this.savedTitle = title;
+    const item = this.parts?.hudValues.saved.parentElement;
+    if (item) setAttr(item, "title", title || null);
+  }
+
   render(state: OverlayState): void {
     const parts = this.mount();
     const live = state.ghosts.filter((entry) => entry.el.isConnected);
@@ -112,6 +134,7 @@ export class Overlay {
     for (const m of measured) paintNode(m, viewport);
     this.paintCurrent(parts, measured.find((m) => m.entry.status === "current") ?? null, viewport);
     this.paintHud(parts, state);
+    paintJump(parts, state.jump ?? null);
     paintHostAttrs(parts.host, state);
   }
 
@@ -133,6 +156,7 @@ export class Overlay {
       this.doc.getElementById(HOST_ID)?.remove();
       this.doc.getElementById(PAGE_STYLE_ID)?.remove();
       this.parts = buildParts(this.doc);
+      this.setSavedTitle(this.savedTitle);
     }
     if (this.parts.host.parentNode !== root) root.appendChild(this.parts.host);
     if (!this.parts.pageStyle.isConnected) (this.doc.head ?? root).appendChild(this.parts.pageStyle);
@@ -149,8 +173,10 @@ export class Overlay {
         node = createNode(this.doc, ghost, el);
         this.nodes.set(ghost.signature, node);
         parts.texts.appendChild(node.root);
-      } else if (node.el !== el || node.value !== ghost.value) {
+      } else if (node.el !== el || (node.value !== ghost.value && isRadio(el))) {
         retarget(node, ghost, el);
+      } else {
+        node.value = ghost.value; // a streaming draft grows on every delta: same element, nothing to look up again
       }
     }
     for (const [signature, node] of this.nodes) {
@@ -228,15 +254,20 @@ export class Overlay {
     this.hudKey = key;
     const { hud } = state;
     parts.hudMain.hidden = !hud;
+    parts.hudText.hidden = !hud?.text;
     parts.hudError.hidden = error === "";
     parts.hudError.textContent = error;
     setAttr(parts.hud, "data-visible", hud || error ? "true" : "false");
     if (!hud) return;
     parts.hudValues.provider.textContent = hud.provider;
-    parts.hudValues.latency.textContent = hud.latencyMs === null ? "—" : `${Math.round(hud.latencyMs)} ms`;
+    parts.hudValues.latency.textContent = millis(hud.latencyMs);
     parts.hudValues.cache.textContent = hud.cache;
     parts.hudValues.saved.textContent = `${hud.keystrokesSaved} keys`;
     setAttr(parts.hudCache, "data-cache", hud.cache);
+    if (!hud.text) return;
+    parts.hudValues.textProvider.textContent = hud.text.provider;
+    parts.hudValues.firstToken.textContent = millis(hud.text.firstTokenMs);
+    parts.hudValues.textTotal.textContent = millis(hud.text.totalMs);
   }
 }
 
@@ -248,6 +279,15 @@ function paintHostAttrs(host: HTMLElement, state: OverlayState): void {
   setAttr(host, "data-ghost-current-locked", String(current?.locked ?? false));
   if (state.accepted !== undefined) setAttr(host, "data-ghost-accepted", String(state.accepted));
   if (state.error !== undefined) setAttr(host, "data-ghost-error", state.error || null);
+  setAttr(host, "data-ghost-jump", state.jump ? "true" : "false");
+}
+
+function paintJump(parts: Parts, hint: JumpHint | null): void {
+  setAttr(parts.jump, "data-visible", hint ? "true" : "false");
+  if (!hint) return;
+  setAttr(parts.jump, "data-direction", hint.direction);
+  const label = jumpLabel(hint);
+  if (parts.jumpCount.textContent !== label) parts.jumpCount.textContent = label;
 }
 
 function paintNode(m: Measured, viewport: Box): void {
@@ -262,9 +302,25 @@ function paintNode(m: Measured, viewport: Box): void {
   if (css !== node.css) node.root.style.cssText = node.css = css;
   // The field's own placeholder only steps aside while ghost text is really drawn over it.
   setHint(node, hidden || node.mode === "pill" ? null : node.target);
-  if (node.label.textContent !== entry.ghost.displayText) node.label.textContent = entry.ghost.displayText;
+  if (node.label.textContent !== entry.ghost.displayText) {
+    node.label.textContent = entry.ghost.displayText;
+    node.remeasure = true;
+  }
   setAttr(node.root, "data-status", entry.status);
   setAttr(node.root, "data-streaming", entry.ghost.pending ? "true" : null);
+  setAttr(node.root, "data-waiting", entry.waiting ? "true" : null);
+  if (node.mode === "multiline" && node.remeasure && !hidden) measureOverflow(node);
+}
+
+/**
+ * A draft taller than its textarea is clipped like the textarea's own scroll box, and fades out at the bottom
+ * edge so it reads as "there is more". The one layout read after a write: only for multi-line ghosts, and
+ * only when their text or box changed (a streaming draft, a few times a second).
+ */
+function measureOverflow(node: GhostNode): void {
+  node.remeasure = false;
+  const overflows = node.label.scrollHeight > node.label.clientHeight + 1;
+  setAttr(node.root, "data-overflow", overflows ? "true" : null);
 }
 
 function hasSize(box: Box): boolean {
@@ -337,7 +393,7 @@ function createNode(doc: Document, ghost: Ghost, el: HTMLElement): GhostNode {
   root.append(label, make(doc, "span", "keycap", "Tab"));
   const node: GhostNode = {
     root, label, el, value: ghost.value, target: el, ringEls: [el], groupEls: [el], clipEls: [],
-    mode: "text", sizeKey: "", fieldCss: "", radius: 0, css: "", hinted: null,
+    mode: "text", sizeKey: "", fieldCss: "", radius: 0, css: "", hinted: null, remeasure: true,
   };
   retarget(node, ghost, el);
   return node;
@@ -355,6 +411,7 @@ function retarget(node: GhostNode, ghost: Ghost, el: HTMLElement): void {
   node.clipEls = clippingAncestors(target);
   node.sizeKey = "";
   node.css = "";
+  node.remeasure = true;
   setAttr(node.root, "data-mode", node.mode);
   setAttr(node.root, "data-signature", ghost.signature);
   if (node.hinted !== target) setHint(node, null); // paintNode puts the hint on once the text is really drawn
@@ -407,21 +464,29 @@ function refreshFieldStyle(node: GhostNode, box: Box): void {
   const sizeKey = `${box.width}x${box.height}`;
   if (sizeKey === node.sizeKey) return;
   node.sizeKey = sizeKey;
+  node.remeasure = true;
   const view = node.target.ownerDocument.defaultView;
   if (!view) return;
   const cs = view.getComputedStyle(node.target);
   node.radius = radiusFrom(cs);
-  node.fieldCss = node.mode === "pill" ? "" : fieldCssFrom(cs);
+  node.fieldCss = node.mode === "pill" ? "" : fieldCssFrom(cs, node.mode === "multiline" ? scrollbarWidth(node.target, cs) : 0);
 }
 
-function fieldCssFrom(cs: CSSStyleDeclaration): string {
+/** A textarea with `overflow-y: scroll` wraps its text short of the scrollbar; the ghost has to wrap there too. */
+function scrollbarWidth(el: HTMLElement, cs: CSSStyleDeclaration): number {
+  if (el.offsetWidth === 0) return 0;
+  return Math.max(0, el.offsetWidth - el.clientWidth - num(cs.borderLeftWidth) - num(cs.borderRightWidth));
+}
+
+function fieldCssFrom(cs: CSSStyleDeclaration, scrollbar: number): string {
   const edge = (side: "Top" | "Right" | "Bottom" | "Left") => num(cs[`padding${side}`]) + num(cs[`border${side}Width`]);
   return [
+    decl("word-break", cs.wordBreak), decl("tab-size", cs.tabSize),
     decl("font-family", cs.fontFamily), decl("font-size", cs.fontSize), decl("font-weight", cs.fontWeight),
     decl("font-style", cs.fontStyle), decl("letter-spacing", cs.letterSpacing), decl("word-spacing", cs.wordSpacing),
     decl("line-height", cs.lineHeight), decl("text-align", cs.textAlign), decl("text-transform", cs.textTransform),
     decl("text-indent", cs.textIndent), decl("direction", cs.direction),
-    `padding:${px(edge("Top"))} ${px(edge("Right"))} ${px(edge("Bottom"))} ${px(edge("Left"))};`,
+    `padding:${px(edge("Top"))} ${px(edge("Right") + scrollbar)} ${px(edge("Bottom"))} ${px(edge("Left"))};`,
   ].join("");
 }
 
@@ -447,13 +512,14 @@ function buildParts(doc: Document): Parts {
   const cursor = buildCursor(doc);
   const lock = buildLock(doc);
   const hudParts = buildHud(doc);
+  const jumpParts = buildJump(doc);
   // The HUD goes first so the ghost visuals always paint above it.
-  layer.append(hudParts.hud, texts, ring, lock, cursor);
+  layer.append(hudParts.hud, jumpParts.jump, texts, ring, lock, cursor);
   shadow.appendChild(layer);
   const pageStyle = make(doc, "style");
   pageStyle.id = PAGE_STYLE_ID;
   pageStyle.textContent = PAGE_CSS;
-  return { host, shadow, pageStyle, texts, ring, cursor, lock, ...hudParts };
+  return { host, shadow, pageStyle, texts, ring, cursor, lock, ...hudParts, ...jumpParts };
 }
 
 /** Constructed sheets are exempt from the page's CSP; the <style> fallback covers jsdom and old engines. */
@@ -507,10 +573,24 @@ function buildLock(doc: Document): HTMLDivElement {
   return lock;
 }
 
-function buildHud(doc: Document): Pick<Parts, "hud" | "hudMain" | "hudError" | "hudValues" | "hudCache"> {
+function buildJump(doc: Document): Pick<Parts, "jump" | "jumpCount"> {
+  const jump = make(doc, "div", "jump");
+  const arrow = svgEl(doc, "svg", { class: "arrow", width: "12", height: "12", viewBox: "0 0 12 12", "aria-hidden": "true" });
+  arrow.append(svgEl(doc, "path", {
+    d: "M6 1.5v8M2.5 6.2 6 9.7l3.5-3.5", fill: "none", stroke: "currentColor", "stroke-width": "1.8", "stroke-linecap": "round", "stroke-linejoin": "round",
+  }));
+  const jumpCount = make(doc, "span", "count");
+  const hint = make(doc, "span", "hint");
+  hint.append(make(doc, "kbd", undefined, "Tab"), "to jump");
+  jump.append(arrow, jumpCount, make(doc, "span", "sep", "·"), hint);
+  return { jump, jumpCount };
+}
+
+function buildHud(doc: Document): Pick<Parts, "hud" | "hudMain" | "hudError" | "hudText" | "hudValues" | "hudCache"> {
   const hud = make(doc, "div", "hud");
   const hudMain = make(doc, "div", "hud-main");
   const hudError = make(doc, "div", "hud-error");
+  const hudText = make(doc, "div", "hud-text");
   const brand = make(doc, "span", "brand");
   brand.append(make(doc, "span", "dot"), "Ghost");
   const item = (key: string, name: string): [HTMLSpanElement, HTMLSpanElement] => {
@@ -523,11 +603,14 @@ function buildHud(doc: Document): Pick<Parts, "hud" | "hudMain" | "hudError" | "
   const [latencyWrap, latency] = item("last", "latency");
   const [hudCache, cache] = item("cache", "cache");
   const [savedWrap, saved] = item("saved", "saved");
+  const [textProviderWrap, textProvider] = item("draft via", "text-provider");
+  const [firstTokenWrap, firstToken] = item("first token", "first-token");
+  const [textTotalWrap, textTotal] = item("total", "text-total");
   hudMain.append(brand, providerWrap, latencyWrap, hudCache, savedWrap);
-  hudMain.hidden = true;
-  hudError.hidden = true;
-  hud.append(hudError, hudMain);
-  return { hud, hudMain, hudError, hudValues: { provider, latency, cache, saved }, hudCache };
+  hudText.append(textProviderWrap, firstTokenWrap, textTotalWrap);
+  hudMain.hidden = hudError.hidden = hudText.hidden = true;
+  hud.append(hudError, hudText, hudMain);
+  return { hud, hudMain, hudError, hudText, hudValues: { provider, latency, cache, saved, textProvider, firstToken, textTotal }, hudCache };
 }
 
 function make<K extends keyof HTMLElementTagNameMap>(doc: Document, tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -580,6 +663,10 @@ function viewportOf(doc: Document): Box {
 
 function num(value: string | undefined): number {
   return Number.parseFloat(value ?? "") || 0;
+}
+
+function millis(ms: number | null): string {
+  return ms === null ? "—" : `${Math.round(ms)} ms`;
 }
 
 function px(n: number): string {

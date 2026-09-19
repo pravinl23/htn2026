@@ -22,8 +22,19 @@ export const OVERLAY_CSS = `
 .ghost[data-status="current"] { opacity: 1; }
 .ghost[data-streaming="true"] .label { animation: ghost-stream 1.1s ease-in-out infinite; }
 .ghost .label { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: pre; }
-.ghost[data-mode="multiline"] { align-items: flex-start; }
-.ghost[data-mode="multiline"] .label { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Multi-line: the label is the textarea's own text box (same width, so the same line breaks), clipped like its scroll box. */
+.ghost[data-mode="multiline"] { align-items: stretch; }
+.ghost[data-mode="multiline"] .label { white-space: pre-wrap; overflow-wrap: break-word; }
+.ghost[data-mode="multiline"][data-overflow="true"] .label {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.6em), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.6em), transparent);
+}
+/* Tab was pressed while the draft is still streaming: a slow sweep of light until the rest arrives. */
+.ghost[data-waiting="true"] .label {
+  color: transparent; -webkit-background-clip: text; background-clip: text;
+  background-image: linear-gradient(100deg, rgba(120,120,135,.75) 35%, rgb(var(--accent) / .95) 50%, rgba(120,120,135,.75) 65%);
+  background-size: 250% 100%; animation: ghost-shimmer 1.4s linear infinite;
+}
 
 /* Pill: used where ghost text cannot live inside the control (select, radio, checkbox). */
 .ghost[data-mode="pill"] {
@@ -49,7 +60,8 @@ export const OVERLAY_CSS = `
 }
 .ghost[data-status="current"] .keycap { display: inline-block; }
 .ghost[data-mode="pill"] .keycap { margin-left: 2px; margin-right: -4px; }
-.ghost[data-mode="multiline"] .keycap { margin-top: 1px; }
+/* Out of the flow, so the keycap never narrows the text box and changes where lines break. */
+.ghost[data-mode="multiline"] .keycap { position: absolute; right: 8px; bottom: 7px; margin: 0; }
 
 /* Highlight ring around the current target. */
 .ring {
@@ -103,7 +115,7 @@ export const OVERLAY_CSS = `
   flex-direction: column; align-items: flex-end; gap: 6px;
 }
 .hud[data-visible="true"] { display: flex; }
-.hud-main, .hud-error {
+.hud-main, .hud-error, .hud-text {
   display: flex; align-items: center; gap: 12px; padding: 7px 12px; border-radius: 11px;
   box-sizing: border-box; max-width: 100%; overflow: hidden; white-space: nowrap;
   font: 500 11px/1.2 ${MONO}; color: rgba(255,255,255,.92);
@@ -111,22 +123,49 @@ export const OVERLAY_CSS = `
   -webkit-backdrop-filter: blur(10px) saturate(1.4); backdrop-filter: blur(10px) saturate(1.4);
   box-shadow: 0 12px 32px -12px rgba(10,6,40,.65);
 }
-.hud-main[hidden], .hud-error[hidden] { display: none; }
+.hud-main[hidden], .hud-error[hidden], .hud-text[hidden] { display: none; }
+.hud-text { padding: 5px 12px; color: rgba(255,255,255,.8); }
 .hud-error { color: #ffb4b4; border-color: rgba(255,120,120,.4); max-width: 320px; }
 .hud .brand { display: flex; align-items: center; gap: 6px; font: 700 11px/1.2 ${SANS}; letter-spacing: .02em; }
 .hud .dot { width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--accent)); box-shadow: 0 0 8px rgb(var(--accent)); }
 .hud .k { color: rgba(255,255,255,.48); margin-right: 5px; }
+/* The one hoverable spot of the overlay: its title holds the lifetime totals. */
+.hud .item.saved[title] { pointer-events: auto; cursor: default; }
 .hud [data-cache="hit"] .v { color: #7ee2a8; }
 .hud [data-cache="miss"] .v { color: #ffd58a; }
 .hud [data-cache="offline"] .v { color: #b9b4d0; }
 
+/* Jump pill: the visible ghost while the current field is off screen. */
+.jump {
+  position: absolute; left: 50%; bottom: 22px; display: inline-flex; align-items: center; gap: 8px;
+  max-width: calc(100% - 32px); box-sizing: border-box; padding: 8px 14px 8px 11px; border-radius: 999px;
+  white-space: nowrap; opacity: 0; transform: translate(-50%, 10px);
+  font: 600 12px/1 ${SANS}; color: rgba(255,255,255,.94); background: rgba(16,14,26,.9);
+  border: 1px solid rgb(var(--accent) / .55);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4); backdrop-filter: blur(10px) saturate(1.4);
+  box-shadow: 0 0 0 4px rgb(var(--accent) / .14), 0 14px 34px -12px rgb(var(--accent) / .7);
+  transition: opacity 160ms ease, transform 200ms cubic-bezier(.2,.8,.2,1);
+}
+.jump[data-visible="true"] { opacity: 1; transform: translate(-50%, 0); }
+.jump .arrow { display: block; color: rgb(var(--accent)); filter: brightness(1.5); animation: ghost-nudge 1.4s ease-in-out infinite; }
+.jump[data-direction="up"] .arrow { transform: rotate(180deg); animation-name: ghost-nudge-up; }
+.jump .sep { color: rgba(255,255,255,.35); }
+.jump .hint { color: rgba(255,255,255,.72); font-weight: 500; }
+.jump kbd {
+  font: 700 10px/1 ${SANS}; padding: 3px 6px 2px; margin-right: 4px; border-radius: 5px;
+  color: rgba(74,58,150,.95); background: linear-gradient(#ffffff, #e9e4fb); border-bottom: 2px solid rgb(var(--accent) / .55);
+}
+
+@keyframes ghost-nudge { 0%, 100% { transform: translateY(-1px); } 50% { transform: translateY(2px); } }
+@keyframes ghost-nudge-up { 0%, 100% { transform: rotate(180deg) translateY(-1px); } 50% { transform: rotate(180deg) translateY(2px); } }
 @keyframes ghost-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 @keyframes ghost-pulse { 0% { transform: scale(.7); opacity: .9; } 100% { transform: scale(1.35); opacity: 0; } }
 @keyframes ghost-stream { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@keyframes ghost-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -50% 0; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .ring, .cursor, .lock, .ghost { transition: none !important; }
-  .cursor svg, .cursor .halo, .ghost .label { animation: none !important; }
+  .ring, .cursor, .lock, .ghost, .jump { transition: none !important; }
+  .cursor svg, .cursor .halo, .ghost .label, .jump .arrow { animation: none !important; }
   .cursor .halo { opacity: .6; }
 }
 `;

@@ -30,3 +30,23 @@ export function flashStatus(el: HTMLElement, text: string, kind: StatusKind = "o
     delete el.dataset.kind;
   }, ms));
 }
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** Same as h() for SVG. Numbers are allowed because coordinates are. */
+export function svg<K extends keyof SVGElementTagNameMap>(
+  tag: K,
+  attrs: Record<string, string | number | undefined> = {},
+  ...children: Array<Node | string>
+): SVGElementTagNameMap[K] {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attrs)) {
+    if (value !== undefined) el.setAttribute(name, String(value));
+  }
+  el.append(...children);
+  return el;
+}
+
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}

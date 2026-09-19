@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { E2E_SERVER_URL, KEYLESS_SERVER_ENV } from "./fixtures";
 
 type WebServer = NonNullable<Parameters<typeof defineConfig>[0]["webServer"]>;
 type WebServerEntry = Extract<WebServer, { command: string }>;
@@ -11,19 +12,14 @@ const demoServer: WebServerEntry = {
   timeout: 60_000,
 };
 
-// Stage 2: opt in with GHOST_E2E_SERVER=1. Blank keys plus GHOST_PROVIDER keep tests on the
-// heuristic provider even when a real .env exists (process env wins over --env-file).
+// Port 8788, never 8787: a developer server on 8787 may hold real keys. It is never reused either, so a run
+// can only ever talk to the keyless server it started itself (a busy 8788 fails the run instead).
 const predictionServer: WebServerEntry = {
   command: "pnpm --filter @ghost/server start",
-  url: "http://localhost:8787/v1/health",
-  reuseExistingServer: true,
+  url: `${E2E_SERVER_URL}/v1/health`,
+  reuseExistingServer: false,
   timeout: 60_000,
-  env: {
-    GHOST_PROVIDER: "heuristic",
-    TYPESAFE_API_KEY: "",
-    AI_GATEWAY_API_KEY: "",
-    OPENAI_API_KEY: "",
-  },
+  env: { ...KEYLESS_SERVER_ENV, PORT: new URL(E2E_SERVER_URL).port },
 };
 
 export default defineConfig({
@@ -35,5 +31,5 @@ export default defineConfig({
   fullyParallel: false,
   reporter: [["list"]],
   use: { baseURL: "http://localhost:5173" },
-  webServer: process.env.GHOST_E2E_SERVER === "1" ? [demoServer, predictionServer] : [demoServer],
+  webServer: [demoServer, predictionServer],
 });
