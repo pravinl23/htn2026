@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": [],
+    "baseUrl": ".",
+    "paths": { "@ghost/shared": ["../../shared/src/index.ts"] }
+  },
+  "include": ["entry.ts", "predict.ts"]
+}
