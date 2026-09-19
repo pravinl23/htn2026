@@ -23,6 +23,11 @@ Then load the extension in Chrome:
 
 Toggle Ghost with **Alt+Shift+G** or the toolbar button.
 
+For the atomic macOS/Composio workflow demo, keep the server and demo running and open
+`http://localhost:5173/workflow/index.html`. It is side-effect-free and simulated until
+`COMPOSIO_API_KEY` is configured, with meeting coordination and Slack → GitHub issue
+stories ready for the hackathon demo. See [`docs/workflows.md`](docs/workflows.md).
+
 ## Test it
 
 ```bash
@@ -42,6 +47,7 @@ shared/      types and pure logic shared by the extension and the server (field 
 extension/   Chrome MV3 extension (content script, background worker, options page)
 server/      Hono prediction service on http://localhost:8787
 demo/        local demo sites on http://localhost:5173
+desktop/     native macOS AX capture, verified writes, overlay, and global Tab gate
 e2e/         Playwright tests that load the built extension
 docs/        media and diagrams
 ```
