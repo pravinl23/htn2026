@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Ghost, NextCandidate } from "@ghost/shared";
 import type { ExecResult } from "../src/content/execute";
-import { NEXT_HOST_ID, NEXT_SETTLE_MS, PRESENCE_PING, collectCandidates, startNextAction } from "../src/content/nextAction";
+import { NEXT_HOST_ID, NEXT_SETTLE_CEILING_MS, NEXT_SETTLE_MS, PRESENCE_PING, collectCandidates, startNextAction } from "../src/content/nextAction";
 import type { NextActionDeps, NextActionHandle, NextMessage } from "../src/content/nextAction";
 
 const MAIL_VIEW = `
@@ -159,6 +159,21 @@ describe("collectCandidates", () => {
 });
 
 describe("when a question is asked", () => {
+  it("rescans controls that a large SPA hydrates late, with a ceiling for continuous mutations", async () => {
+    vi.useFakeTimers();
+    document.body.replaceChildren();
+    start();
+    await vi.advanceTimersByTimeAsync(NEXT_SETTLE_MS - 1);
+    document.body.insertAdjacentHTML("beforeend", '<button type="button">Play video</button>');
+    await vi.advanceTimersByTimeAsync(NEXT_SETTLE_MS - 1);
+    expect(sent).toHaveLength(0);
+    // More framework churn resets the quiet timer but cannot postpone past the ceiling.
+    document.body.insertAdjacentHTML("beforeend", "<div>recommendations loaded</div>");
+    await vi.advanceTimersByTimeAsync(NEXT_SETTLE_CEILING_MS);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.candidates.map((candidate) => candidate.label)).toContain("Play video");
+  });
+
   it("asks once the page settles (300 ms), with the page's origin + path and the candidates", async () => {
     vi.useFakeTimers();
     start();

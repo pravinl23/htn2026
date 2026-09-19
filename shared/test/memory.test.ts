@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EpisodicStore, actionFromEvent, jaccard, predictFromMemory, stateSummary } from "../src";
+import { EpisodicStore, actionFromEvent, jaccard, predictFromMemory, predictFromRecentSiteMemory, stateSummary } from "../src";
 import type { EpisodicAction, NextCandidate } from "../src";
 import { TraceBuilder } from "./helpers/traceBuilder";
 
@@ -56,6 +56,13 @@ describe("EpisodicStore", () => {
     for (let i = 0; i < 8; i++) store.add("same state", action(`Button ${i}`));
     expect(store.retrieve("same state")).toHaveLength(5);
     expect(store.retrieve("same state", 3)).toHaveLength(3);
+  });
+
+  it("returns newest pairs across states for a site-filtered recent fallback", () => {
+    const store = new EpisodicStore();
+    store.add("old state", action("Calendar", "link"));
+    store.add("new state", action("Pick slot"));
+    expect(store.recent(2).map((pair) => pair.action.label)).toEqual(["Pick slot", "Calendar"]);
   });
 
   it("evicts the least recently used pair beyond the cap (300 by default)", () => {
@@ -124,5 +131,18 @@ describe("predictFromMemory", () => {
     expect(store.predict("s1", candidates)).toEqual({ candidateId: "link:Calendar", confidence: 0.5 });
     store.add("s1", action("Send"));
     expect(store.predict("s1", candidates)).toEqual({ candidateId: "button:Send", confidence: 0.9 });
+  });
+});
+
+describe("predictFromRecentSiteMemory", () => {
+  it("uses the newest compatible action across states and strengthens a repeated habit", () => {
+    const recent = [
+      { summary: "new", action: action("Calendar", "link"), count: 1 },
+      { summary: "older", action: action("Calendar", "link"), count: 1 },
+      { summary: "oldest", action: action("Pick slot"), count: 9 },
+    ];
+    expect(predictFromRecentSiteMemory(candidates, recent)).toEqual({ candidateId: "link:Calendar", confidence: 0.8 });
+    expect(predictFromRecentSiteMemory(candidates, recent.slice(0, 1))).toEqual({ candidateId: "link:Calendar", confidence: 0.65 });
+    expect(predictFromRecentSiteMemory(candidates, [{ summary: "x", action: action("Gone"), count: 3 }])).toEqual({ candidateId: "none", confidence: 0 });
   });
 });

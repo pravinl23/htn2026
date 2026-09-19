@@ -15,6 +15,8 @@ import { looksSensitiveValue } from "./pageFacts";
 import { hasLayout, isCovered, isRendered, placement } from "./visibility";
 
 export const NEXT_SETTLE_MS = 300;
+/** A continuously mutating SPA still gets a prediction instead of postponing forever. */
+export const NEXT_SETTLE_CEILING_MS = 1200;
 export const NEXT_MAX_CANDIDATES = TRACE_LIMITS.candidates;
 /** Same string as background/presence.ts PRESENCE_PING (kept apart so the content bundle never pulls in worker code). */
 export const PRESENCE_PING = "ghost:presence";
@@ -260,6 +262,7 @@ class NextAction implements NextActionHandle {
   private epoch = 0;
   private running = false;
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
+  private settleStartedAt: number | null = null;
   private watchTimer: ReturnType<typeof setInterval> | null = null;
   private urlTimer: ReturnType<typeof setInterval> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -273,6 +276,7 @@ class NextAction implements NextActionHandle {
   /** Escaped on this page: not offered again until the next navigation. */
   private readonly dismissed = new Set<string>();
   private frameQueued = false;
+  private mutations: MutationObserver | null = null;
 
   constructor(private readonly deps: NextActionDeps) {
     this.doc = deps.doc ?? document;
@@ -292,6 +296,7 @@ class NextAction implements NextActionHandle {
     this.running = true;
     this.lastUrl = this.pageKey();
     this.listen(true);
+    this.watchMutations();
     this.urlTimer = setInterval(this.poll, URL_POLL_MS);
     const pingMs = this.deps.presencePingMs ?? PRESENCE_PING_MS;
     if (pingMs > 0) this.pingTimer = setInterval(this.ping, pingMs);
@@ -304,9 +309,12 @@ class NextAction implements NextActionHandle {
     this.running = false;
     this.epoch++;
     this.listen(false);
+    this.mutations?.disconnect();
+    this.mutations = null;
     for (const timer of [this.urlTimer, this.pingTimer]) if (timer) clearInterval(timer);
     if (this.settleTimer) clearTimeout(this.settleTimer);
     this.urlTimer = this.pingTimer = this.settleTimer = null;
+    this.settleStartedAt = null;
     this.stopOrphanWatch();
     this.clear();
     this.view.destroy();
@@ -322,11 +330,39 @@ class NextAction implements NextActionHandle {
 
   private schedule(): void {
     if (!this.running) return;
+    const now = Date.now();
+    this.settleStartedAt ??= now;
     if (this.settleTimer) clearTimeout(this.settleTimer);
+    const wait = Math.min(this.deps.settleMs ?? NEXT_SETTLE_MS, Math.max(0, NEXT_SETTLE_CEILING_MS - (now - this.settleStartedAt)));
     this.settleTimer = setTimeout(() => {
       this.settleTimer = null;
+      this.settleStartedAt = null;
       void this.predict();
-    }, this.deps.settleMs ?? NEXT_SETTLE_MS);
+    }, wait);
+  }
+
+  /** Hydrating SPAs replace controls after document_idle. Re-ask once their DOM settles, bounded by the ceiling. */
+  private watchMutations(): void {
+    const Observer = this.doc.defaultView?.MutationObserver;
+    const root = this.doc.documentElement;
+    if (!Observer || !root) return;
+    this.mutations = new Observer((records) => {
+      const relevant = records.some((record) => {
+        const target = record.target instanceof Element ? record.target : record.target.parentElement;
+        if (target?.closest(GHOST_UI)) return false;
+        if (record.type !== "childList") return true;
+        return [...record.addedNodes, ...record.removedNodes].some((node) => !(node instanceof Element) || !node.matches(GHOST_UI));
+      });
+      if (!relevant) return;
+      if (this.current && !this.current.el.isConnected) this.clear();
+      if (!this.current) this.schedule();
+    });
+    this.mutations.observe(root, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["hidden", "disabled", "aria-disabled", "aria-label", "role", "href", "tabindex"],
+    });
   }
 
   /** The form walk, the loop sheet and the on/off switch all outrank a next-action ghost. */

@@ -6,6 +6,8 @@ export const EPISODIC_MAX_PAIRS = 300;
 export const EPISODIC_TOP_K = 5;
 export const MEMORY_CONFIDENCE_ONCE = 0.75;
 export const MEMORY_CONFIDENCE_REPEATED = 0.9;
+export const MEMORY_CONFIDENCE_SITE_RECENT = 0.65;
+export const MEMORY_CONFIDENCE_SITE_REPEATED = 0.8;
 /** Two different actions followed this state equally often: below the default threshold, so no ghost. */
 export const MEMORY_CONFIDENCE_AMBIGUOUS = 0.5;
 const SUMMARY_KEYS = 3;
@@ -124,6 +126,11 @@ export class EpisodicStore {
       .map((s) => copyPair(s.pair));
   }
 
+  /** Most recently observed pairs first, regardless of state. Callers must enforce site isolation. */
+  recent(k: number = EPISODIC_TOP_K): EpisodicPair[] {
+    return this.pairs.slice(-Math.max(0, k)).reverse().map(copyPair);
+  }
+
   predict(summary: string, candidates: readonly NextCandidate[]): MemoryPrediction {
     return predictFromMemory(summary, candidates, this.retrieve(summary, this.max));
   }
@@ -186,4 +193,27 @@ export function predictFromMemory(
   if (runnerUp && runnerUp.count === best.count) return { candidateId: best.candidate.id, confidence: MEMORY_CONFIDENCE_AMBIGUOUS };
   const confidence = best.count >= 2 ? MEMORY_CONFIDENCE_REPEATED : MEMORY_CONFIDENCE_ONCE;
   return { candidateId: best.candidate.id, confidence };
+}
+
+/**
+ * Site-level fallback for a state that has never occurred before. The newest compatible real user action wins;
+ * repetition raises confidence, but never above an exact-state memory. `memory` must already belong to one origin.
+ */
+export function predictFromRecentSiteMemory(
+  candidates: readonly NextCandidate[],
+  memory: readonly EpisodicPair[],
+): MemoryPrediction {
+  let newest: NextCandidate | null = null;
+  let observations = 0;
+  for (const pair of memory) {
+    const candidate = findCandidate(pair.action, candidates);
+    if (!candidate) continue;
+    if (!newest) newest = candidate;
+    if (candidate.id === newest.id) observations += pair.count;
+  }
+  if (!newest) return { candidateId: "none", confidence: 0 };
+  return {
+    candidateId: newest.id,
+    confidence: observations >= 2 ? MEMORY_CONFIDENCE_SITE_REPEATED : MEMORY_CONFIDENCE_SITE_RECENT,
+  };
 }

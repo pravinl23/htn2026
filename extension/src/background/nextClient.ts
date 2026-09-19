@@ -7,9 +7,9 @@
 // memory.observe, with the events before it as the state. Recording again would count one demonstration twice.
 //
 // One site never learns about another. Only this origin's actions go out, as origin + path PATTERN (an account
-// number in a path stays home). Memory pairs carry no origin, so a pair only counts when this origin's own trace
-// shows the user doing exactly that action in exactly that state (same summary, as the router computed it).
-import { EPISODIC_TOP_K, NONE, actionFromEvent, actionKey, filterNoise, isSensitive, normalizeUrl, predictFromMemory, stateSummary } from "@ghost/shared";
+// number in a path stays home). Memory pairs carry no origin, so exact and recent-site recall only count when this
+// origin's own trace proves that the user performed that action in that recorded state.
+import { EPISODIC_MAX_PAIRS, EPISODIC_TOP_K, NONE, actionFromEvent, actionKey, filterNoise, isSensitive, normalizeUrl, predictFromMemory, predictFromRecentSiteMemory, stateSummary } from "@ghost/shared";
 import type { EpisodicPair, MemoryPrediction, NextCandidate, NormalizedUrl, TraceEvent } from "@ghost/shared";
 import { isLoopMessage, sanitizeNextCandidates } from "../lib/loopMessages";
 import type { LoopMessageOf, NextPredictionReply } from "../lib/loopMessages";
@@ -63,7 +63,7 @@ export interface NextRequestBody {
 
 export interface NextClientDeps {
   trace: Pick<TraceStore, "recent">;
-  memory: Pick<EpisodicMemory, "retrieve">;
+  memory: Pick<EpisodicMemory, "retrieve" | "recent">;
   extensionId: string;
   fetch?: FetchLike;
   getServerUrl?: () => Promise<string | null>;
@@ -247,7 +247,12 @@ export function createNextClient(deps: NextClientDeps): NextClient {
     if (pick.candidateId === NONE && routerSummary !== summary && summaryIsFrom(routerSummary, routerEvents, place.origin)) {
       pick = predictFromMemory(routerSummary, candidates, await recall(routerSummary));
     }
-    return { summary, recalled, pick };
+    // Large SPAs rarely recreate the exact last-three-action state. Fall back to what this user did most recently
+    // on this origin when that target is available now; evidence prevents another website's memory from entering.
+    const recentHere = evidence.size === 0 ? [] : learnedHere(await deps.memory.recent(EPISODIC_MAX_PAIRS), evidence);
+    if (pick.candidateId === NONE) pick = predictFromRecentSiteMemory(candidates, recentHere);
+    const forServer = [...recalled, ...recentHere.filter((pair) => !recalled.some((exact) => exact.summary === pair.summary && actionKey(exact.action) === actionKey(pair.action)))];
+    return { summary, recalled: forServer, pick };
   }
 
   async function askServer(base: string, body: NextRequestBody, ids: ReadonlySet<string>): Promise<ServerPick | null> {

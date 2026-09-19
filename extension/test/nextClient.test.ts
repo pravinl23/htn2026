@@ -135,14 +135,14 @@ describe("episodic memory answers first, with zero network", () => {
     expect(fetchMock).not.toHaveBeenCalled(); // no server configured: memory only
   });
 
-  it("does not propose from a different state (the calendar was opened from the inbox, not from the email)", async () => {
+  it("falls back to the most recent compatible action on this site when the exact state is new", async () => {
     const client = makeClient();
     await openInbox();
     await openEmail();
     await clickOpenCalendar();
     await record("navigate", "/mail");
     await record("navigate", "/mail/msg-1002"); // a different route into the email: another state
-    expect(await ask(client)).toMatchObject({ ok: true, candidateId: BACK, confidence: 0.25 });
+    expect(await ask(client)).toMatchObject({ ok: true, candidateId: OPEN_CALENDAR, confidence: 0.65, provider: "memory" });
   });
 
   it("keeps the state per tab: another tab's actions in between do not hide the memory", async () => {
