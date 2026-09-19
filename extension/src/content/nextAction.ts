@@ -2,7 +2,7 @@
 // form walk has nothing to offer, the visible controls near the viewport go to the worker as candidates
 // ("ghost:next-candidates"). The best answer becomes a click ghost: the ghost cursor glides onto the
 // element, Tab clicks it (a locked one is only focused), Escape dismisses it, and any other user action takes it away.
-import { NONE, isSensitive, normalizeUrl } from "@ghost/shared";
+import { NONE, isSensitive, nextCandidatePriority, normalizeUrl } from "@ghost/shared";
 import type { FieldKind, Ghost, GhostSettings, NextCandidate, Rect } from "@ghost/shared";
 import { TRACE_LIMITS } from "../lib/loopMessages";
 import type { LoopMessageOf, NextPredictionReply } from "../lib/loopMessages";
@@ -12,6 +12,7 @@ import type { ExecResult } from "./execute";
 import { extensionAlive, watchForOrphan } from "./lifecycle";
 import { CURSOR_PATH, CURSOR_TIP, OVERLAY_CSS } from "./overlay-style";
 import { looksSensitiveValue } from "./pageFacts";
+import { listRefOf } from "./listContext";
 import { hasLayout, isCovered, isRendered, placement } from "./visibility";
 
 export const NEXT_SETTLE_MS = 300;
@@ -91,7 +92,7 @@ export function collectCandidates(doc: Document = document, max: number = NEXT_M
   const width = view?.innerWidth ?? 0;
   const height = view?.innerHeight ?? 0;
   const measured = hasLayout(doc);
-  const pool: Array<{ order: number; distance: number; candidate: NextCandidate; el: HTMLElement }> = [];
+  const pool: Array<{ order: number; distance: number; priority: number; candidate: NextCandidate; el: HTMLElement }> = [];
   captureFields(doc).forEach((field, order) => {
     const kind = candidateKind(field.kind);
     const label = field.label.trim().slice(0, TRACE_LIMITS.label);
@@ -103,9 +104,21 @@ export function collectCandidates(doc: Document = document, max: number = NEXT_M
     const candidate: NextCandidate = { id: field.signature, kind, label, locked: field.locked === true || submitsForm(el) };
     const context = field.context?.trim().slice(0, TRACE_LIMITS.context);
     if (context && !sensitiveText(context)) candidate.context = context;
-    pool.push({ order, distance, candidate, el });
+    const list = listRefOf(el);
+    if (list && !sensitiveText(list.listSignature)) candidate.group = `LIST(${list.listSignature})`;
+    let priority = nextCandidatePriority(candidate);
+    if (el.closest('dialog, [role="dialog"], [aria-modal="true"]')) priority += 55;
+    if (el.closest('main, [role="main"], article')) priority += 22;
+    if (el.closest("form")) priority += 18;
+    if (el.closest('header, nav, footer, [role="navigation"]')) priority -= 45;
+    if (el.hasAttribute("aria-current")) priority -= 50;
+    if (/\b(primary|cta)\b/i.test(`${el.className} ${el.getAttribute("data-variant") ?? ""}`)) priority += 28;
+    pool.push({ order, distance, priority, candidate, el });
   });
-  const kept = pool.sort((a, b) => a.distance - b.distance || a.order - b.order).slice(0, Math.max(0, max)).sort((a, b) => a.order - b.order);
+  // Rank before applying the cap: large pages often put dozens of header/category links before the task control.
+  const kept = pool
+    .sort((a, b) => b.priority - a.priority || a.distance - b.distance || a.order - b.order)
+    .slice(0, Math.max(0, max));
   return { candidates: kept.map((k) => k.candidate), elements: new Map(kept.map((k) => [k.candidate.id, k.el])) };
 }
 

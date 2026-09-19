@@ -9,7 +9,7 @@
 // One site never learns about another. Only this origin's actions go out, as origin + path PATTERN (an account
 // number in a path stays home). Memory pairs carry no origin, so exact and recent-site recall only count when this
 // origin's own trace proves that the user performed that action in that recorded state.
-import { EPISODIC_MAX_PAIRS, EPISODIC_TOP_K, NONE, actionFromEvent, actionKey, filterNoise, isSensitive, normalizeUrl, predictFromMemory, predictFromRecentSiteMemory, stateSummary } from "@ghost/shared";
+import { EPISODIC_MAX_PAIRS, EPISODIC_TOP_K, NONE, actionFromEvent, actionKey, filterNoise, isSensitive, normalizeUrl, predictFromMemory, predictFromRecentSiteMemory, rankNextCandidates, stateSummary } from "@ghost/shared";
 import type { EpisodicPair, MemoryPrediction, NextCandidate, NormalizedUrl, TraceEvent } from "@ghost/shared";
 import { isLoopMessage, sanitizeNextCandidates } from "../lib/loopMessages";
 import type { LoopMessageOf, NextPredictionReply } from "../lib/loopMessages";
@@ -292,7 +292,8 @@ export function createNextClient(deps: NextClientDeps): NextClient {
       ({ ok: true, candidateId: pick.candidateId, confidence: pick.confidence, provider, calibrated, latencyMs: now() - started });
     const bestEffort = (): MemoryPrediction => {
       if (local.pick.candidateId !== NONE) return local.pick;
-      const candidate = candidates.find((item) => !item.locked) ?? candidates[0];
+      const last = filterNoise(tabEvents).at(-1)?.target;
+      const candidate = rankNextCandidates(candidates, last)[0];
       return candidate
         ? { candidateId: candidate.id, confidence: BEST_EFFORT_CONFIDENCE }
         : local.pick;

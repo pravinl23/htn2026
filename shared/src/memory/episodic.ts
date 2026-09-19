@@ -37,6 +37,8 @@ export interface NextCandidate {
   label: string;
   locked: boolean;
   context?: string;
+  /** Value-free structural group (for example a repeated result list). */
+  group?: string;
 }
 
 export interface MemoryPrediction {
@@ -156,7 +158,56 @@ function findCandidate(action: EpisodicAction, candidates: readonly NextCandidat
   const label = action.label.trim().toLowerCase();
   if (label === "") return null;
   const byLabel = candidates.filter((c) => c.kind === candidateKind(action.kind) && c.label.trim().toLowerCase() === label);
-  return byLabel.length === 1 ? (byLabel[0] ?? null) : null;
+  if (byLabel.length === 1) return byLabel[0] ?? null;
+  // Feeds, search results and product grids change item labels on every visit. A stable, value-free list shape
+  // lets recent site memory learn "the user acts in this result group" without learning one site's DOM.
+  const byGroup = candidates.filter((c) => c.kind === candidateKind(action.kind) && c.group === action.targetShape);
+  return byGroup[0] ?? null;
+}
+
+const POSITIVE_INTENT = [
+  /\b(search|find|look up|browse|discover)\b/,
+  /\b(continue|next|proceed|checkout|place (?:the |your )?order|confirm|pay|purchase|submit|send|post|upload|save|finish|done|apply|book|reserve)\b/,
+  /\b(play|watch|open|start|view|read|full ?screen|expand)\b/,
+];
+const NEGATIVE_INTENT = /\b(back|cancel|close|dismiss|delete|remove|sign ?out|log ?out|unsubscribe|clear|reset)\b/;
+const CHROME_INTENT = /\b(home|logo|account|profile|settings|help|menu|navigation)\b/;
+
+export interface PreviousCandidateAction {
+  type?: string;
+  label?: string;
+  signature?: string;
+}
+
+/** Site-agnostic cold-start salience based on accessible semantics, never hostnames or selectors. */
+export function nextCandidatePriority(candidate: NextCandidate, previous?: PreviousCandidateAction): number {
+  const text = `${candidate.label} ${candidate.context ?? ""}`.toLowerCase();
+  let score = candidate.kind === "button" ? 24 : candidate.kind === "field" ? 18 : 0;
+  if (POSITIVE_INTENT[0]?.test(text)) score += candidate.kind === "field" ? 80 : 45;
+  if (POSITIVE_INTENT[1]?.test(text)) score += 70;
+  if (POSITIVE_INTENT[2]?.test(text)) score += 45;
+  if (candidate.group) score += 8;
+  if (NEGATIVE_INTENT.test(text)) score -= 90;
+  if (CHROME_INTENT.test(text)) score -= 30;
+  const previousLabel = previous?.label?.toLowerCase() ?? "";
+  if (previous?.signature === candidate.id || (previousLabel !== "" && previousLabel === candidate.label.toLowerCase())) score -= 120;
+  // After committing a discovery field, advance into its result group instead of suggesting the same field again.
+  if (/\b(search|find|look up|browse|discover)\b/.test(previousLabel)) {
+    if (candidate.group) score += 60;
+    if (candidate.kind === "link" || candidate.kind === "button") score += 20;
+    if (candidate.kind === "field") score -= 35;
+  }
+  // Media controls are a generic state transition: play/watch commonly precedes a viewing-mode action.
+  if (/\b(play|watch|start)\b/.test(previousLabel) && /\b(full ?screen|expand|theater|cinema)\b/.test(text)) score += 75;
+  return score;
+}
+
+/** Highest semantic priority first, stable for ties. */
+export function rankNextCandidates<T extends NextCandidate>(candidates: readonly T[], previous?: PreviousCandidateAction): T[] {
+  return candidates
+    .map((candidate, order) => ({ candidate, order, score: nextCandidatePriority(candidate, previous) }))
+    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .map(({ candidate }) => candidate);
 }
 
 interface Tally {

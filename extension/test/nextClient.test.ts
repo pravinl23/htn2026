@@ -121,7 +121,7 @@ describe("episodic memory answers first, with zero network", () => {
 
     await openInbox();
     await openEmail();
-    expect(await ask(client)).toMatchObject({ ok: true, candidateId: BACK, confidence: 0.25 }); // unseen: safest first best guess
+    expect(await ask(client)).toMatchObject({ ok: true, candidateId: SEND, confidence: 0.25 }); // unseen: semantic best guess, still locked
 
     await clickOpenCalendar();
     await goBack();

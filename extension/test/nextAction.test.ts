@@ -115,7 +115,7 @@ describe("collectCandidates", () => {
   it("offers visible buttons, links and fields, never sensitive, hidden, disabled or Ghost's own controls", () => {
     const { candidates, elements } = collectCandidates(document);
     const labels = candidates.map((c) => c.label);
-    expect(labels).toEqual(["Larkspur Mail", "Back to inbox", "Open calendar", "Reply", "Send reply"]);
+    expect(labels).toEqual(["Send reply", "Reply", "Open calendar", "Larkspur Mail", "Back to inbox"]);
     expect(candidates.find((c) => c.label === "Open calendar")).toMatchObject({ kind: "link", locked: false });
     expect(candidates.find((c) => c.label === "Reply")).toMatchObject({ kind: "field", locked: false });
     expect(candidates.find((c) => c.label === "Send reply")).toMatchObject({ kind: "button", locked: true });
@@ -140,21 +140,42 @@ describe("collectCandidates", () => {
       <details><summary>Advanced settings</summary></details>`;
     const candidates = collectCandidates(document).candidates;
     expect(candidates.map((candidate) => [candidate.label, candidate.kind])).toEqual([
+      ["Open dashboard", "link"],
       ["Activity", "button"],
       ["Move to folder", "button"],
       ["Dark mode", "button"],
       ["Projects", "button"],
-      ["Open dashboard", "link"],
       ["Custom action", "button"],
       ["Advanced settings", "button"],
     ]);
   });
 
-  it("keeps at most 60, in DOM order", () => {
+  it("keeps at most 60, with meaningful controls ahead of passive page chrome", () => {
     document.body.innerHTML = Array.from({ length: 80 }, (_, i) => `<button type="button">Action ${i}</button>`).join("");
     const { candidates } = collectCandidates(document);
     expect(candidates).toHaveLength(60);
     expect(candidates[0]?.label).toBe("Action 0");
+  });
+
+  it("keeps generic search, checkout and media controls discoverable on large pages", () => {
+    document.body.innerHTML = `
+      <header><a href="/">Shop home</a>${Array.from({ length: 80 }, (_, i) => `<a href="/category/${i}">Category ${i}</a>`).join("")}
+        <form><input type="search" aria-label="Search products" /></form></header>
+      <main><form><button type="submit">Place your order</button></form></main>`;
+    const checkout = collectCandidates(document, 3).candidates;
+    expect(checkout.slice(0, 2).map((candidate) => candidate.label)).toEqual(["Place your order", "Search products"]);
+    expect(checkout[0]).toMatchObject({ locked: true });
+
+    document.body.innerHTML = `<header><input type="search" aria-label="Search videos" /></header><main><button>Play video</button><button>Full screen</button></main>`;
+    expect(collectCandidates(document, 3).candidates.map((candidate) => candidate.label)).toEqual(["Play video", "Full screen", "Search videos"]);
+  });
+
+  it("marks changing items with the value-free repeated group used by site memory", () => {
+    document.body.innerHTML = `<main><ul aria-label="Recommended"><li><a href="/v/1">First video</a></li><li><a href="/v/2">Second video</a></li></ul></main>`;
+    const grouped = collectCandidates(document).candidates.filter((candidate) => candidate.label.endsWith("video"));
+    expect(grouped).toHaveLength(2);
+    expect(grouped[0]?.group).toMatch(/^LIST\(/);
+    expect(grouped[1]?.group).toBe(grouped[0]?.group);
   });
 });
 

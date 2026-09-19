@@ -291,6 +291,8 @@ function cleanCandidate(raw: unknown): NextCandidate | null {
   const candidate: NextCandidate = { id, kind: raw.kind as NextCandidate["kind"], label, locked: raw.locked === true };
   const context = clip(raw.context, TRACE_LIMITS.context);
   if (context && !isSensitive({ label: context })) candidate.context = context;
+  const group = identifier(raw.group, TRACE_LIMITS.signature);
+  if (group && !isSensitive({ label: group })) candidate.group = group;
   return candidate;
 }
 

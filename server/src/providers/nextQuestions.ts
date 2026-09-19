@@ -1,4 +1,4 @@
-import { NONE, isSensitive, normalize, type Answers, type ChoiceQuestion, type Questions } from "@ghost/shared";
+import { NONE, isSensitive, normalize, rankNextCandidates, type Answers, type ChoiceQuestion, type Questions } from "@ghost/shared";
 
 /** One normalized user action. The server never forwards typed values, only what was acted on. */
 export interface TraceEvent {
@@ -22,6 +22,7 @@ export interface NextCandidate {
   label: string;
   locked: boolean;
   context?: string;
+  group?: string;
 }
 
 export interface NextPredictRequest {
@@ -94,7 +95,9 @@ export function buildNextDecision(req: NextPredictRequest): NextDecision {
     const alias = `c${i}`;
     aliases[alias] = c.id;
     criteria[alias] = `${c.kind}: ${c.label}`;
-    return { ...c, id: alias };
+    // `group` is an opaque structural locator used only by code; like signatures, it never enters a model state.
+    const { group: _group, ...visible } = c;
+    return { ...visible, id: alias };
   });
   const state: NextState = {
     page: { origin: req.origin, url: req.url },
@@ -134,7 +137,8 @@ export function pickNextFromMemory(state: Pick<NextPredictRequest, "recentAction
 export function pickBestEffort(state: Pick<NextPredictRequest, "recentActions" | "candidates" | "memory">): NextPick {
   const learned = pickNextFromMemory(state);
   if (learned.candidateId !== NONE) return learned;
-  const candidate = state.candidates.find((item) => !item.locked) ?? state.candidates[0];
+  // Locked means explicit confirmation, not low likelihood: checkout/submit may be the correct next target.
+  const candidate = rankNextCandidates(state.candidates, state.recentActions.at(-1))[0];
   return candidate
     ? { candidateId: candidate.id, confidence: BEST_EFFORT_CONFIDENCE }
     : { candidateId: NONE, confidence: 0.99 };

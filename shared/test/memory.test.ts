@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EpisodicStore, actionFromEvent, jaccard, predictFromMemory, predictFromRecentSiteMemory, stateSummary } from "../src";
+import { EpisodicStore, actionFromEvent, jaccard, predictFromMemory, predictFromRecentSiteMemory, rankNextCandidates, stateSummary } from "../src";
 import type { EpisodicAction, NextCandidate } from "../src";
 import { TraceBuilder } from "./helpers/traceBuilder";
 
@@ -144,5 +144,39 @@ describe("predictFromRecentSiteMemory", () => {
     expect(predictFromRecentSiteMemory(candidates, recent)).toEqual({ candidateId: "link:Calendar", confidence: 0.8 });
     expect(predictFromRecentSiteMemory(candidates, recent.slice(0, 1))).toEqual({ candidateId: "link:Calendar", confidence: 0.65 });
     expect(predictFromRecentSiteMemory(candidates, [{ summary: "x", action: action("Gone"), count: 3 }])).toEqual({ candidateId: "none", confidence: 0 });
+  });
+
+  it("generalizes a recent action to a changing item in the same repeated result group", () => {
+    const feed: NextCandidate[] = [
+      { id: "new-video", kind: "link", label: "A title never seen before", locked: false, group: "LIST(video-feed)" },
+      { id: "settings", kind: "button", label: "Settings", locked: false },
+    ];
+    const recent = [{ summary: "watch", action: { ...action("Old video", "link"), signature: "gone", targetShape: "LIST(video-feed)" }, count: 1 }];
+    expect(predictFromRecentSiteMemory(feed, recent)).toEqual({ candidateId: "new-video", confidence: 0.65 });
+  });
+});
+
+describe("rankNextCandidates", () => {
+  const cold: NextCandidate[] = [
+    { id: "logo", kind: "link", label: "Store home", locked: false },
+    { id: "search", kind: "field", label: "Search products", locked: false },
+    { id: "order", kind: "button", label: "Place your order", locked: true },
+  ];
+
+  it("chooses meaningful task controls on cold start and keeps a locked final action eligible", () => {
+    expect(rankNextCandidates(cold).map((candidate) => candidate.id)).toEqual(["search", "order", "logo"]);
+  });
+
+  it("moves from a search action into a changing result group and from play into viewing mode", () => {
+    const results: NextCandidate[] = [
+      { id: "search", kind: "field", label: "Search", locked: false },
+      { id: "result", kind: "link", label: "Unseen result", locked: false, group: "LIST(results)" },
+    ];
+    expect(rankNextCandidates(results, { type: "input", label: "Search", signature: "search" })[0]?.id).toBe("result");
+    const media: NextCandidate[] = [
+      { id: "play", kind: "button", label: "Play", locked: false },
+      { id: "full", kind: "button", label: "Full screen", locked: false },
+    ];
+    expect(rankNextCandidates(media, { type: "click", label: "Play", signature: "play" })[0]?.id).toBe("full");
   });
 });
