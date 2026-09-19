@@ -115,6 +115,17 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.ghost.server.plist  
 
 **Privacy.** Everything runs on your Mac and the server listens on loopback only. What leaves the machine is what the configured model provider needs: field labels and the *names* of your profile facts for mapping (never their values), and for free-text answers only the relevant non-sensitive facts. Password, card, government ID and sensitive-labelled fields are never captured, predicted, filled, cached or logged. Locked actions (submit, send, pay, delete) are never pressed by Ghost. Your profile lives in `~/Library/Application Support/Ghost/profile.json` (mode 0600) and nothing is written to the repo. Pause Ghost for any app from the menu-bar icon, or toggle it with Alt+Shift+G.
 
+## Terminal ghost
+
+Ghost also predicts your next shell command in zsh and shows it as gray text after the cursor: after `git add -A` the line already says `git commit -m ""`, Tab puts it on the line with the cursor inside the quotes, and Enter stays yours (Ghost never runs anything). Tab keeps completing as before whenever no ghost is visible; Right arrow at the end of the line also accepts; Esc dismisses.
+
+```bash
+pnpm --filter @ghost/server start                          # the server on :8787 (or the background LaunchAgent above)
+echo 'source /path/to/htn2026/terminal/ghost.zsh' >> ~/.zshrc  # add it yourself, after plugins that bind Tab
+```
+
+The server builds candidates in code (what followed your last command before, git-aware next steps like `git push` when the branch is ahead, a rerun after a failed test, `package.json` scripts and `Makefile` targets) and asks Jev to pick one in a single call (measured 491 ms, confidence 0.89 for `git commit -m ""` after `git add -A`); without a key a local heuristic answers. Only the directory's basename is sent, secret-looking history lines are dropped in the shell and again on the server, destructive commands (`rm -rf`, force pushes, `sudo`, `DROP TABLE`, ...) are never suggested, and a server that is down is a silent no-op. Works in iTerm2 and Terminal.app; Warp replaces zsh's line editor, so ZLE plugins (this one and zsh-autosuggestions alike) do not render there. Details, privacy and compatibility: [`terminal/README.md`](terminal/README.md). Test it with `pnpm test:terminal`.
+
 ## Layout
 
 ```
@@ -124,5 +135,6 @@ server/      Hono prediction service on http://localhost:8787
 demo/        local demo sites on http://localhost:5173
 e2e/         Playwright tests that load the built extension
 desktop/     native macOS menu-bar form agent (separate Makefile build and tests)
+terminal/    zsh plugin that ghosts your next shell command (ghost.zsh) and its pty tests
 docs/        media and diagrams
 ```

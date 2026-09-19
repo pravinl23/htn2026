@@ -86,6 +86,23 @@ GH_TEST(core_missing_bundle_reports_error) {
     GH_ASSERT_EQUAL_INT(error.code, GHCoreErrorBundleNotFound);
 }
 
+GH_TEST(core_bundle_is_pinned_to_the_one_built_with_the_library) {
+    NSString *pinned = GHCorePinnedSHA256();
+    GH_ASSERT_EQUAL_INT(pinned.length, 64);                           // make lib / make test embed it
+    NSString *built = [GHCore defaultBundlePath];                     // the test runner: DESKTOP_CORE_PATH, the fresh build
+    GH_ASSERT(built != nil);
+    GH_ASSERT_EQUAL_OBJECTS(GHCoreSHA256OfFile(built), pinned);
+    GH_ASSERT(GHCoreBundleMatchesPin(built, pinned));
+    // A swapped core (same exports, different rules) is refused; so is a missing one. Only an unpinned build skips it.
+    NSString *swapped = [GHTestTempDirectory() stringByAppendingPathComponent:@"ghost-core.js"];
+    NSString *source = [[NSString stringWithContentsOfFile:built encoding:NSUTF8StringEncoding error:NULL] stringByAppendingString:@"\n// changed\n"];
+    GH_ASSERT([source writeToFile:swapped atomically:YES encoding:NSUTF8StringEncoding error:NULL]);
+    GH_ASSERT_FALSE(GHCoreBundleMatchesPin(swapped, pinned));
+    GH_ASSERT_FALSE(GHCoreBundleMatchesPin([GHTestTempDirectory() stringByAppendingPathComponent:@"missing.js"], pinned));
+    GH_ASSERT(GHCoreBundleMatchesPin(swapped, @""));
+    GH_ASSERT([GHCoreSHA256OfFile(nil) length] == 0);
+}
+
 GH_TEST(core_rejects_bundle_with_missing_export) {
     NSError *error;
     GHCore *core = [[GHCore alloc] initWithSource:@"var GhostCore = { demoProfile: function () { return '{}'; } };" error:&error];

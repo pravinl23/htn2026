@@ -4,6 +4,8 @@ import { handleDebuggerMessage, isDebuggerMessage } from "./debugger-input";
 import { seedDefaults } from "./install";
 import { registerLoopBackground } from "./loopBackground";
 import { handleMetricsMessage, isMetricsMessage } from "./metrics";
+import { registerNextClient } from "./nextClient";
+import { registerPresence } from "./presence";
 import { handleServerMessage, isServerMessage } from "./serverClient";
 import { createTextStreamHub } from "./textStream";
 import { paintBadge, refreshBadge, toggleEnabled } from "./toggle";
@@ -44,6 +46,8 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 const textStreams = createTextStreamHub({ extensionId: chrome.runtime.id });
 chrome.runtime.onConnect.addListener((port) => textStreams.onConnect(port));
 
-registerLoopBackground(); // action trace, loop detection and loop runs (docs/loops.md): its own onMessage listener, registered synchronously
+const loop = registerLoopBackground(); // action trace, loop detection and loop runs (docs/loops.md): its own onMessage listener, registered synchronously
+registerNextClient(loop.router.services); // "ghost:next-candidates": episodic memory, then POST /v1/predict/next (docs/loops.md 2)
+registerPresence(); // /v1/presence heartbeat so Ghost Desktop stays out of this browser (docs/server-api.md)
 
 refreshBadge().catch(logFailure("badge refresh"));

@@ -1,0 +1,153 @@
+{
+  "agent" : "running",
+  "app" : "com.apple.Safari",
+  "final" : {
+    "accepted" : 8,
+    "active" : true,
+    "busy" : false,
+    "current" : {
+      "action" : "click",
+      "label" : "Submit application",
+      "locked" : true,
+      "pending" : false,
+      "visible" : false
+    },
+    "ghosts" : 1,
+    "provider" : "typesafe",
+    "running" : true,
+    "statusLine" : "Parked on the locked action in Safari (Enter confirms)",
+    "unlocked" : 0
+  },
+  "lockedLabel" : "Submit application",
+  "mode" : "autotab",
+  "posted" : 11,
+  "requested" : 30,
+  "steps" : [
+    {
+      "action" : "fill",
+      "consumed" : true,
+      "ghost" : "First Name",
+      "ms" : 738,
+      "next" : "First Name",
+      "outcome" : "jumped",
+      "step" : 1,
+      "verified" : 0,
+      "writeMs" : 175
+    },
+    {
+      "action" : "fill",
+      "consumed" : true,
+      "ghost" : "First Name",
+      "ms" : 733,
+      "next" : "Last Name",
+      "outcome" : "accepted",
+      "step" : 2,
+      "verified" : 1,
+      "writeMs" : 259
+    },
+    {
+      "action" : "fill",
+      "consumed" : true,
+      "ghost" : "Last Name",
+      "ms" : 735,
+      "next" : "Email",
+      "outcome" : "accepted",
+      "step" : 3,
+      "verified" : 1,
+      "writeMs" : 70
+    },
+    {
+      "action" : "fill",
+      "consumed" : true,
+      "ghost" : "Email",
+      "ms" : 733,
+      "next" : "Country",
+      "outcome" : "accepted",
+      "step" : 4,
+      "verified" : 1,
+      "writeMs" : 77
+    },
+    {
+      "action" : "select",
+      "consumed" : true,
+      "ghost" : "Country",
+      "ms" : 734,
+      "next" : "Phone",
+      "outcome" : "refused",
+      "reason" : "combobox-has-value",
+      "step" : 5,
+      "verified" : 0,
+      "writeMs" : 48
+    },
+    {
+      "action" : "fill",
+      "consumed" : true,
+      "ghost" : "Phone",
+      "ms" : 728,
+      "next" : "Resume/CV",
+      "outcome" : "accepted",
+      "step" : 6,
+      "verified" : 1,
+      "writeMs" : 226
+    },
+    {
+      "action" : "upload",
+      "consumed" : true,
+      "ghost" : "Resume/CV",
+      "ms" : 4097,
+      "next" : "LinkedIn Profile",
+      "outcome" : "accepted",
+      "step" : 7,
+      "verified" : 1,
+      "writeMs" : 3977
+    },
+    {
+      "action" : "fill",
+      "consumed" : true,
+      "ghost" : "LinkedIn Profile",
+      "ms" : 733,
+      "next" : "Github",
+      "outcome" : "accepted",
+      "step" : 8,
+      "verified" : 1,
+      "writeMs" : 69
+    },
+    {
+      "action" : "fill",
+      "consumed" : true,
+      "ghost" : "Github",
+      "ms" : 735,
+      "next" : "Website",
+      "outcome" : "accepted",
+      "step" : 9,
+      "verified" : 1,
+      "writeMs" : 81
+    },
+    {
+      "action" : "fill",
+      "consumed" : true,
+      "ghost" : "Website",
+      "ms" : 733,
+      "next" : "How did you hear about this opportunity at Viam?",
+      "outcome" : "accepted",
+      "step" : 10,
+      "verified" : 1,
+      "writeMs" : 79
+    },
+    {
+      "action" : "select",
+      "consumed" : true,
+      "ghost" : "How did you hear about this opportunity at Viam?",
+      "ms" : 1852,
+      "next" : "Submit application",
+      "outcome" : "refused",
+      "reason" : "combobox-no-list",
+      "step" : 11,
+      "verified" : 0,
+      "writeMs" : 1834
+    }
+  ],
+  "stopped" : "locked",
+  "totalMs" : 13843,
+  "trusted" : true
+}

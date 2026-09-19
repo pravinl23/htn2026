@@ -342,8 +342,12 @@ GH_TEST(server_presence_accepts_last_seen_and_ignores_junk) {
 GH_TEST(server_origin_never_carries_path_or_query) {
     GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"com.apple.Safari" pageURL:@"https://Jobs.Example.com/apply/123?token=abc#frag" windowTitle:@"Apply"],
                             @"app://com.apple.Safari/jobs.example.com");
-    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"org.mozilla.firefox" pageURL:nil windowTitle:@"Careers at acme.io - Mozilla Firefox"], @"app://org.mozilla.firefox/acme.io");
-    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"com.google.Chrome" pageURL:nil windowTitle:@"localhost:5173/apply"], @"app://com.google.Chrome/localhost:5173");
+    // A window title never leaves: not a host-looking word in a tab title, a document name or a mailbox address.
+    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"org.mozilla.firefox" pageURL:nil windowTitle:@"Careers at acme.io - Mozilla Firefox"], @"app://org.mozilla.firefox");
+    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"com.google.Chrome" pageURL:nil windowTitle:@"localhost:5173/apply"], @"app://com.google.Chrome");
+    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"com.microsoft.Word" pageURL:nil windowTitle:@"Q3-layoffs.docx"], @"app://com.microsoft.Word");
+    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"com.apple.mail" pageURL:nil windowTitle:@"Inbox – alex.chen@gmail.com"], @"app://com.apple.mail");
+    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"com.apple.Safari" pageURL:@"about:blank" windowTitle:@"J.Smith offer"], @"app://com.apple.Safari");
     GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"com.apple.TextEdit" pageURL:nil windowTitle:@"Untitled"], @"app://com.apple.TextEdit");
     GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:nil pageURL:nil windowTitle:nil], @"app://unknown");
 }
@@ -410,9 +414,16 @@ GH_TEST(sse_flushes_last_event_without_blank_line) {
 
 static NSDictionary *ProfileWithAnswers(void) {
     NSMutableDictionary *profile = [[ServerCore() demoProfile] mutableCopy];
-    NSMutableArray *answers = [NSMutableArray array];
-    for (int i = 0; i < 5; i++) [answers addObject:@{ @"question": [NSString stringWithFormat:@"Question %d", i], @"answer": @"I like building fast tools." }];
-    profile[@"pastAnswers"] = answers;
+    profile[@"pastAnswers"] = @[
+        @{ @"question": @"Why do you want to work at Shopify?", @"answer": @"I like building fast tools." },
+        @{ @"question": @"Why do you want to work on developer tools?", @"answer": @"Tools multiply everyone." },
+        @{ @"question": @"Phone", @"answer": @"+1 416 555 0142" },                                   // contact data
+        @{ @"question": @"Why do you want to work here? Reach me", @"answer": @"alex.chen.dev@example.com" },
+        @{ @"question": @"Are you authorized to work here?", @"answer": @"Yes, citizen" },           // work status
+        @{ @"question": @"Why do you want to work here? (gender)", @"answer": @"Prefer to self-describe" },   // EEO
+        @{ @"question": @"Favourite ice cream flavour", @"answer": @"Pistachio" },                  // unrelated
+        @{ @"question": @"Question 1", @"answer": @"Unrelated too" },
+    ];
     return profile;
 }
 
@@ -446,7 +457,14 @@ GH_TEST(server_ghost_text_streams_deltas_and_filters_facts) {
     GH_ASSERT_EQUAL_OBJECTS(body[@"fieldLabel"], @"Why do you want to work here?");
     GH_ASSERT_EQUAL_OBJECTS(body[@"pageContext"], (@{ @"company": @"Acme", @"role": @"Engineer" }));
     GH_ASSERT_EQUAL_OBJECTS(body[@"maxChars"], @600);
-    GH_ASSERT_EQUAL_INT([body[@"pastAnswers"] count], 3);
+    // Only answers to similar questions: never contact data, work status, EEO, or unrelated questions.
+    NSArray *sent = body[@"pastAnswers"];
+    NSMutableArray *questions = [NSMutableArray array];
+    for (NSDictionary *item in sent) [questions addObject:item[@"question"]];
+    GH_ASSERT_EQUAL_OBJECTS(questions, (@[ @"Why do you want to work at Shopify?", @"Why do you want to work on developer tools?" ]));
+    for (NSString *secret in @[ @"555 0142", @"example.com", @"citizen", @"self-describe", @"Pistachio", @"Unrelated too" ]) {
+        GH_ASSERT_MSG(![request.bodyText containsString:secret], @"%@ must not leave for a draft", secret);
+    }
     NSDictionary *facts = body[@"facts"];
     GH_ASSERT_EQUAL_OBJECTS(facts[@"school"], @"University of Waterloo");
     NSString *text = request.bodyText;

@@ -28,7 +28,8 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
         case GHDrawKindKeycap: cls = GHKeycapLayer.class; break;
         case GHDrawKindLockBadge: cls = GHLockBadgeLayer.class; break;
         case GHDrawKindHUD:
-        case GHDrawKindHUDError: cls = GHHudLayer.class; break;
+        case GHDrawKindHUDError:
+        case GHDrawKindHUDStatus: cls = GHHudLayer.class; break;
     }
     GHOverlayItemLayer *layer = [cls layer];
     layer.zPosition = [self zPositionForKind:item.kind];
@@ -38,7 +39,8 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
 + (CGFloat)zPositionForKind:(GHDrawKind)kind {
     switch (kind) {
         case GHDrawKindHUD:
-        case GHDrawKindHUDError: return 0;
+        case GHDrawKindHUDError:
+        case GHDrawKindHUDStatus: return 0;
         case GHDrawKindGhostText:
         case GHDrawKindPill: return 1;
         case GHDrawKindRing: return 2;

@@ -17,6 +17,15 @@ BOOL GHWritePrivateFile(NSString *path, NSData *data, NSError *_Nullable *_Nulla
 /// Posted on the main queue after profile.json or settings.json changed on disk or through this class.
 extern NSNotificationName const GHProfileStoreDidChangeNotification;
 
+/// profile.json facts that hold a local file for upload ghosts (desktop/profile.example.json). Validated on every
+/// load: an absolute path ("~/" expanded) to an existing, readable, regular document (pdf, doc, docx, rtf, txt, odt,
+/// pages) under 25 MB, without "..", without control characters. Anything else is dropped (the log names the key and
+/// a reason code, never the path). They never leave the machine: not in /v1/predict/form, not in /v1/ghost-text.
+extern NSString *const GHProfileResumePathKey;        // "resumePath"
+extern NSString *const GHProfileCoverLetterPathKey;   // "coverLetterPath"
+/// The usable absolute path for a file fact, or nil with *problem set to a short code.
+NSString *_Nullable GHUsableProfileFilePath(NSString *_Nullable raw, NSString *_Nullable *_Nullable problem);
+
 @interface GHProfileStore : NSObject
 
 + (NSString *)defaultDirectory;

@@ -9,7 +9,6 @@ import {
   DEMO_PROFILE,
   isLockedAction,
   isSensitive,
-  mapFormHeuristically,
 } from "@ghost/shared";
 import type {
   CapturedField,
@@ -23,8 +22,18 @@ import type {
 } from "@ghost/shared";
 // ./predict.ts is a port of the pure rules of extension/src/content/predict.ts: threshold gating, skip
 // filled fields, placeholder choices, sensitivity re-check, tick-only checkboxes, the lock ghost parked last.
-import { ghostsFromAssignments, isPlaceholderChoice, upgradeGhosts as upgrade } from "./predict";
-import type { PredictDeps, ServedAssignment } from "./predict";
+// On top of them it adds the Desktop rules for real forms: upload ghosts from resumePath / coverLetterPath,
+// lazy (react-select) choices, no ghost for EEO / demographic questions or another country's work authorization.
+import {
+  ghostsFromAssignments,
+  isFileFact,
+  isPlaceholderChoice,
+  isProtectedFactKey,
+  isProtectedQuestion,
+  mapFormForDesktop,
+  upgradeGhosts as upgrade,
+} from "./predict";
+import type { DesktopField, PredictDeps, ServedAssignment } from "./predict";
 
 export const version = "1";
 
@@ -39,10 +48,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function asFields(json: string): CapturedField[] {
+function asFields(json: string): DesktopField[] {
   const raw = parse<unknown>(json, "fields");
   if (!Array.isArray(raw)) throw new TypeError("GhostCore: fields must be an array");
-  return raw.filter((f): f is CapturedField => isObject(f) && typeof f.signature === "string" && typeof f.kind === "string");
+  return raw.filter((f): f is DesktopField => isObject(f) && typeof f.signature === "string" && typeof f.kind === "string");
 }
 
 function asProfile(json: string): Profile {
@@ -72,11 +81,14 @@ export function defaultSettings(): string {
   return JSON.stringify(DEFAULT_SETTINGS);
 }
 
-/** FieldAssignment[] from the shared keyword heuristic (the offline path, zero network). */
+/**
+ * FieldAssignment[] from the shared keyword heuristic (the offline path, zero network), plus the Desktop rules:
+ * resume / cover-letter uploads map to resumePath / coverLetterPath, EEO / demographic questions to `none`.
+ */
 export function mapForm(fieldsJson: string, factKeysJson: string): string {
   const keys = parse<unknown>(factKeysJson, "factKeys");
   const factKeys = Array.isArray(keys) ? keys.filter((k): k is string => typeof k === "string") : [];
-  return JSON.stringify(mapFormHeuristically(asFields(fieldsJson), factKeys));
+  return JSON.stringify(mapFormForDesktop(asFields(fieldsJson), factKeys));
 }
 
 function asDeps(profileJson: string, settingsJson: string, optionsJson?: string): PredictDeps {
@@ -157,6 +169,51 @@ export function textFacts(profileJson: string): string {
   return JSON.stringify(out);
 }
 
+// ---------- /v1/ghost-text past answers ----------
+// The same filter as the extension's similarPastAnswers (extension/src/content/freeText.ts): only answers to
+// questions that resemble this one, closest first, at most three, never a sensitive question and never an answer
+// that carries an e-mail address or a phone number. Desktop also drops EEO / demographic questions and anything
+// about work authorization, sponsorship or immigration: those facts are excluded from drafts on purpose.
+const PAST_ANSWERS_MAX = 3;
+const PAST_QUESTION_MAX = 300;
+const PAST_ANSWER_MAX = 2000;
+const PAST_MIN_SIMILARITY = 0.25;
+const PAST_STOPWORDS: ReadonlySet<string> = new Set([
+  "the", "and", "you", "your", "our", "for", "with", "that", "this", "are", "have", "does", "about", "from", "will", "would", "want",
+]);
+const WORK_STATUS = /\b(authori[sz]\w*|sponsor\w*|visas?|citizen\w*|work permit|immigration|right to work|residen(cy|t)|clearance)\b/i;
+
+function pastTokens(text: string): Set<string> {
+  const words = text.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [];
+  return new Set(words.filter((word) => !PAST_STOPWORDS.has(word)));
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let shared = 0;
+  for (const word of a) if (b.has(word)) shared++;
+  return shared / (a.size + b.size - shared);
+}
+
+export function textPastAnswers(profileJson: string, label: string): string {
+  const wanted = pastTokens(typeof label === "string" ? label : "");
+  const scored: Array<{ question: string; answer: string; score: number }> = [];
+  for (const past of asProfile(profileJson).pastAnswers) {
+    if (!isObject(past)) continue;
+    const question = typeof past.question === "string" ? past.question.trim() : "";
+    const answer = typeof past.answer === "string" ? past.answer.trim() : "";
+    if (!question || !answer) continue;
+    if (isSensitive({ label: question }) || CONTACT_VALUE.test(answer)) continue;
+    if (isProtectedQuestion({ signature: "", kind: "textarea", label: question } as CapturedField) || WORK_STATUS.test(question)) continue;
+    const score = jaccard(wanted, pastTokens(question));
+    if (score >= PAST_MIN_SIMILARITY) scored.push({ question, answer, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return JSON.stringify(
+    scored.slice(0, PAST_ANSWERS_MAX).map(({ question, answer }) => ({ question: question.slice(0, PAST_QUESTION_MAX), answer: answer.slice(0, PAST_ANSWER_MAX) })),
+  );
+}
+
 // ---------- /v1/predict/form request (fact KEYS only, value-free fields) ----------
 // Desktop-only request sanitization. The Chrome extension has no `/v1/predict/form` client yet; keep a
 // future implementation aligned with these limits and preferably extract the policy into shared code.
@@ -209,12 +266,20 @@ function toWireField(raw: unknown): CapturedField | null {
   return field;
 }
 
-/** The JSON body for POST /v1/predict/form, or "null" when there is nothing worth asking. */
+/**
+ * The JSON body for POST /v1/predict/form, or "null" when there is nothing worth asking. EEO / demographic
+ * questions are not asked about at all (Ghost never answers them), and file-path facts are local only.
+ */
 export function formRequest(fieldsJson: string, factKeysJson: string, origin: string, formSignature: string): string {
   const rawFields = parse<unknown>(fieldsJson, "fields");
   const rawKeys = parse<unknown>(factKeysJson, "factKeys");
-  const fields = (Array.isArray(rawFields) ? rawFields : []).map(toWireField).filter((f): f is CapturedField => f !== null);
-  const keys = (Array.isArray(rawKeys) ? rawKeys : []).filter((k): k is string => typeof k === "string" && FACT_KEY.test(k));
+  const fields = (Array.isArray(rawFields) ? rawFields : [])
+    .map(toWireField)
+    .filter((f): f is CapturedField => f !== null && !isProtectedQuestion(f));
+  // Demographic facts (gender, veteranStatus, dateOfBirth...) are never offered to the server as possible answers.
+  const keys = (Array.isArray(rawKeys) ? rawKeys : []).filter(
+    (k): k is string => typeof k === "string" && FACT_KEY.test(k) && !isFileFact(k) && !isProtectedFactKey(k),
+  );
   const factKeys = [...new Set(keys)].slice(0, FORM_LIMITS.factKeys);
   const cleanOrigin = identifier(origin);
   const cleanSignature = identifier(formSignature);

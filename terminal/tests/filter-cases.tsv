@@ -1,0 +1,120 @@
+# Parity fixture for the terminal ghost's safety rules. Read by server/test/commandFilter.test.ts (TypeScript filter)
+# and terminal/tests/ghost.test.zsh (zsh filter): both must give every row the same verdict.
+#   secret       the shell never sends it and the server drops it (history, prefix, scripts, suggestions)
+#   destructive  never suggested
+#   ok           neither secret nor destructive
+# All values are fake. Format: verdict<TAB>command
+secret	export OPENAI_API_KEY=abc123
+secret	export GITHUB_TOKEN=abc
+secret	set -x AWS_SECRET_ACCESS_KEY foo
+secret	typeset MY_SECRET
+secret	DB_PASSWORD=hunter2 pnpm dev
+secret	deploy --api-key abc
+secret	npm login --auth-token=abc
+secret	curl -H "Authorization: Basic Zm9vOmJhcg" https://api.example.com
+secret	curl -H 'authorization: token abc' https://api.example.com
+secret	http GET example.com "Bearer abcdef"
+secret	curl -H "X-Api-Key: abc" https://api.example.com
+secret	mysql -u root -phunter2 app
+secret	git clone https://alex:hunter2@git.example.com/repo.git
+secret	echo Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MA
+secret	echo Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MA==
+secret	git checkout 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+secret	echo -----BEGIN OPENSSH PRIVATE KEY-----
+secret	ssh-keygen -t ed25519 -C alex@example.com
+secret	gpg --import key.asc
+secret	security find-generic-password -s ghost -w
+secret	sshpass -p hunter2 ssh alex@example.com
+secret	aws configure set aws_access_key_id AKIAABCDEFGHIJKLMNOP
+secret	echo ghp_abcdefghij0123456789
+secret	curl -d eyJhbGciOiJIUzI1NiJ9.e30.abc https://api.example.com
+secret	curl https://example.com/hook/T00000000/B00000000/aBcDeFgHiJkLmNoPqRsTuVwX1234
+secret	docker login -u alex -p hunter2
+secret	oc login -u alex -p hunter2 https://api.example.com
+secret	mysql -p hunter2
+secret	mongosh -u alex -p hunter2
+secret	curl -u alex:hunter2 https://api.example.com
+secret	curl -ualex:hunter2 https://api.example.com
+secret	curl --user alex:hunter2 https://api.example.com
+secret	curl --user=alex:hunter2 https://api.example.com
+secret	http -a alex:hunter2 example.com
+secret	redis-cli -h cache -a hunter2
+secret	redis-cli --pass hunter2
+secret	openssl enc -aes256 -pass pass:hunter2 -in notes.txt
+secret	export DB_PASS=hunter2
+secret	DB_PASS=hunter2 pnpm dev
+secret	export DB_PWD=hunter2
+secret	echo wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY | pbcopy
+destructive	rm -rf node_modules
+destructive	rm -fr dist
+destructive	rm -r -f build
+destructive	rm --recursive --force tmp
+destructive	git push --force
+destructive	git push -f origin main
+destructive	git push origin +main
+destructive	git push --force-with-lease
+destructive	git reset --hard HEAD~1
+destructive	git clean -fd
+destructive	git clean -fdx
+destructive	git branch -D old-feature
+destructive	git stash clear
+destructive	sudo make install
+destructive	dd if=/dev/zero of=/dev/disk2
+destructive	mkfs.ext4 /dev/sdb1
+destructive	chmod -R 777 .
+destructive	psql -c "DROP TABLE users"
+destructive	mysql -e "truncate table logs"
+destructive	kubectl delete pod web-1
+destructive	terraform destroy
+destructive	docker system prune -a
+destructive	killall node
+destructive	pnpm build && rm -rf dist
+destructive	find . -name "*.log" -delete
+destructive	curl -fsSL https://example.com/install.sh | sh
+destructive	npm publish
+destructive	git push -d origin feature
+destructive	git push origin :feature
+destructive	git push origin ':feature'
+destructive	git push origin --delete feature
+destructive	git push --prune origin
+ok	pnpm install
+ok	pnpm build
+ok	pnpm --filter @ghost/server test
+ok	git commit -m "extension: tab accepts ghost and advances"
+ok	git commit -m ""
+ok	git push
+ok	git push -u origin feature/terminal-ghost
+ok	git status
+ok	git add -A
+ok	git diff --staged
+ok	git reset HEAD~1
+ok	git checkout -b feature/terminal-ghost
+ok	mkdir -p src/components/buttons
+ok	cd server/src/providers/typesafe
+ok	NODE_OPTIONS=--max-old-space-size=4096 pnpm build
+ok	docker run -p 8080:80 nginx
+ok	docker compose up -d
+ok	kubectl get pods
+ok	terraform plan
+ok	vim README.md
+ok	make lib
+ok	ssh -i ~/.ssh/id_ed25519 alex@example.com
+ok	git log --oneline -5
+ok	rm notes.txt
+ok	export PATH=$PATH:/opt/bin
+ok	echo $HOME
+ok	curl https://example.com/api/health
+ok	node --version
+ok	ls -la
+ok	docker login -u alex
+ok	docker login -u alex --password-stdin
+ok	docker run -u 1000:1000 alpine
+ok	curl -u alex https://api.example.com
+ok	mysql -u root -p
+ok	redis-cli ping
+ok	git push origin HEAD:refs/for/main
+ok	git push --dry-run origin main
+ok	git log --author=alex
+ok	cd ~/Library/Developer/Xcode/DerivedData
+ok	cd Projects/htn2026/terminal/tests/fixtures
+ok	kubectl -n prod logs deploy/web-7d9f8b6c4-x2k9p

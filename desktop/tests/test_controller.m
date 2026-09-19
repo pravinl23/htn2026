@@ -131,6 +131,7 @@ static NSData *CtlReadBody(NSURLRequest *request) {
 @property (nonatomic, strong) GHFakeAXNode *window;
 @property (nonatomic, strong) GHFakeAXNode *web;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, GHFakeAXNode *> *nodes;
+@property (nonatomic) NSUInteger handedBack;
 @end
 
 @implementation GHRig
@@ -154,6 +155,8 @@ static NSData *CtlReadBody(NSURLRequest *request) {
     controller.writer.after = ^(NSTimeInterval delay, dispatch_block_t block) { block(); };
     controller.writer.isNodeSensitive = ^BOOL(id<GHAXNode> node) { return [capture isNodeSensitive:node]; };
     controller.eventTap.deliversSynchronously = YES;   // never installed: there is no real tap in tests
+    __weak GHRig *weakRig = rig;
+    controller.tabHandBack = ^{ weakRig.handedBack++; };   // recorded, never posted
     rig.controller = controller;
     rig.nodes = [NSMutableDictionary dictionary];
     return rig;
@@ -331,6 +334,11 @@ GH_TEST(controller_focus_mapping_and_tab_gate) {
     GH_ASSERT_EQUAL_OBJECTS([rig.controller focusSignatureForNode:search], GHWalkFocusElsewhere);
     GH_ASSERT_EQUAL_OBJECTS([rig.controller focusSignatureForNode:rig.nodes[@"Email"]], rig.controller.walk.ghosts[2].signature);
 
+    // An element whose role could not be read (a slow app, a destroyed element) is never "the window itself".
+    GH_ASSERT_EQUAL_OBJECTS([rig.controller focusSignatureForNode:[[GHFakeAXNode alloc] init]], GHWalkFocusElsewhere);
+    GHFakeAXNode *roleless = [rig.web addChild:[[GHFakeAXNode alloc] init]];
+    GH_ASSERT_EQUAL_OBJECTS([rig.controller focusSignatureForNode:roleless], GHWalkFocusElsewhere);
+
     [rig.controller noteFocusedNode:search];
     GHWalkSnapshot snapshot = [rig.controller.eventTap publishedSnapshot];
     GH_ASSERT_FALSE(snapshot.focusInWalk);                    // Tab in the address bar is the browser's
@@ -380,15 +388,109 @@ GH_TEST(controller_does_nothing_while_disabled_or_off_screen) {
     GH_ASSERT_EQUAL_OBJECTS(rig.nodes[@"First name"].value, @"");
 
     [rig.store setEnabled:YES];
-    // The whole form sits below the visible part of the window: ghosts exist, but Tab stays native.
+    // The whole form sits below the visible part of the window and this page does not scroll: the first Tab tries the
+    // jump (nothing is written) and is handed back to the app; from then on Tab stays native. No keyboard trap.
     for (GHFakeAXNode *node in rig.nodes.allValues) node.frame = CGRectOffset(node.frame, 0, 900);
     rig.web.frame = CGRectMake(100, 110, 900, 2000);
     [rig rescan];
     GH_ASSERT(rig.controller.walk.ghosts.count > 0);
     GH_ASSERT_FALSE(rig.controller.currentVisible);
-    GH_ASSERT_FALSE([rig.controller.eventTap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:NO userData:0 printable:NO]);
-    [rig tab];
+    GHEventTap *tap = rig.controller.eventTap;
+    GH_ASSERT([tap publishedSnapshot].canJump);
+    rig.actuator.scrollWorks = NO;                            // the element refuses AXScrollToVisible
+    GH_ASSERT([tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:NO userData:0 printable:NO]);
+    GH_ASSERT_EQUAL_INT(rig.actuator.scrollCount, 1);
+    GH_ASSERT_EQUAL_INT(rig.handedBack, 1);
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"outcome"], @"not-visible");
+    GH_ASSERT_FALSE([tap publishedSnapshot].canJump);
+    GH_ASSERT_FALSE([tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:NO userData:0 printable:NO]);
+    [rig tab];                                                // even a Tab that slipped through writes nothing
     GH_ASSERT_EQUAL_OBJECTS(rig.nodes[@"First name"].value, @"");
+    GH_ASSERT_EQUAL_INT(rig.actuator.setValueCount + rig.actuator.typeCount, 0);
+
+    // The scroll is accepted but nothing moves (or it animates): the Tab was the jump; the rects are read again, and a
+    // ghost still off screen afterwards leaves Tab native. Nothing is handed back twice, nothing is written.
+    rig.actuator.scrollWorks = YES;
+    [rig rescanPage:@"page-2"];
+    GH_ASSERT([tap publishedSnapshot].canJump);
+    GH_ASSERT([tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:NO userData:0 printable:NO]);
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"outcome"], @"jumped");
+    GH_ASSERT_EQUAL_INT(rig.handedBack, 1);
+    GH_ASSERT(GHTestWaitUntil(2.0, ^BOOL { return ![tap publishedSnapshot].canJump; }));
+    GH_ASSERT_FALSE([tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:NO userData:0 printable:NO]);
+    GH_ASSERT_EQUAL_INT(rig.actuator.setValueCount + rig.actuator.typeCount, 0);
+}
+
+GH_TEST(controller_jump_waits_for_a_page_that_scrolls_smoothly) {
+    RIG(rig, nil);
+    [rig buildFormWithAreas:@[]];
+    rig.web.frame = CGRectMake(100, 110, 900, 3000);
+    for (GHFakeAXNode *node in rig.nodes.allValues) node.frame = CGRectOffset(node.frame, 0, 1500);
+    __weak GHRig *weakRig = rig;
+    // The page scrolls a moment AFTER AXScrollToVisible returned.
+    rig.actuator.onScroll = ^(GHFakeAXNode *node) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            GHRig *strong = weakRig;
+            CGFloat delta = 470 - CGRectGetMidY(node.frame);
+            for (GHFakeAXNode *each in [strong.nodes.allValues arrayByAddingObject:strong.web]) each.frame = CGRectOffset(each.frame, 0, delta);
+        });
+    };
+    [rig rescan];
+    GHEventTap *tap = rig.controller.eventTap;
+    GH_ASSERT([tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:NO userData:0 printable:NO]);
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"outcome"], @"jumped");
+    GH_ASSERT_FALSE(rig.controller.currentVisible);           // not yet
+    GH_ASSERT(GHTestWaitUntil(2.0, ^BOOL { return rig.controller.currentVisible; }));
+    GH_ASSERT_EQUAL_INT(rig.handedBack, 0);
+    GH_ASSERT([tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:NO userData:0 printable:NO]);
+    GH_ASSERT_EQUAL_OBJECTS(rig.nodes[@"First name"].value, @"Alex");
+}
+
+/// Scrolls the fake page so `node` is centred in the window's lower 700 pt (what AXScrollToVisible does).
+static void CtlScrollPage(GHRig *rig, GHFakeAXNode *node) {
+    CGFloat delta = 470 - CGRectGetMidY(node.frame);
+    NSMutableArray<GHFakeAXNode *> *stack = [NSMutableArray arrayWithObject:rig.web];
+    while (stack.count) {
+        GHFakeAXNode *each = stack.lastObject;
+        [stack removeLastObject];
+        each.frame = CGRectOffset(each.frame, 0, delta);
+        for (id<GHAXNode> child in each.children) [stack addObject:(GHFakeAXNode *)child];
+    }
+}
+
+GH_TEST(controller_tab_on_the_page_jumps_to_an_off_screen_ghost_without_writing) {
+    RIG(rig, nil);
+    [rig buildFormWithAreas:@[]];
+    // The form is far down the page: nothing is on screen, so the first ghost stays current.
+    rig.web.frame = CGRectMake(100, 110, 900, 3000);
+    for (GHFakeAXNode *node in rig.nodes.allValues) node.frame = CGRectOffset(node.frame, 0, 1500);
+    __weak GHRig *weakRig = rig;
+    rig.actuator.onScroll = ^(GHFakeAXNode *node) { CtlScrollPage(weakRig, node); };
+    [rig rescan];
+    GH_ASSERT_FALSE(rig.controller.currentVisible);
+    GH_ASSERT_EQUAL_OBJECTS([rig currentLabel], @"First name");
+
+    GHEventTap *tap = rig.controller.eventTap;
+    [rig.controller noteFocusedNode:rig.web];                 // focus on the page itself
+    GH_ASSERT([tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:NO userData:0 printable:NO]);
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"outcome"], @"jumped");
+    GH_ASSERT(rig.controller.currentVisible);                 // scrolled into view and drawn
+    GH_ASSERT_EQUAL_INT(rig.actuator.setValueCount + rig.actuator.typeCount + rig.actuator.focusCount, 0);   // nothing written, no focus moved
+    GH_ASSERT_EQUAL_OBJECTS(rig.nodes[@"First name"].value, @"");
+    GH_ASSERT_EQUAL_INT(rig.handedBack, 0);
+
+    // The next Tab writes; a ghost scrolled away before a queued press is scrolled back first, never written blind.
+    GH_ASSERT([tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:NO userData:0 printable:NO]);
+    GH_ASSERT_EQUAL_OBJECTS(rig.nodes[@"First name"].value, @"Alex");
+    [rig.controller noteFocusedNode:rig.nodes[@"Last name"]];
+    rig.nodes[@"Last name"].frame = CGRectOffset(rig.nodes[@"Last name"].frame, 0, 2000);   // pushed far below the window
+    [rig tab];
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"outcome"], @"jumped");
+    GH_ASSERT_EQUAL_OBJECTS(rig.nodes[@"Last name"].value, @"");
+    GH_ASSERT(rig.controller.currentVisible);
+    [rig tab];
+    GH_ASSERT_EQUAL_OBJECTS(rig.nodes[@"Last name"].value, @"Chen");
+    GH_ASSERT_EQUAL_INT(rig.actuator.pressedNodes.count, 0);
 }
 
 #pragma mark - cache -> server
@@ -523,6 +625,102 @@ GH_TEST(controller_tab_on_a_pending_draft_waits_for_it) {
     GH_ASSERT_EQUAL_INT([GHCtlStub countForPath:@"/v1/ghost-text"], 0);
 }
 
+/// Fills the four ready fields, so the draft for `kWhy` is the last unlocked ghost before the locked Submit.
+static void CtlFillReadyFields(GHRig *rig) {
+    for (NSString *label in @[ @"First name", @"Last name", @"Email", @"Phone" ]) {
+        [rig.controller noteFocusedNode:rig.nodes[label]];
+        [rig tab];
+    }
+}
+
+GH_TEST(controller_a_draft_that_lands_after_the_user_left_writes_nothing_and_never_parks_on_submit) {
+    [GHCtlStub reset];
+    GHRig *rig = [GHRig rigWithClient:StubClient([GHCore sharedCore], [[GHFormCache alloc] initWithPath:nil])];
+    GH_ASSERT(rig != nil);
+    [rig buildFormWithAreas:@[ kWhy ]];
+    GHFakeAXNode *own = [rig add:@"AXTextArea" label:@"Anything you want to add yourself" y:700 height:60];
+    own.value = @"typed by the user";                               // no ghost: the user is writing it
+    [rig rescan];
+    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return [GHCtlStub openDraftCount] == 1; }));
+    CtlFillReadyFields(rig);
+    GH_ASSERT_EQUAL_INT(rig.controller.walk.accepted, 4);
+    __block id<GHAXNode> focus = rig.nodes[kWhy];
+    rig.controller.focusedNodeProvider = ^id<GHAXNode> { return focus; };
+    [rig.controller noteFocusedNode:rig.nodes[kWhy]];
+    GH_ASSERT(rig.controller.walk.current.pending);
+
+    [rig tab];                                                    // waits for the draft
+    GH_ASSERT(rig.controller.busy);
+    [rig tab];                                                    // two more presses while it waits: queued
+    [rig tab];
+    focus = own;                                                  // the user clicks into their own essay and types
+    NSUInteger focusBefore = rig.actuator.focusCount;
+    GH_ASSERT([GHCtlStub completeDraftForLabel:kWhy text:@"I build fast tools."]);
+    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return !rig.controller.busy; }));
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"outcome"], @"focus-left");
+    GH_ASSERT_EQUAL_OBJECTS(rig.nodes[kWhy].value, @"");            // nothing written behind the user's back
+    GH_ASSERT_EQUAL_INT(rig.actuator.focusCount, focusBefore);       // focus was not taken from them
+    GH_ASSERT_FALSE(rig.nodes[@"Submit application"].isFocused);
+    GH_ASSERT_EQUAL_OBJECTS(own.value, @"typed by the user");
+    GH_ASSERT_EQUAL_INT(rig.handedBack, 0);                          // a delayed Tab is dropped, never replayed
+    GH_ASSERT_EQUAL_INT(rig.controller.walk.accepted, 4);
+    GH_ASSERT_EQUAL_INT([rig buttonPresses], 0);
+}
+
+GH_TEST(controller_a_delayed_accept_never_moves_focus_onto_the_lock) {
+    [GHCtlStub reset];
+    GHRig *rig = [GHRig rigWithClient:StubClient([GHCore sharedCore], [[GHFormCache alloc] initWithPath:nil])];
+    GH_ASSERT(rig != nil);
+    [rig buildFormWithAreas:@[ kWhy ]];
+    [rig rescan];
+    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return [GHCtlStub openDraftCount] == 1; }));
+    CtlFillReadyFields(rig);
+    GHFakeAXActuator *actuator = rig.actuator;
+    rig.controller.focusedNodeProvider = ^id<GHAXNode> { return actuator.focusedNode; };   // focus stays on the essay
+    [rig.controller noteFocusedNode:rig.nodes[kWhy]];
+    [rig tab];
+    GH_ASSERT([GHCtlStub completeDraftForLabel:kWhy text:@"I build fast tools."]);
+    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return !rig.controller.busy; }));
+    GH_ASSERT_EQUAL_OBJECTS(rig.nodes[kWhy].value, @"I build fast tools.");
+    GHWalkState *walk = rig.controller.walk;
+    GH_ASSERT(walk.current.locked);                                  // parked and drawn...
+    GH_ASSERT_FALSE(rig.nodes[@"Submit application"].isFocused);     // ...but focus stays on the essay seconds later
+    GH_ASSERT(rig.nodes[kWhy].isFocused);
+    // The user's next deliberate Tab parks focus on it; nothing ever presses it.
+    [rig tab];
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"outcome"], @"parked");
+    GH_ASSERT(rig.nodes[@"Submit application"].isFocused);
+    GH_ASSERT_EQUAL_INT([rig buttonPresses], 0);
+}
+
+GH_TEST(controller_focus_moved_during_a_write_is_left_where_the_user_put_it) {
+    RIG(rig, nil);
+    [rig buildFormWithAreas:@[]];
+    GHFakeAXNode *search = [GHFakeAXNode nodeWithRole:@"AXTextField" title:nil frame:CGRectMake(600, 70, 200, 30)];
+    [rig.window addChild:search];                                    // browser chrome: never captured
+    [rig rescan];
+    for (NSString *label in @[ @"First name", @"Last name", @"Email" ]) { [rig.controller noteFocusedNode:rig.nodes[label]]; [rig tab]; }
+    // Phone is the last field before Submit. The step starts with focus on it; by the time the write is verified the
+    // user has clicked into the search box.
+    __block NSUInteger reads = 0;
+    GHFakeAXNode *phone = rig.nodes[@"Phone"];
+    rig.controller.focusedNodeProvider = ^id<GHAXNode> { return reads++ == 0 ? phone : search; };
+    [rig.controller noteFocusedNode:rig.nodes[@"Phone"]];
+    NSUInteger focusBefore = rig.actuator.focusCount;
+    [rig tab];
+    GH_ASSERT(rig.nodes[@"Phone"].value.length > 0);
+    GH_ASSERT(reads >= 2);
+    GH_ASSERT(rig.controller.walk.current.locked);
+    GH_ASSERT_FALSE(rig.nodes[@"Submit application"].isFocused);
+    GH_ASSERT_EQUAL_INT(rig.actuator.focusCount, focusBefore + 1);   // the fill's own focus only, nothing after it
+    // A Tab from the search box is the browser's again, and a stale one that slipped through is handed back unwritten.
+    GH_ASSERT_FALSE([rig.controller.eventTap publishedSnapshot].focusInWalk);
+    [rig tab];
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"outcome"], @"handed-back");
+    GH_ASSERT_EQUAL_INT(rig.handedBack, 1);
+    GH_ASSERT_FALSE(rig.nodes[@"Submit application"].isFocused);
+}
+
 #pragma mark - lifecycle
 
 GH_TEST(controller_start_and_stop_are_safe_while_untrusted) {
@@ -546,4 +744,47 @@ GH_TEST(controller_start_and_stop_are_safe_while_untrusted) {
         GH_ASSERT_FALSE(controller.eventTap.wanted);
     }
     GH_ASSERT_EQUAL_INT(rig.actuator.setValueCount + rig.actuator.typeCount + rig.actuator.focusCount, 0);
+}
+
+#pragma mark - page context for drafts
+
+GH_TEST(controller_draft_context_is_the_posting_for_long_questions_only) {
+    GHField *area = [GHField fieldWithSignature:@"a" label:@"Anything else?" kind:GHKindTextArea];
+    GHField *question = [GHField fieldWithSignature:@"q" label:@"Why do you want to work here?" kind:GHKindText];
+    GHField *shortText = [GHField fieldWithSignature:@"s" label:@"Preferred name" kind:GHKindText];
+    GHField *select = [GHField fieldWithSignature:@"c" label:@"Which office would you like to work from most?" kind:GHKindSelect];
+    GH_ASSERT([GHController isLongQuestionField:area]);
+    GH_ASSERT([GHController isLongQuestionField:question]);
+    GH_ASSERT_FALSE([GHController isLongQuestionField:shortText]);
+    GH_ASSERT_FALSE([GHController isLongQuestionField:select]);
+    GH_ASSERT([GHController isLongQuestionField:[GHField fieldWithSignature:@"l" label:@"Tell us about a project you are proud of" kind:GHKindText]]);
+
+    NSDictionary *page = @{ @"company": @"Acme Robots", @"role": @"Robotics Intern", @"description": @"We build friendly robots." };
+    GH_ASSERT_EQUAL_OBJECTS([GHController draftContextForField:question page:page], page);
+    shortText.context = @"Personal details";
+    GH_ASSERT_EQUAL_OBJECTS([GHController draftContextForField:shortText page:page], (@{ @"description": @"Personal details" }));
+    area.context = @"Questions";
+    GH_ASSERT_EQUAL_OBJECTS([GHController draftContextForField:area page:@{ @"company": @"Acme Robots" }], (@{ @"company": @"Acme Robots", @"description": @"Questions" }));
+    GH_ASSERT_EQUAL_OBJECTS([GHController draftContextForField:question page:nil], (@{}));
+}
+
+GH_TEST(controller_drafts_carry_company_role_and_description_of_the_posting) {
+    [GHCtlStub reset];
+    GHRig *rig = [GHRig rigWithClient:StubClient([GHCore sharedCore], [[GHFormCache alloc] initWithPath:nil])];
+    GH_ASSERT(rig != nil);
+    [rig buildFormWithAreas:@[ kWhy ]];
+    rig.web.axDescription = @"Job Application for Robotics Intern at Acme Robots";
+    GHFakeAXNode *heading = [GHFakeAXNode nodeWithRole:@"AXHeading" title:@"Robotics Intern" frame:CGRectMake(140, 112, 400, 24)];
+    [rig.web insertChild:heading atIndex:0];
+    [rig.web insertChild:[GHFakeAXNode staticText:@"We build friendly robots for warehouses." frame:CGRectMake(140, 120, 400, 18)] atIndex:1];
+    [rig.web insertChild:[GHFakeAXNode nodeWithRole:@"AXHeading" title:@"Apply for this job" frame:CGRectMake(140, 128, 400, 10)] atIndex:2];
+    [rig rescan];
+    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return [GHCtlStub countForPath:@"/v1/ghost-text"] == 1; }));
+    NSDictionary *body = [GHCtlStub bodiesForPath:@"/v1/ghost-text"].firstObject;
+    NSDictionary *context = body[@"pageContext"];
+    GH_ASSERT_EQUAL_OBJECTS(context[@"company"], @"Acme Robots");
+    GH_ASSERT_EQUAL_OBJECTS(context[@"role"], @"Robotics Intern");
+    GH_ASSERT([context[@"description"] containsString:@"friendly robots"]);
+    NSString *wire = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:body options:0 error:NULL] encoding:NSUTF8StringEncoding];
+    GH_ASSERT_FALSE([wire containsString:DemoEmail()]);          // still only the allowlisted facts
 }

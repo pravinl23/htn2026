@@ -1,6 +1,7 @@
 #import "GHProfileStore.h"
 #import "GHCore.h"
 #import "GHLog.h"
+#import "GHOpenPanelDriver.h"
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -56,12 +57,47 @@ static NSDictionary *GHReadJSONDictionary(NSString *path) {
 
 #pragma mark - validation
 
+NSString *const GHProfileResumePathKey = @"resumePath";
+NSString *const GHProfileCoverLetterPathKey = @"coverLetterPath";
+
+static BOOL GHIsFilePathFact(NSString *key) {
+    return [key isEqualToString:GHProfileResumePathKey] || [key isEqualToString:GHProfileCoverLetterPathKey];
+}
+
+NSString *GHUsableProfileFilePath(NSString *raw, NSString **problem) {
+    NSString *reason = nil;
+    NSString *path = nil;
+    if (![raw isKindOfClass:[NSString class]] || raw.length == 0) reason = GHUploadPathEmpty;
+    else {
+        // A control character anywhere (even a trailing newline) would be a key press in the open panel.
+        NSCharacterSet *control = NSCharacterSet.controlCharacterSet;
+        if ([raw rangeOfCharacterFromSet:control].location != NSNotFound) reason = GHUploadPathControlCharacter;
+        path = [raw stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@" "]];
+        if ([path hasPrefix:@"~/"]) path = [NSHomeDirectory() stringByAppendingPathComponent:[path substringFromIndex:2]];
+        if (!reason && [path.pathComponents containsObject:@".."]) reason = @"dot-dot";
+        NSSet<NSString *> *documents = [NSSet setWithArray:@[ @"pdf", @"doc", @"docx", @"rtf", @"txt", @"odt", @"pages" ]];
+        if (!reason && ![path hasPrefix:@"/"]) reason = GHUploadPathNotAbsolute;
+        if (!reason && ![documents containsObject:path.pathExtension.lowercaseString]) reason = @"not-a-document";
+        if (!reason) reason = [GHOpenPanelDriver problemWithUploadPath:path];
+    }
+    if (problem) *problem = reason;
+    return reason ? nil : path;
+}
+
 static NSDictionary *GHCleanProfile(NSDictionary *raw) {
     NSMutableDictionary<NSString *, NSString *> *facts = [NSMutableDictionary dictionary];
     NSDictionary *rawFacts = raw[@"facts"];
     if ([rawFacts isKindOfClass:[NSDictionary class]]) {
         [rawFacts enumerateKeysAndObjectsUsingBlock:^(id key, id value, BOOL *stop) {
-            if ([key isKindOfClass:[NSString class]] && [value isKindOfClass:[NSString class]]) facts[key] = value;
+            if (![key isKindOfClass:[NSString class]] || ![value isKindOfClass:[NSString class]]) return;
+            if (!GHIsFilePathFact(key)) { facts[key] = value; return; }
+            if ([(NSString *)value length] == 0) return;
+            // File facts: an absolute path to a readable document ("~/" is expanded), or nothing at all. Only the
+            // file name is ever logged.
+            NSString *problem = nil;
+            NSString *path = GHUsableProfileFilePath(value, &problem);
+            if (path) facts[key] = path;
+            else GHLog(@"store: %@ ignored (%@)", key, problem ?: @"invalid");
         }];
     }
     NSMutableArray<NSDictionary *> *answers = [NSMutableArray array];

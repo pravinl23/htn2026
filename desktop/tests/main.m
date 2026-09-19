@@ -1,5 +1,6 @@
 // Plain executable test runner. Prints each test name, exits non-zero on the first run with failures.
 #import "GHTest.h"
+#import "GHEventTap.h"
 #import "GHLog.h"
 
 typedef struct {
@@ -53,6 +54,8 @@ static int GHCompareTests(const void *a, const void *b) {
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        // Nothing under test may ever reach the real keyboard: every live posting path refuses from here on.
+        GHForbidRealKeyEvents();
         // Tests must never write into the user's real log.
         GHLogSetPath([GHTestTempDirectory() stringByAppendingPathComponent:@"desktop.log"]);
         GHLogSetMirrorToStderr(NO);

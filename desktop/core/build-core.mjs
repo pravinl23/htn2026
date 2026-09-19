@@ -17,7 +17,7 @@ const outfile = resolve(here, "../build/ghost-core.js");
 /** What GHCore.m calls. Keep in sync with docs/desktop.md "Core bridge". */
 const REQUIRED_EXPORTS = [
   "demoProfile", "defaultSettings", "mapForm", "ghostsFor", "isSensitive", "isLockedAction", "textFacts",
-  "upgradeGhosts", "formRequest", "cleanAssignments", "isPlaceholder",
+  "upgradeGhosts", "formRequest", "cleanAssignments", "isPlaceholder", "textPastAnswers",
 ];
 
 function loadEsbuild() {

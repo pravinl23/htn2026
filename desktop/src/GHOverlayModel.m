@@ -12,8 +12,8 @@ static const CGFloat kHudMargin = 14, kHudHeight = 28, kHudGap = 6, kHudErrorMax
 GHOverlayMode GHOverlayModeForKind(NSString *kind) {
     if ([kind isEqualToString:@"textarea"]) return GHOverlayModeMultiline;
     if ([kind isEqualToString:@"select"]) return GHOverlayModeSelectPill;
-    if ([kind isEqualToString:@"radio"] || [kind isEqualToString:@"checkbox"]) return GHOverlayModePill;
-    if ([kind isEqualToString:@"button"] || [kind isEqualToString:@"link"] || [kind isEqualToString:@"file"]) {
+    if ([kind isEqualToString:@"radio"] || [kind isEqualToString:@"checkbox"] || [kind isEqualToString:@"file"]) return GHOverlayModePill;
+    if ([kind isEqualToString:@"button"] || [kind isEqualToString:@"link"]) {
         return GHOverlayModeTarget;
     }
     return GHOverlayModeText;
@@ -304,8 +304,8 @@ static GHDrawItem *GHLockItem(GHMeasured m, CGPoint tip, GHScreenLayout *layout)
 
 /// Bottom-right of the main display, above the Dock. The frame is the room; the layer hugs its content inside it.
 static NSArray<GHDrawItem *> *GHHudItems(GHOverlayInput *input, GHScreenLayout *layout) {
-    BOOL hasError = input.error.length > 0;
-    if ((!input.hud && !hasError) || layout.count == 0) return @[];
+    BOOL hasError = input.error.length > 0, hasStatus = input.status.length > 0;
+    if ((!input.hud && !hasError && !hasStatus) || layout.count == 0) return @[];
     CGRect screen = [layout frameAtIndex:0], visible = [layout visibleFrameAtIndex:0];
     CGFloat right = CGRectGetMaxX(visible) - screen.origin.x - kHudMargin;
     CGFloat bottom = CGRectGetMinY(visible) - screen.origin.y + kHudMargin;
@@ -326,6 +326,16 @@ static NSArray<GHDrawItem *> *GHHudItems(GHOverlayInput *input, GHScreenLayout *
                                               frame:CGRectMake(right - width, bottom, width, kHudHeight)];
         chip.anchor = GHDrawAnchorBottomRight;
         chip.text = input.error;
+        chip.fontSize = 11;
+        [items addObject:chip];
+        bottom += kHudHeight + kHudGap;
+    }
+    if (hasStatus) {
+        CGFloat width = MIN(room, kHudErrorMaxWidth);
+        GHDrawItem *chip = [GHDrawItem itemWithKind:GHDrawKindHUDStatus key:@"hud-status" screen:0
+                                              frame:CGRectMake(right - width, bottom, width, kHudHeight)];
+        chip.anchor = GHDrawAnchorBottomRight;
+        chip.text = input.status;
         chip.fontSize = 11;
         [items addObject:chip];
     }

@@ -448,18 +448,10 @@ static NSString *GHErrorCode(NSError *error) {
 }
 
 + (NSString *)originForBundleId:(NSString *)bundleId pageURL:(NSString *)pageURL windowTitle:(NSString *)windowTitle {
+    // The window title is never used: it names documents, mailboxes and tabs ("Q3-layoffs.docx", an address), and
+    // the origin travels to the server and into the model's state. Without a web page's host it is the app alone.
     NSString *app = bundleId.length ? bundleId : @"unknown";
     NSString *host = pageURL.length ? [NSURLComponents componentsWithString:pageURL].host : nil;
-    if (!host.length && windowTitle.length) {
-        static NSRegularExpression *hostLike;
-        static dispatch_once_t once;
-        dispatch_once(&once, ^{
-            hostLike = [NSRegularExpression regularExpressionWithPattern:@"(?:localhost|(?:[a-z0-9-]+\\.)+[a-z]{2,})(?::\\d+)?"
-                                                                 options:NSRegularExpressionCaseInsensitive error:NULL];
-        });
-        NSTextCheckingResult *hit = [hostLike firstMatchInString:windowTitle options:0 range:NSMakeRange(0, windowTitle.length)];
-        if (hit) host = [windowTitle substringWithRange:hit.range];
-    }
     NSString *origin = host.length ? [NSString stringWithFormat:@"app://%@/%@", app, host.lowercaseString] : [NSString stringWithFormat:@"app://%@", app];
     return origin.length > 300 ? [origin substringToIndex:300] : origin;
 }
@@ -597,10 +589,10 @@ static NSString *GHErrorCode(NSError *error) {
     body[@"pageContext"] = context;
     // The allowlist lives in the core: contact details, LinkedIn, work authorization never leave for a draft.
     body[@"facts"] = [_core textFactsForProfile:profile];
+    // Filtered in the core too: only answers to similar questions, never contact data, EEO or work authorization.
     NSMutableArray *answers = [NSMutableArray array];
-    NSArray *past = [profile[@"pastAnswers"] isKindOfClass:[NSArray class]] ? profile[@"pastAnswers"] : @[];
-    for (NSDictionary *item in past) {
-        if (answers.count >= kPastAnswersMax || ![item isKindOfClass:[NSDictionary class]]) continue;
+    for (NSDictionary *item in [_core pastAnswersForProfile:profile label:label]) {
+        if (answers.count >= kPastAnswersMax) break;
         NSString *question = GHClip(item[@"question"], kQuestionMax), *answer = GHClip(item[@"answer"], kAnswerMax);
         if (question && answer) [answers addObject:@{ @"question": question, @"answer": answer }];
     }

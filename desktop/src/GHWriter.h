@@ -3,10 +3,17 @@
 //   fill      focus (AXFocused) -> set AXValue -> read back and verify -> [select all + AXSelectedText -> verify]
 //             -> real typing (select all, tagged unicode key events) -> verify
 //   select    AXPopUpButton: AXValue, else AXPress the popup and AXPress the AXMenuItem with the matching title.
-//             AXComboBox: filled like a text field with the option's label.
+//             A LAZY select on a web combo box (react-select): GHComboBoxDriver types the intended answer, picks an
+//             exact / high-confidence option and verifies it. Never typed as free text into a list.
+//             Any other AXComboBox: filled like a text field with the option's label.
+//   upload    GHOpenPanelDriver: press the page's Attach control (else its file input), drive the macOS open panel
+//             with the path, verify the panel closed and the page names the file.
 //   check     AXPress only when the state differs. A box is only ever ticked.
 //   radio     AXPress the option's radio button only when it is not already chosen.
 //   click     NEVER. Locked targets are not pressed by Ghost; -focusLockedNode: only moves focus there.
+//
+// Keys: the typing fallback and every driver post through GHKeyPoster, which re-reads the frontmost app and the
+// focused element before each chunk. A driver sequence in flight aborts on any untagged key (-noteUserKeyEvent).
 //
 // Before anything is written the element is read again: a secure or sensitive-looking element is refused, a
 // field that gained a value is refused (rule 9), a disabled or vanished element is refused. After every write
@@ -19,6 +26,9 @@
 #import "GHField.h"
 #import "GHWalkState.h"
 
+@class GHOpenPanelDriver, GHComboBoxDriver;
+@protocol GHKeyPosting;
+
 NS_ASSUME_NONNULL_BEGIN
 
 extern NSString *const GHWriteMethodNone;          // nothing was written
@@ -26,6 +36,8 @@ extern NSString *const GHWriteMethodValue;         // AXValue
 extern NSString *const GHWriteMethodSelectedText;  // AXSelectedText over the whole value
 extern NSString *const GHWriteMethodTyping;        // synthetic key events
 extern NSString *const GHWriteMethodPress;         // AXPress
+extern NSString *const GHWriteMethodOpenPanel;     // GHOpenPanelDriver
+extern NSString *const GHWriteMethodComboBox;      // GHComboBoxDriver
 
 // Refusals (nothing was touched).
 extern NSString *const GHWriteReasonLocked;
@@ -40,6 +52,9 @@ extern NSString *const GHWriteReasonUnsupported;
 extern NSString *const GHWriteReasonDidNotHold;
 extern NSString *const GHWriteReasonNotFocused;
 extern NSString *const GHWriteReasonOptionNotFound;
+// Driver outcomes are "upload-<GHOpenPanelReason*>" and "combobox-<GHComboBoxReason*>" (short codes, never content).
+extern NSString *const GHWriteReasonUploadPrefix;     // "upload-"
+extern NSString *const GHWriteReasonComboBoxPrefix;   // "combobox-"
 
 @interface GHWriteResult : NSObject
 @property (nonatomic, readonly) BOOL ok;
@@ -48,6 +63,13 @@ extern NSString *const GHWriteReasonOptionNotFound;
 @property (nonatomic, readonly, copy, nullable) NSString *reason;
 /// YES for refusals that mean "leave this field alone" rather than "Ghost is broken here".
 @property (nonatomic, readonly) BOOL refused;
+/// An open-panel or combobox sequence ran (keys may have been posted): keys the user pressed meanwhile are dropped.
+@property (nonatomic, readonly) BOOL sequence;
+/// A failure decided after the write (the controller's upload check). `reason` is a short code.
++ (instancetype)failureWithReason:(NSString *)reason method:(NSString *)method sequence:(BOOL)sequence;
+/// A success decided after the write: the element the write went into was replaced by the page (React), and a fresh
+/// capture shows the new one holding the value.
++ (instancetype)okWithMethod:(NSString *)method;
 @end
 
 /// The few AX operations that change something. Live: GHAXLiveActuator. Tests: GHFakeAXActuator.
@@ -60,14 +82,24 @@ extern NSString *const GHWriteReasonOptionNotFound;
 - (BOOL)selectAllInNode:(id<GHAXNode>)node;
 /// AXSelectedText: replaces the selection through the app's own editing path.
 - (BOOL)replaceSelectionWithText:(NSString *)text inNode:(id<GHAXNode>)node;
-/// Real key events into whatever has keyboard focus. The writer checks focus first.
-- (BOOL)typeText:(NSString *)text;
+/// Real key events, only while `node` (or something inside it) has keyboard focus: checked again before every chunk.
+/// Control characters are typed as spaces. NO when the focus check failed or the system refused an event.
+- (BOOL)typeText:(NSString *)text intoNode:(id<GHAXNode>)node;
 - (BOOL)pressNode:(id<GHAXNode>)node;
-/// A popup Ghost opened but cannot operate: close it again (a tagged Escape).
-- (void)dismissOpenMenu;
+/// A popup Ghost opened but cannot operate: close its menu again with one tagged Escape, and only while that menu is
+/// really open (an AXMenu under the popup, or focus on a menu item inside it), the same app is in front and
+/// `stillWanted` (the user has not pressed a key meanwhile) says yes. YES when the Escape was posted. Forgets the
+/// popup's app afterwards: never a second Escape for the same press.
+- (BOOL)dismissMenuOfPopup:(id<GHAXNode>)popup stillWanted:(nullable BOOL (^)(void))stillWanted;
+/// AXScrollToVisible: the page scrolls the element into view. Writes nothing.
+- (BOOL)scrollToVisible:(id<GHAXNode>)node;
 @end
 
+/// The live AX calls. Its keyboard is a GHKeyPoster (default +[GHKeyPoster livePoster]).
 @interface GHAXLiveActuator : NSObject <GHAXActuating>
+- (instancetype)init;
+- (instancetype)initWithPoster:(id<GHKeyPosting>)poster NS_DESIGNATED_INITIALIZER;
+@property (nonatomic, readonly) id<GHKeyPosting> poster;
 @end
 
 /// In-memory actuator over GHFakeAXNode, with switches for every way a real app misbehaves.
@@ -78,6 +110,9 @@ extern NSString *const GHWriteReasonOptionNotFound;
 @property (nonatomic) BOOL pressWorks;           // AXPress toggles checkboxes/radios and picks menu items (YES)
 @property (nonatomic) BOOL focusWorks;           // AXFocused is honoured (YES)
 @property (nonatomic) BOOL popupValueSettable;   // AXValue on a popup button works (NO)
+@property (nonatomic) BOOL scrollWorks;          // AXScrollToVisible is accepted (YES); what it moves is up to onScroll
+/// The "page" scrolling: called by -scrollToVisible: when scrollWorks.
+@property (nonatomic, copy, nullable) void (^onScroll)(GHFakeAXNode *node);
 /// A page that reformats what it is given (phone mask, upper-casing). nil = keep as is.
 @property (nonatomic, copy, nullable) NSString *(^reformat)(NSString *value);
 @property (nonatomic, strong, nullable) GHFakeAXNode *focusedNode;
@@ -86,7 +121,10 @@ extern NSString *const GHWriteReasonOptionNotFound;
 @property (nonatomic, readonly) NSUInteger typeCount;
 @property (nonatomic, readonly) NSUInteger focusCount;
 @property (nonatomic, readonly) NSUInteger dismissMenuCount;
+@property (nonatomic, readonly) NSUInteger scrollCount;
 @property (nonatomic, readonly, copy) NSArray<id<GHAXNode>> *pressedNodes;
+/// Every node -focusNode: was asked to focus, in order (whether it worked or not).
+@property (nonatomic, readonly, copy) NSArray<id<GHAXNode>> *focusRequests;
 /// Nodes removed from the "app": refreshedNode: returns nil for them.
 @property (nonatomic, readonly) NSMutableSet<GHFakeAXNode *> *goneNodes;
 @end
@@ -108,8 +146,19 @@ extern NSString *const GHWriteReasonOptionNotFound;
 @property (nonatomic) NSTimeInterval menuDelay;     // 0.18
 @property (nonatomic, readonly) BOOL busy;
 
-/// `node` is the element of `field` (for radio groups: anything; `optionNode` is the radio to press).
-/// The completion always runs, on the queue -after: uses, exactly once.
+/// Upload ghosts. nil = uploads are refused (unsupported). Atomic: the event tap thread reads it.
+@property (atomic, strong, nullable) GHOpenPanelDriver *openPanelDriver;
+/// Lazy select ghosts on web combo boxes. nil = refused (unsupported), never typed as free text.
+@property (atomic, strong, nullable) GHComboBoxDriver *comboBoxDriver;
+/// Any thread (the event tap calls it for every untagged key-down): a driver sequence in flight aborts.
+- (void)noteUserKeyEvent;
+/// Pure: accepting `ghost` runs a multi-step keyboard sequence (upload, or a lazy select on a combo box). Hold-Tab
+/// never starts one.
++ (BOOL)ghostRunsSequence:(GHGhost *)ghost field:(nullable GHField *)field;
+
+/// `node` is the element of `field` (for radio groups: anything; `optionNode` is the radio to press; for `file`
+/// fields `node` is the widget's Attach control and `optionNode` the page's real file input).
+/// The completion always runs, on the queue -after: uses (or the driver's), exactly once.
 - (void)executeGhost:(GHGhost *)ghost
                field:(GHField *)field
                 node:(nullable id<GHAXNode>)node
@@ -127,6 +176,20 @@ extern NSString *const GHWriteReasonOptionNotFound;
 + (NSString *)comparable:(nullable NSString *)text;
 /// Pure: "Select...", "Choose one", "--", "" stand for "nothing chosen yet".
 + (BOOL)isPlaceholderChoice:(nullable NSString *)shown;
+/// Pure: a menu opened from `popup` is showing: an AXMenu child of the (freshly read) popup, or `focused` is an AXMenu
+/// or AXMenuItem inside it. An ARIA listbox exposed as a popup button has neither, and gets no Escape.
++ (BOOL)menuIsOpenForPopup:(nullable id<GHAXNode>)popup focused:(nullable id<GHAXNode>)focused;
+
+// ---------- upload widgets (pure, over GHAXNode) ----------
+/// The widget around a page's file input: the first named group (title / description) up to 3 levels up, else the
+/// input's parent. Greenhouse: the "Resume/CV" group.
++ (nullable id<GHAXNode>)uploadWidgetOfInput:(nullable id<GHAXNode>)input;
+/// Page text in the widget names `filename` (case-insensitive). Field values are never read.
++ (BOOL)widget:(nullable id<GHAXNode>)widget mentionsFile:(NSString *)filename;
+/// The widget holds a Remove / Delete / Clear control (what upload widgets show once a file is attached).
++ (BOOL)widgetHasRemoveControl:(nullable id<GHAXNode>)widget;
+/// "Remove file", "Delete", "Clear": the control a page shows INSTEAD of Attach once a file is attached.
++ (BOOL)labelIsRemoveControl:(nullable NSString *)label;
 
 @end
 

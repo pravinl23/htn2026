@@ -16,6 +16,7 @@ import { LearnToast } from "./learnToast";
 import { startLoopContent } from "./loopContent";
 import { watchForOrphan } from "./lifecycle";
 import { MetricsReporter, savedTitle, sendMetricsToWorker } from "./metricsReporter";
+import { startNextAction } from "./nextAction";
 import { Overlay } from "./overlay";
 import { createFormPredictor } from "./predict";
 import { createServedLedger, observePredictions } from "./servedLedger";
@@ -169,6 +170,7 @@ async function boot(): Promise<void> {
   });
   apply(session);
   startLoopContent({ overlay, isEnabled: () => session.running, pauseGhosts: (paused) => (paused ? session.controller.stop() : void (session.running && session.controller.start())) }); // loop sheet + executor (docs/loops.md 3.4, 3.5)
+  startNextAction({ formGhosts: () => session.controller.state.ghosts.length, isEnabled: () => session.running, getSettings: () => session.settings }); // click ghosts beyond forms (docs/loops.md 2)
   if (isTopFrame()) {
     let panel: AgentPanel;
     const outcomes = new AgentOutcomeReporter({ send: reportAgentOutcome });

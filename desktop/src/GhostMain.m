@@ -163,7 +163,7 @@ static int GHForwardToAgent(GHHarnessChannel *channel, GHHarnessRequest *request
         NSData *data = [NSData dataWithContentsOfFile:answerPath];
         fwrite(data.bytes, 1, data.length, stdout);
         fflush(stdout);
-        [fm removeItemAtPath:answerPath error:NULL];
+        GHHarnessRemoveOldAnswer(answerPath);
     }
     GHLog(@"harness: %@ id=%@ answered by the running agent", request.mode, request.identifier);
     GHLogFlush();
@@ -173,7 +173,13 @@ static int GHForwardToAgent(GHHarnessChannel *channel, GHHarnessRequest *request
 static int GHRunAgent(GHHarnessChannel *channel, GHHarnessRequest *launchRequest);
 
 static int GHRunHarness(GHHarnessRequest *request) {
-    if (request.outPath) [NSFileManager.defaultManager removeItemAtPath:request.outPath error:NULL];   // whoever waits for --out must not see an old answer
+    // Whoever waits for --out must not see an old answer. A plain file of this user only: never a directory, never
+    // through a link (the path was validated when the request was parsed).
+    if (request.outPath && !GHHarnessRemoveOldAnswer(request.outPath)) {
+        GHLog(@"harness: --out names something that cannot be replaced; nothing is run");
+        GHLogFlush();
+        return 64;
+    }
     if ([request.mode isEqualToString:GHHarnessModeTrust]) return GHAnswer([GHHarness trustResponse], request, nil);
     // Untrusted: say so at once. Nothing below can work, and nothing may hang or prompt.
     if (![GHHarness processIsTrusted]) return GHAnswer(GHHarnessNotTrustedResponse(), request, nil);
@@ -251,7 +257,19 @@ int GhostMain(int argc, const char **argv) {
             GHHarnessWriteResponse(GHHarnessErrorResponse(@"bad-arguments", problem), [GHHarnessRequest outPathInArguments:args]);
             return 64;
         }
+#if GHOST_NO_HARNESS
+        // The installed library (make install-lib) has no harness: nothing another process launches can make this
+        // copy read a window or post a key through Ghost's Accessibility grant.
+        (void)GHRunHarness;   // compiled, never reachable in this build
+        if (request) {
+            GHLog(@"harness: refused %@ (this library was built without the harness)", request.mode);
+            GHLogFlush();
+            GHHarnessWriteResponse(GHHarnessErrorResponse(@"harness-not-built", @"use the developer library (make -C desktop lib) with GHOST_LIB"), request.outPath);
+            return 64;
+        }
+#else
         if (request) return GHRunHarness(request);
+#endif
         return GHRunAgent([GHHarnessChannel defaultChannel], nil);
     }
 }

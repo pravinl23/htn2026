@@ -73,8 +73,16 @@ NSDictionary<NSString *, id> *GHHarnessNotTrustedResponse(void);
 NSDictionary<NSString *, id> *GHHarnessErrorResponse(NSString *code, NSString *_Nullable detail);
 /// Pretty printed, sorted keys. Something that is not JSON becomes an "encoding-failed" error, never a crash.
 NSData *GHHarnessEncodeResponse(NSDictionary<NSString *, id> *response);
-/// Atomic (rename), so a reader that sees the file sees all of it. With a nil path the JSON goes to stdout.
+/// Atomic (a fresh 0600 temporary file renamed onto the name), so a reader that sees the file sees all of it and
+/// nobody else can read it. Refuses a path that fails GHHarnessProblemWithOutPath. With a nil path the JSON goes
+/// to stdout.
 BOOL GHHarnessWriteResponse(NSDictionary<NSString *, id> *response, NSString *_Nullable outPath);
+/// nil when `path` may receive an answer: absolute, normalized, a `.json` name inside an EXISTING directory owned by
+/// this user, and not a directory, link or device already. Else a short reason.
+NSString *_Nullable GHHarnessProblemWithOutPath(NSString *_Nullable path);
+/// Removes an old answer at `path` before a run: only a plain file owned by this user (unlink, never recursive,
+/// never through a link). YES when nothing is left there.
+BOOL GHHarnessRemoveOldAnswer(NSString *_Nullable path);
 
 #pragma mark - talking to the agent that is already running
 
@@ -127,11 +135,14 @@ extern NSString *const GHHarnessRequestNotification;
 @interface GHHarnessTree : NSObject
 /// Nested dictionaries: role, subrole, roleDescription, title, description, placeholder, help, identifier, classes,
 /// actions, labelledBy (form controls only), rect, children; enabled only when false, focused and required only
-/// when true. AXValue never appears: `valueLength` stands in for it, and is left out as well for secure and
-/// sensitive-looking elements (those carry "sensitive": true). AXStaticText is page text, not input, so it is
-/// kept (cut to GHHarnessMaxTextLength) as `text`. Any text that looks like contact data (an e-mail address, a
-/// phone number) is replaced by "[redacted:<length>]". `actions` reads the action names of a node (nil for
-/// none); the live path passes AXUIElementCopyActionNames.
+/// when true. AXValue never appears: `valueLength` stands in for it. A secure or sensitive-looking element is
+/// ONLY { role, "sensitive": true }: no label, no length, no subtree. Window, document and tab titles are never
+/// written (AXWindow title, AXWebArea title and description, the outer AXTabGroup's), and browser chrome outside
+/// the page (toolbars, tab-bar items, the address field) is { role, "omitted": "browser-chrome" }; the path to the
+/// AXWebArea is walked. Text-entry controls and chosen-value widgets are not entered (`childrenOmitted`): what is
+/// inside them is input. Other AXStaticText is page text and is kept (cut to GHHarnessMaxTextLength) as `text`.
+/// Any text that looks like contact data (an e-mail address, a phone number) is replaced by "[redacted:<length>]".
+/// `actions` reads the action names of a node (nil for none); the live path passes AXUIElementCopyActionNames.
 + (NSDictionary<NSString *, id> *)treeFromNode:(id<GHAXNode>)root
                                       maxDepth:(NSUInteger)maxDepth
                                       maxNodes:(NSUInteger)maxNodes
@@ -207,6 +218,11 @@ extern NSString *const GHHarnessRequestNotification;
 + (BOOL)processIsTrusted;
 /// Tests replace AXIsProcessTrusted(); nil restores it.
 + (void)setTrustProbe:(nullable BOOL (^)(void))probe;
+/// --dump / --dump-tree refuse an app on the built-in pause list OR the user's own list (settings.json). nil bundle
+/// ids count as paused.
++ (BOOL)bundleIdentifierIsPaused:(nullable NSString *)bundleId;
+/// Tests replace the pause check; nil restores it.
++ (void)setPauseCheck:(nullable BOOL (^)(NSString *_Nullable bundleId))check;
 /// Path of the image this code was loaded from (libghost.dylib, or the test runner).
 + (nullable NSString *)libraryPath;
 @end

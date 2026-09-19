@@ -19,21 +19,27 @@ extern NSString *const GHGhostActionFill;
 extern NSString *const GHGhostActionSelect;
 extern NSString *const GHGhostActionCheck;
 extern NSString *const GHGhostActionClick;
+/// Desktop only: attach the file at `value` (an absolute path; `displayText` is its file name) through the page's
+/// upload control and the macOS open panel (GHOpenPanelDriver).
+extern NSString *const GHGhostActionUpload;
 
 /// One precomputed suggestion: the typed form of a `Ghost` dictionary from GhostCore.
 @interface GHGhost : NSObject <NSCopying>
 @property (nonatomic, copy) NSString *signature;
-@property (nonatomic, copy) NSString *action;            // fill | select | check | click
+@property (nonatomic, copy) NSString *action;            // fill | select | check | click | upload
 @property (nonatomic, copy, nullable) NSString *value;   // stays in memory: never logged
 @property (nonatomic, copy) NSString *displayText;       // stays in memory: never logged
 @property (nonatomic) double confidence;
 @property (nonatomic) BOOL locked;
 @property (nonatomic, copy) NSString *source;            // offline | server | cache | llm | loop
 @property (nonatomic) BOOL pending;                      // free text still streaming in
+/// A select answered before its options exist (react-select): `value` is the intended answer, matched against the
+/// real options when the ghost is accepted (GHComboBoxDriver).
+@property (nonatomic) BOOL lazy;
 + (nullable instancetype)ghostWithDictionary:(nullable NSDictionary<NSString *, id> *)dictionary;
 + (NSArray<GHGhost *> *)ghostsWithDictionaries:(nullable NSArray *)dictionaries;
 - (NSDictionary<NSString *, id> *)dictionary;
-/// What accepting this ghost saves: the value's length for a fill, 1 for select/check.
+/// What accepting this ghost saves: the value's length for a fill, 1 for select/check/upload.
 @property (nonatomic, readonly) NSInteger keystrokes;
 @end
 
@@ -54,6 +60,7 @@ typedef NS_ENUM(NSInteger, GHKeyDecision) {
     GHKeyDecisionQueue,      // consume; a write is in flight: queue one more accept
     GHKeyDecisionSwallow,    // consume and do nothing (the rest of a hold that ran out, halted or is mid-write)
     GHKeyDecisionDismiss,    // Escape: consume; dismiss the current ghost
+    GHKeyDecisionJump,       // consume; the current ghost is off screen: scroll it into view, write NOTHING
 };
 
 /// Everything the rule needs, as plain flags. Built on the main thread, read anywhere.
@@ -66,6 +73,7 @@ typedef struct {
     BOOL focusInWalk;     // focus is on the current ghost's element, on the field the walk just left, or on the window itself
     BOOL focusOnField;    // focus is on a captured value field (typing there overrides its ghost)
     BOOL busy;            // a write is in flight
+    BOOL canJump;         // the current ghost is off screen and Ghost can scroll it into view (not tried in vain yet)
 } GHWalkSnapshot;
 
 /// State of one physical key hold. Owned by whoever feeds key events in (the event tap).

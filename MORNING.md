@@ -1,6 +1,6 @@
 # Current handoff
 
-_Last updated: 2026-09-19 after the redacted Jev outcome/replay integration pass._
+_Last updated: 2026-09-19 21:30 UTC by Pravin's agent after the terminal, vision, next-action and desktop streams landed (build, typecheck, 2,350 unit tests, 36 e2e, 50 terminal pty tests, 316 desktop tests: all green)._
 
 ## What works now
 
@@ -18,12 +18,12 @@ Pull (`git pull --rebase origin main`) before you push; update this file when yo
 
 | Stream | Owner | Scope | State (19:20 UTC) |
 | --- | --- | --- | --- |
-| Ghost Desktop on a REAL Greenhouse form (Safari) | Pravin's agents | `desktop/**` | Accessibility granted on `~/Applications/Ghost.app` (rebuild ONLY `libghost.dylib`, never the host). `ghostctl trust` and `dump-tree` verified live on the Viam Greenhouse posting; a redacted fixture is in `desktop/tests/fixtures/greenhouse-safari-viam.json`. Capture now descends into Safari's tab group. Next: resume upload via the macOS open panel, react-select comboboxes, live `autotab` run parked on the locked Submit, recording. |
+| Ghost Desktop on a REAL Greenhouse form (Safari) | Pravin's agents | `desktop/**` | **LIVE on the real Viam Greenhouse form (2026-09-19 18:20 EDT):** 11 Tab presses in 13.8 s filled First/Last name, Email, Phone, LinkedIn, Github, Website (each verified), **attached the fictional resume through the native macOS open panel in 4.1 s** (the page then showed "Remove file"), and stopped parked on the locked "Submit application". Nothing was submitted. Open gap: react-select dropdowns were refused (Country was pre-filled; "How did you hear" refused) - being iterated on now. Evidence: `docs/media/desktop-greenhouse-autotab.json`, `docs/media/desktop-greenhouse-final-form.json` (labels and value LENGTHS only). |
 | Composio (loop API mode + atomic workflows) | Tahseen | `server/src/executors/composio*`, `server/src/workflows/**`, see `docs/handoff-composio.md` | Atomic workflow engine merged; live API payload aligned. |
 | Integration, invoice-loop proof, docs | Samir | `DEMO_WIN_PLAN.md`, e2e for the loop, `DEMO.md` | See "Next milestone". |
-| OpenAI vision fallback (OpenAI API prize) | Pravin's agents (in progress) | `server/src/routes/vision.ts`, `server/src/vision/**`, `docs/openai.md` | `/v1/vision/label` and `/v1/vision/locate`: OpenAI sees unlabeled/canvas controls, Jev still decides. Mock-tested; needs an `OPENAI_API_KEY` to go live. |
-| Terminal ghost (zsh, Warp track) | Pravin's agents (in progress) | `terminal/**`, `server/src/routes/command.ts`, `server/src/command/**` | Predicts the next shell command with Jev; Tab inserts it, never runs it. |
-| Extension next-action ghosts + presence heartbeat | Pravin's agents (in progress) | `extension/src/content/nextAction.ts`, `extension/src/background/{nextClient,presence}.ts` | Click ghosts from episodic memory + `/v1/predict/next`; 30 s `/v1/presence` beat so Desktop defers to the extension. |
+| OpenAI vision fallback (OpenAI API prize) | Pravin's agents | `server/src/routes/vision.ts`, `server/src/vision/**`, `docs/openai.md` | Done, mock-tested (63 tests): `/v1/vision/label` and `/v1/vision/locate`; locks and sensitivity re-derived in code. Needs an `OPENAI_API_KEY` to go live; no client calls it yet. |
+| Terminal ghost (zsh, Warp track) | Pravin's agents | `terminal/**`, `server/src/routes/command.ts`, `server/src/command/**` | Done: `source terminal/ghost.zsh`; Jev picks the next command (live: 491 ms, 0.89), Tab inserts, never runs; `pnpm test:terminal` 50 passed. Not in Warp (Warp replaces the line editor). |
+| Extension next-action ghosts + presence heartbeat | Pravin's agents | `extension/src/content/nextAction.ts`, `extension/src/background/{nextClient,presence}.ts` | Done: click ghosts from episodic memory + `/v1/predict/next`, form-submitting controls locked, 30 s `/v1/presence` beat; e2e 36 passed. |
 
 Measured on Pravin's machine with real keys: Jev direct 12-field form 649 ms (12/12, confidence 0.93 to 1.00); Baseten GLM-5.3-Flash with 3 samples + 1 hedge p50 1052 ms (12/12; ambiguous form 97.5% with zero wrong answers above the 0.7 gate); xAI adapter about 1.3 s with a flat 0.90 confidence; Browserbase session up in 0.5 s and invoice fields extracted from the public demo (https://whitespace-delta.vercel.app) in 3.7 s. Tables: `docs/media/bench-providers*.md`, `docs/baseten.md`.
 

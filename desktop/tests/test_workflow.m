@@ -31,3 +31,33 @@ GH_TEST(workflow_context_caps_nearby_text_and_preserves_only_workflow_shape) {
     GH_ASSERT_EQUAL_INT([snapshot[@"nearbyText"] count], 10);
     GH_ASSERT_EQUAL_OBJECTS(snapshot[@"workflow"], (@{ @"id": @"wf-1", @"kind": @"meeting", @"step": @"draft-response", @"status": @"active" }));
 }
+
+GH_TEST(workflow_context_never_carries_titles_values_or_private_fields) {
+    GHField *reply = [GHField fieldWithSignature:@"reply" label:@"Reply" kind:GHKindTextArea];
+    reply.value = @"Half-written private reply to my manager";
+    NSDictionary *snapshot = [GHWorkflowContextBuilder snapshotWithApplicationName:@"Mail" bundleIdentifier:@"com.apple.mail"
+                                                                        windowTitle:@"Inbox - alex.chen@gmail.com - Q3 layoffs"
+                                                                       focusedField:reply
+                                                                         nearbyText:@[ @"Can we meet Thursday?", @"Call me at +1 416 555 0142", @"Card number ending 4242",
+                                                                                       @"Gender identity survey", @"Write to alex@example.com" ]
+                                                                  safeValueToInsert:nil connectedToolkits:nil workflow:nil];
+    GH_ASSERT(snapshot[@"windowTitle"] == nil);
+    GH_ASSERT(snapshot[@"focusedElement"][@"editableValue"] == nil);
+    GH_ASSERT_EQUAL_OBJECTS(snapshot[@"focusedElement"][@"hasValue"], @YES);
+    GH_ASSERT_EQUAL_OBJECTS(snapshot[@"nearbyText"], (@[ @"Can we meet Thursday?" ]));
+    NSString *wire = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:snapshot options:0 error:NULL] encoding:NSUTF8StringEncoding];
+    for (NSString *secret in @[ @"Inbox", @"layoffs", @"gmail.com", @"Half-written", @"555 0142", @"4242", @"Gender", @"example.com" ]) {
+        GH_ASSERT_MSG(![wire containsString:secret], @"%@ crossed the wire", secret);
+    }
+
+    // An EEO question (by its label or by its section) is not described at all.
+    GHField *eeo = [GHField fieldWithSignature:@"g" label:@"How do you identify?" kind:GHKindSelect];
+    eeo.context = @"Voluntary self-identification: gender";
+    NSDictionary *withEEO = [GHWorkflowContextBuilder snapshotWithApplicationName:@"Safari" bundleIdentifier:@"com.apple.Safari" windowTitle:nil
+                                                                     focusedField:eeo nearbyText:nil safeValueToInsert:nil connectedToolkits:nil workflow:nil];
+    GH_ASSERT(withEEO[@"focusedElement"] == nil);
+    GHField *secret = [GHField fieldWithSignature:@"p" label:@"Password" kind:GHKindText];
+    secret.inputType = @"password";
+    GH_ASSERT([GHWorkflowContextBuilder snapshotWithApplicationName:@"App" bundleIdentifier:@"a.b" windowTitle:nil focusedField:secret
+                                                         nearbyText:nil safeValueToInsert:nil connectedToolkits:nil workflow:nil][@"focusedElement"] == nil);
+}

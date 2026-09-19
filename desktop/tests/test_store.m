@@ -167,3 +167,68 @@ GH_TEST(app_status_title) {
     GH_ASSERT_EQUAL_OBJECTS([GHAppDelegate statusTitleForTrusted:YES enabled:YES coreLoaded:YES provider:@"jev-gateway" latencyMs:@182.4], @"On: jev-gateway, 182 ms");
     GH_ASSERT([[GHAppDelegate statusTitleForTrusted:YES enabled:YES coreLoaded:NO provider:nil latencyMs:nil] containsString:@"make core"]);
 }
+
+#pragma mark - file facts
+
+GH_TEST(store_validates_resume_and_cover_letter_paths_on_load) {
+    GHProfileStore *store = FreshStore();
+    NSString *dir = GHTestTempDirectory();
+    NSString *resume = [dir stringByAppendingPathComponent:@"resume-alex-chen.pdf"];
+    NSString *letter = [dir stringByAppendingPathComponent:@"Cover Letter.docx"];
+    NSString *binary = [dir stringByAppendingPathComponent:@"resume.exe"];
+    for (NSString *path in @[ resume, letter, binary ]) [@"fictional" writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    NSString *link = [dir stringByAppendingPathComponent:@"linked.pdf"];
+    [NSFileManager.defaultManager createSymbolicLinkAtPath:link withDestinationPath:resume error:NULL];
+
+    NSMutableDictionary *profile = [[StoreCore() demoProfile] mutableCopy];
+    NSMutableDictionary *facts = [profile[@"facts"] mutableCopy];
+    facts[@"resumePath"] = resume;
+    facts[@"coverLetterPath"] = letter;
+    profile[@"facts"] = facts;
+    GH_ASSERT([store saveProfile:profile error:NULL]);
+    GH_ASSERT_EQUAL_OBJECTS(store.profile[@"facts"][@"resumePath"], resume);
+    GH_ASSERT_EQUAL_OBJECTS(store.profile[@"facts"][@"coverLetterPath"], letter);
+    GH_ASSERT([[store usableFactKeys] containsObject:@"resumePath"]);
+
+    NSArray *bad = @[ @"resume-alex-chen.pdf", [dir stringByAppendingPathComponent:@"missing.pdf"], binary, link, dir,
+                      [resume stringByAppendingString:@"\n"], [[dir stringByAppendingPathComponent:@"x/.."] stringByAppendingPathComponent:@"resume-alex-chen.pdf"] ];
+    for (NSString *path in bad) {
+        facts[@"resumePath"] = path;
+        profile[@"facts"] = facts;
+        NSData *json = [NSJSONSerialization dataWithJSONObject:profile options:0 error:NULL];
+        [json writeToFile:store.profilePath atomically:YES];
+        [store reload];
+        GH_ASSERT_MSG(store.profile[@"facts"][@"resumePath"] == nil, @"path #%lu must be dropped", (unsigned long)[bad indexOfObject:path]);
+        GH_ASSERT_EQUAL_OBJECTS(store.profile[@"facts"][@"firstName"], @"Alex");   // the rest of the profile is untouched
+    }
+    NSString *problem = nil;
+    GH_ASSERT(GHUsableProfileFilePath(@"~/ghost-tests-surely-missing-9f1c.pdf", &problem) == nil);
+    GH_ASSERT_EQUAL_OBJECTS(problem, @"missing");                   // "~/" was expanded before the checks
+    GH_ASSERT(GHUsableProfileFilePath(@"  ", &problem) == nil);
+    GH_ASSERT_EQUAL_OBJECTS(GHUsableProfileFilePath(resume, NULL), resume);
+}
+
+GH_TEST(store_example_profile_is_the_demo_profile_plus_the_fictional_resume) {
+    NSString *here = [@(__FILE__) stringByDeletingLastPathComponent];
+    if (!here.isAbsolutePath) here = [NSFileManager.defaultManager.currentDirectoryPath stringByAppendingPathComponent:here];
+    NSString *examplePath = [[here stringByAppendingPathComponent:@"../profile.example.json"] stringByStandardizingPath];
+    NSDictionary *example = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:examplePath] ?: [NSData data] options:0 error:NULL];
+    GH_ASSERT_MSG([example isKindOfClass:NSDictionary.class], @"desktop/profile.example.json must be valid JSON");
+    NSMutableDictionary *facts = [example[@"facts"] mutableCopy];
+    GH_ASSERT([facts[@"resumePath"] hasSuffix:@"/demo/fixtures/resume-alex-chen.pdf"]);
+    [facts removeObjectForKey:@"resumePath"];
+    GH_ASSERT_EQUAL_OBJECTS(facts, [StoreCore() demoProfile][@"facts"]);   // fictional Alex Chen, nothing else
+
+    // Loaded through the store (with the path of this checkout): _readme is ignored, the resume path is kept.
+    NSString *resume = [[here stringByAppendingPathComponent:@"../../demo/fixtures/resume-alex-chen.pdf"] stringByStandardizingPath];
+    NSMutableDictionary *profile = [example mutableCopy];
+    NSMutableDictionary *withPath = [example[@"facts"] mutableCopy];
+    withPath[@"resumePath"] = resume;
+    profile[@"facts"] = withPath;
+    GHProfileStore *store = FreshStore();
+    [[NSJSONSerialization dataWithJSONObject:profile options:0 error:NULL] writeToFile:store.profilePath atomically:YES];
+    [store reload];
+    GH_ASSERT_EQUAL_OBJECTS(store.profile[@"facts"][@"resumePath"], resume);
+    GH_ASSERT(store.profile[@"_readme"] == nil);
+    GH_ASSERT_FALSE([[store usableFactKeys] containsObject:@"_readme"]);
+}

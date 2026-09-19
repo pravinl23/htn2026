@@ -1,0 +1,93 @@
+{
+  "_readme": [
+    "Independent check of the live Safari run (ghostctl dump-tree, values reduced to their length).",
+    "Written after one autotab walk over https://job-boards.greenhouse.io/viamrobotics/jobs/6185046004.",
+    "No field value is in this file: only how many characters each field holds, and the attached file name.",
+    "Nothing was submitted: the walk ends parked on the locked \"Submit application\"."
+  ],
+  "attachedFile": "resume-alex-chen.pdf",
+  "fields": [
+    {
+      "role": "AXTextField",
+      "label": "First Name",
+      "characters": 4
+    },
+    {
+      "role": "AXTextField",
+      "label": "Last Name",
+      "characters": 4
+    },
+    {
+      "role": "AXTextField",
+      "label": "Email",
+      "characters": 25
+    },
+    {
+      "role": "AXComboBox",
+      "label": "Country",
+      "characters": 0
+    },
+    {
+      "role": "AXTextField",
+      "label": "Phone",
+      "characters": 15
+    },
+    {
+      "role": "AXButton",
+      "label": "Remove file"
+    },
+    {
+      "role": "AXButton",
+      "label": "Attach"
+    },
+    {
+      "role": "AXTextField",
+      "label": "LinkedIn Profile",
+      "characters": 36
+    },
+    {
+      "role": "AXTextField",
+      "label": "Github",
+      "characters": 31
+    },
+    {
+      "role": "AXTextField",
+      "label": "Website",
+      "characters": 20
+    },
+    {
+      "role": "AXComboBox",
+      "label": "How did you hear about this opportunity at Viam?",
+      "characters": 0
+    },
+    {
+      "role": "AXComboBox",
+      "label": "Are you legally authorized to work in the United States for any employer?",
+      "characters": 0
+    },
+    {
+      "role": "AXComboBox",
+      "label": "Gender",
+      "characters": 0
+    },
+    {
+      "role": "AXComboBox",
+      "label": "Are you Hispanic/Latino?",
+      "characters": 0
+    },
+    {
+      "role": "AXComboBox",
+      "label": "Veteran Status",
+      "characters": 0
+    },
+    {
+      "role": "AXComboBox",
+      "label": "Disability Status",
+      "characters": 0
+    },
+    {
+      "role": "AXButton",
+      "label": "Submit application"
+    }
+  ]
+}

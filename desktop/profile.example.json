@@ -1,0 +1,33 @@
+{
+  "_readme": [
+    "Example ~/Library/Application Support/Ghost/profile.json for Ghost Desktop. Everything in it is the FICTIONAL demo profile (Alex Chen).",
+    "Copy it there (Ghost reloads within a second), or add only the resumePath line to the profile Ghost seeded.",
+    "resumePath / coverLetterPath: an absolute path (a leading ~/ is expanded) to an existing, readable pdf, doc, docx, rtf, txt, odt or pages file under 25 MB.",
+    "The path below points at the fictional resume in this repository (demo/fixtures/resume-alex-chen.pdf) for a checkout at ~/Projects/htn2026; change it if your checkout lives elsewhere.",
+    "A path that fails these checks is dropped on load (the log names the key and a reason code, never the path). Paths never leave the machine: the prediction server only ever sees fact names, and the HUD shows the file name only.",
+    "This _readme key is ignored when the profile is loaded."
+  ],
+  "facts": {
+    "firstName": "Alex",
+    "lastName": "Chen",
+    "fullName": "Alex Chen",
+    "email": "alex.chen.dev@example.com",
+    "phone": "+1 519 555 0142",
+    "location": "Waterloo, ON",
+    "city": "Waterloo",
+    "province": "Ontario",
+    "country": "Canada",
+    "school": "University of Waterloo",
+    "degree": "BCS Computer Science",
+    "major": "Computer Science",
+    "graduationDate": "2028-04",
+    "github": "https://github.com/alexchen-dev",
+    "linkedin": "https://linkedin.com/in/alexchen-dev",
+    "website": "https://alexchen.dev",
+    "workAuthorization": "yes",
+    "requiresSponsorship": "no",
+    "referralSource": "Hack the North",
+    "resumePath": "~/Projects/htn2026/demo/fixtures/resume-alex-chen.pdf"
+  },
+  "pastAnswers": []
+}

@@ -146,9 +146,11 @@ static NSAttributedString *GHHudText(GHOverlayHUDInfo *hud) {
 - (void)applyItem:(GHDrawItem *)item glide:(BOOL)glide reduceMotion:(BOOL)reduceMotion {
     static const CGFloat kHeight = 28, kPadX = 12, kDot = 7, kDotGap = 6;
     BOOL isError = item.kind == GHDrawKindHUDError;
+    BOOL isChip = isError || item.kind == GHDrawKindHUDStatus;   // a line of text: an error, or a sequence's progress
     NSFont *mono = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightMedium];
-    NSAttributedString *text = isError ? GHAttributed(item.text ?: @"", mono, GHColor(255, 180, 180, 1), 0) : GHHudText(item.hud);
-    CGFloat lead = isError ? kPadX : kPadX + kDot + kDotGap;
+    CGColorRef chipColor = isError ? GHColor(255, 180, 180, 1) : GHColor(255, 255, 255, 0.92);
+    NSAttributedString *text = isChip ? GHAttributed(item.text ?: @"", mono, chipColor, 0) : GHHudText(item.hud);
+    CGFloat lead = isChip ? kPadX : kPadX + kDot + kDotGap;
     CGFloat textWidth = MIN(GHTextSize(text).width + 1, MAX(0, item.frame.size.width - lead - kPadX));
     CGRect frame = GHAnchoredFrame(item.frame, CGSizeMake(lead + textWidth + kPadX, kHeight), item.anchor, item.scale);
     GHSetLayerFrame(self, frame, NO);
@@ -164,12 +166,12 @@ static NSAttributedString *GHHudText(GHOverlayHUDInfo *hud) {
         [self addSublayer:_label];
     }
     _label.contentsScale = item.scale;
-    if (isError) GHSetPlainText(_label, item.text ?: @"", mono, GHColor(255, 180, 180, 1));  // may be truncated
+    if (isChip) GHSetPlainText(_label, item.text ?: @"", mono, chipColor);  // may be truncated
     else _label.string = text;
     CGFloat line = MAX(GHLineHeight(mono), GHTextSize(text).height);
     _label.frame = CGRectMake(lead, GHSnapTo((kHeight - line) / 2, item.scale), textWidth, line);
 
-    if (isError) {
+    if (isChip) {
         [_dot removeFromSuperlayer];
         _dot = nil;
         return;

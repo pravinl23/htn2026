@@ -17,6 +17,9 @@ static NSString *const kRoleRadioGroup = @"AXRadioGroup";
 static NSString *const kRoleRadioButton = @"AXRadioButton";
 static NSString *const kRoleButton = @"AXButton";
 static NSString *const kRoleLink = @"AXLink";
+static NSString *const kRoleTabGroup = @"AXTabGroup";
+static NSString *const kSubroleFileUpload = @"AXFileUploadButton";
+static NSString *const kSubroleTabButton = @"AXTabButton";
 
 static const NSUInteger kMaxLabel = 160;
 static const NSUInteger kMaxContext = 80;
@@ -26,6 +29,8 @@ static const NSUInteger kPrecedingSiblingScan = 8;
 static const NSUInteger kHeadingSiblingScan = 20;
 static const NSUInteger kLabelLevelsUp = 2;
 static const NSUInteger kContextLevelsUp = 6;
+static const NSUInteger kUploadLevelsUp = 3;       // file input -> its wrapper -> the upload widget (Greenhouse: 2)
+static const NSUInteger kComboAccessoryScan = 3;   // siblings around a combo box that belong to it (placeholder, toggle)
 static const CGFloat kMinBox = 2;                  // same floor as the extension: honeypots live below it
 
 static NSSet<NSString *> *GHSet(NSArray<NSString *> *items) { return [NSSet setWithArray:items]; }
@@ -187,6 +192,79 @@ static NSRegularExpression *GHURLLabelPattern(void) {
     return regex;
 }
 
+// A field that is nothing but the name of a profile site ("LinkedIn Profile", "Github", "Portfolio URL") wants a
+// link. Anchored on purpose: "GitHub username" wants a handle, and "How did you hear about us (LinkedIn...)" is prose.
+static NSRegularExpression *GHProfileLinkLabelPattern(void) {
+    static NSRegularExpression *regex; static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        regex = GHRegex(@"^(your )?(personal )?(linked ?in|git ?hub|git ?lab|bitbucket|behance|dribbble|stack ?overflow|portfolio|web ?site|blog|home ?page)"
+                        @"( (profile|page|account|site))?( (url|link|address))?$");
+    });
+    return regex;
+}
+
+// Safari's address field outside any web area (Chrome's lives in a toolbar, which is skipped as a whole).
+static NSRegularExpression *GHAddressFieldIdentifierPattern(void) {
+    static NSRegularExpression *regex; static dispatch_once_t once;
+    dispatch_once(&once, ^{ regex = GHRegex(@"^WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD$|address_?and_?search|omnibox|^url ?bar$|^location ?bar$"); });
+    return regex;
+}
+
+// The control that opens the file picker of an upload widget, as opposed to its cloud-drive alternatives.
+static NSRegularExpression *GHAttachLabelPattern(void) {
+    static NSRegularExpression *regex; static dispatch_once_t once;
+    dispatch_once(&once, ^{ regex = GHRegex(@"^(attach|upload|browse|choose( a)? files?|select( a)? files?|add( a)? files?)\\b"); });
+    return regex;
+}
+
+// Removing an attached file is locked everywhere else; inside an upload widget it belongs to that widget.
+static NSRegularExpression *GHFileRemovalPattern(void) {
+    static NSRegularExpression *regex; static dispatch_once_t once;
+    dispatch_once(&once, ^{ regex = GHRegex(@"\\b(remove|delete|clear|discard)\\b"); });
+    return regex;
+}
+
+// What the file input itself is called in WebKit and Chromium: says nothing about WHICH file.
+static NSRegularExpression *GHGenericUploadNamePattern(void) {
+    static NSRegularExpression *regex; static dispatch_once_t once;
+    dispatch_once(&once, ^{ regex = GHRegex(@"^(choose|select|browse|attach|upload|add)( an?)?( (file|files|document))?$|^no files? (selected|chosen)$|^file upload( button)?$"); });
+    return regex;
+}
+
+static NSRegularExpression *GHAttachedFileNamePattern(void) {
+    static NSRegularExpression *regex; static dispatch_once_t once;
+    dispatch_once(&once, ^{ regex = GHRegex(@"\\S\\.(pdf|docx?|rtf|txt|odt|pages)$"); });
+    return regex;
+}
+
+// The disclosure button a combo box brings along (react-select: "Toggle flyout"). Part of the select, never a field.
+static NSRegularExpression *GHComboToggleLabelPattern(void) {
+    static NSRegularExpression *regex; static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        regex = GHRegex(@"^((toggle|open|show|close|hide|expand|collapse)( (the )?(flyout|menu|options|list|dropdown|suggestions|choices))?|flyout|dropdown|clear( (selection|value|all))?)$");
+    });
+    return regex;
+}
+
+// A site's own "Autofill my application" (resume parsing) competes with Ghost for the same fields: ignored.
+static NSRegularExpression *GHSiteAutofillPattern(void) {
+    static NSRegularExpression *regex; static dispatch_once_t once;
+    dispatch_once(&once, ^{ regex = GHRegex(@"\\bauto[- ]?fill\\b"); });
+    return regex;
+}
+
+static NSRegularExpression *GHCoverLetterPattern(void) {
+    static NSRegularExpression *regex; static dispatch_once_t once;
+    dispatch_once(&once, ^{ regex = GHRegex(@"\\bcover ?letters?\\b|\\bmotivation(al)? letter\\b"); });
+    return regex;
+}
+
+static NSRegularExpression *GHResumePattern(void) {
+    static NSRegularExpression *regex; static dispatch_once_t once;
+    dispatch_once(&once, ^{ regex = GHRegex(@"\\br[eé]sum[eé]s?\\b|\\bcv\\b|\\bcurriculum vitae\\b"); });
+    return regex;
+}
+
 // React useId (":r1:"), long digit runs and hex blobs change on every load: useless in a signature.
 static NSRegularExpression *GHUnstableIdentifierPattern(void) {
     static NSRegularExpression *regex; static dispatch_once_t once;
@@ -267,6 +345,7 @@ static BOOL GHIsValueKind(NSString *kind) {
 @property (nonatomic, copy) NSString *signatureRole;
 @property (nonatomic, copy, nullable) NSString *signatureSubrole;
 @property (nonatomic, strong, nullable) NSDictionary<NSString *, id<GHAXNode>> *radioNodes;
+@property (nonatomic, strong, nullable) id<GHAXNode> uploadNode;    // file fields: the page's own file input
 @property (nonatomic) NSUInteger order;
 @end
 @implementation GHCandidate
@@ -281,6 +360,7 @@ static BOOL GHIsValueKind(NSString *kind) {
     limits.maxNodes = 1500;
     limits.maxDepth = 40;
     limits.timeBudget = 0.120;
+    limits.webAreaTimeBudget = 0.600;
     limits.maxLinks = 40;
     limits.maxOptions = 255;
     return limits;
@@ -291,6 +371,7 @@ static BOOL GHIsValueKind(NSString *kind) {
     copy.maxNodes = self.maxNodes;
     copy.maxDepth = self.maxDepth;
     copy.timeBudget = self.timeBudget;
+    copy.webAreaTimeBudget = self.webAreaTimeBudget;
     copy.maxLinks = self.maxLinks;
     copy.maxOptions = self.maxOptions;
     return copy;
@@ -310,6 +391,7 @@ static BOOL GHIsValueKind(NSString *kind) {
 @property (nonatomic, readwrite, copy) NSString *formSignature;
 @property (nonatomic, strong) NSDictionary<NSString *, id<GHAXNode>> *nodes;
 @property (nonatomic, strong) NSDictionary<NSString *, NSDictionary<NSString *, id<GHAXNode>> *> *radioNodes;
+@property (nonatomic, strong) NSDictionary<NSString *, id<GHAXNode>> *uploadNodes;
 @end
 
 @implementation GHCaptureResult
@@ -320,6 +402,10 @@ static BOOL GHIsValueKind(NSString *kind) {
 
 - (id<GHAXNode>)radioNodeForSignature:(NSString *)signature optionLabel:(NSString *)label {
     return self.radioNodes[signature][label];
+}
+
+- (id<GHAXNode>)uploadNodeForSignature:(NSString *)signature {
+    return self.uploadNodes[signature];
 }
 
 @end
@@ -516,16 +602,17 @@ static NSString *GHDescendantText(id<GHAXNode> node, NSUInteger depth) {
     return [parts componentsJoinedByString:@" "];
 }
 
-/// Label precedence of docs/desktop.md: AXTitleUIElement, AXTitle, AXDescription, AXPlaceholderValue,
-/// AXHelp, nearest preceding static text. A candidate equal to the current value is skipped: some
-/// native popups report the selected item as their title, and a value must never become a label.
+/// Label precedence: AXTitle, AXDescription, AXTitleUIElement, AXPlaceholderValue, AXHelp, nearest preceding
+/// static text. WebKit and Chromium put the computed accessible name (label, aria-label) into AXTitle, so it wins;
+/// the title element is what native forms use. A candidate equal to the current value is skipped: some native
+/// popups report the selected item as their title, and a value must never become a label.
 - (GHNaming *)namingForEntry:(GHWalkEntry *)entry kind:(NSString *)kind {
     id<GHAXNode> node = entry.node;
     BOOL actionable = [kind isEqualToString:GHKindButton] || [kind isEqualToString:GHKindLink];
     NSString *value = GHSquash(node.value);
     // Links skip the title element: they never get a ghost and the lookup is one more round trip.
     id<GHAXNode> titleElement = [kind isEqualToString:GHKindLink] ? nil : node.titleUIElement;
-    NSArray<NSString *> *explicitNames = @[ titleElement ? GHTextOfNode(titleElement) : @"", GHSquash(node.title), GHSquash(node.axDescription) ];
+    NSArray<NSString *> *explicitNames = @[ GHSquash(node.title), GHSquash(node.axDescription), titleElement ? GHTextOfNode(titleElement) : @"" ];
     NSMutableArray<NSString *> *candidates = [explicitNames mutableCopy];
     [candidates addObject:actionable ? GHDescendantText(node, 2) : GHSquash(node.placeholder)];
     [candidates addObject:GHSquash(node.help)];
@@ -601,15 +688,22 @@ static void GHLegendAndHeading(GHWalkEntry *entry, NSString **legend, NSString *
     return GHMatches(GHCardContextPattern(), [NSString stringWithFormat:@"%@ %@", legend, heading]);
 }
 
-/// A heading can name a neighbouring sensitive field; that text must not ride along as context.
+/// The group's legend AND the section heading, both kept (each capped): a section such as "Voluntary
+/// Self-Identification" must still reach the EEO guard when the question also sits in a titled group. A heading can
+/// name a neighbouring sensitive field; that text must not ride along as context.
 - (NSString *)contextFromLegend:(NSString *)legend heading:(NSString *)heading label:(NSString *)label {
-    for (NSString *raw in @[ legend, heading ]) {
-        NSString *text = GHTruncate([GHCapture cleanLabel:raw], kMaxContext);
-        if (text.length == 0 || [text isEqualToString:label]) continue;
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (NSString *raw in @[ legend ?: @"", heading ?: @"" ]) {
+        NSString *text = [GHCapture cleanLabel:raw];
+        if (text.length == 0 || [text isEqualToString:label] || [parts containsObject:text]) continue;
         if ([self isTextSensitive:text placeholder:nil identifier:nil]) continue;
-        return text;
+        [parts addObject:text];
     }
-    return nil;
+    if (parts.count == 0) return nil;
+    if (parts.count == 1) return GHTruncate(parts[0], kMaxContext);
+    // Both: each gets its share, so a long legend never pushes the heading out.
+    NSUInteger share = kMaxContext / 2;
+    return [NSString stringWithFormat:@"%@ / %@", GHTruncate(parts[0], share), GHTruncate(parts[1], share)];
 }
 
 #pragma mark Kinds
@@ -656,6 +750,7 @@ static NSArray<NSString *> *GHHintTokens(id<GHAXNode> node) {
     if (GHMatches(GHEmailLabelPattern(), label)) field.kind = GHKindEmail;
     else if (GHMatches(GHTelLabelPattern(), label)) field.kind = GHKindTel;
     else if (GHMatches(GHURLLabelPattern(), label)) field.kind = GHKindURL;
+    else if (GHMatches(GHProfileLinkLabelPattern(), [GHCapture normalizedLabel:label])) field.kind = GHKindURL;
 }
 
 #pragma mark Options
@@ -717,6 +812,227 @@ static BOOL GHHasBox(CGRect frame) {
     return CGRectGetMaxX(frame) > CGRectGetMinX(visibleArea) && CGRectGetMinX(frame) < CGRectGetMaxX(visibleArea);
 }
 
+#pragma mark Combo boxes
+
+/// "value" / "placeholder" for the part of a react-select box that shows what is chosen, from its DOM classes.
+static NSString *GHComboDisplayPart(id<GHAXNode> node) {
+    for (NSString *name in node.domClassList) {
+        NSString *lower = name.lowercaseString;
+        if ([lower containsString:@"single-value"] || [lower containsString:@"singlevalue"] || [lower containsString:@"multi-value"]) return @"value";
+        if ([lower containsString:@"placeholder"]) return @"placeholder";
+    }
+    return nil;
+}
+
+/// react-select keeps its input 4 px wide and empty: what the box shows (the placeholder or the chosen value) is a
+/// sibling right before it. That sibling gives the field its visible box and, once something is chosen, its value.
+static void GHAdoptComboDisplay(GHField *field, GHWalkEntry *entry) {
+    NSArray<id<GHAXNode>> *siblings = entry.siblings;
+    NSUInteger scanned = 0;
+    for (NSInteger i = (NSInteger)entry.indexInParent - 1; i >= 0 && scanned < kComboAccessoryScan; i--, scanned++) {
+        if ((NSUInteger)i >= siblings.count) continue;
+        id<GHAXNode> sibling = siblings[(NSUInteger)i];
+        if (![sibling.role isEqualToString:kRoleGroup]) continue;
+        NSString *part = GHComboDisplayPart(sibling);
+        if (!part) continue;
+        CGRect box = sibling.frame;
+        if (GHHasBox(box) && GHSameRow(field.rect, box)) field.rect = CGRectUnion(field.rect, box);
+        if ([part isEqualToString:@"value"] && field.value.length == 0) {
+            NSString *shown = GHDescendantText(sibling, 1);
+            if (!GHMatches(GHPlaceholderChoicePattern(), shown)) field.value = shown;
+        }
+        return;
+    }
+}
+
+/// The toggle / clear buttons that follow a combo box are part of it: dropped, their box joins the field's.
+- (void)foldComboAccessoriesIn:(NSMutableArray<GHCandidate *> *)candidates {
+    NSMutableArray<GHCandidate *> *accessories = [NSMutableArray array];
+    for (GHCandidate *combo in candidates) {
+        if (![combo.signatureRole isEqualToString:kRoleComboBox]) continue;
+        GHWalkEntry *entry = combo.entry;
+        for (GHCandidate *other in candidates) {
+            if (other == combo || ![other.field.kind isEqualToString:GHKindButton] || other.field.locked) continue;
+            if (other.entry.siblings != entry.siblings || other.entry.indexInParent <= entry.indexInParent) continue;
+            if (other.entry.indexInParent - entry.indexInParent > kComboAccessoryScan) continue;
+            if (!GHMatches(GHComboToggleLabelPattern(), other.field.label)) continue;
+            // Nothing but the combo box's own furniture may sit between the two (another field would own it).
+            BOOL adjacent = YES;
+            for (NSUInteger i = entry.indexInParent + 1; i < other.entry.indexInParent && i < entry.siblings.count; i++) {
+                if ([GHFieldRoles() containsObject:entry.siblings[i].role ?: @""]) adjacent = NO;
+            }
+            if (!adjacent) continue;
+            if (GHSameRow(combo.field.rect, other.field.rect)) combo.field.rect = CGRectUnion(combo.field.rect, other.field.rect);
+            [accessories addObject:other];
+        }
+    }
+    [candidates removeObjectsInArray:accessories];
+}
+
+#pragma mark File uploads
+
+static BOOL GHIsFileUploadButton(id<GHAXNode> node) {
+    if ([node.subrole isEqualToString:kSubroleFileUpload]) return YES;
+    return [node.roleDescription.lowercaseString isEqualToString:@"file upload button"];
+}
+
+static BOOL GHEntryIsInside(GHWalkEntry *entry, GHWalkEntry *container) {
+    for (GHWalkEntry *cursor = entry; cursor; cursor = cursor.parent) if (cursor == container) return YES;
+    return NO;
+}
+
+static BOOL GHUploadContainerIsNamed(id<GHAXNode> node) {
+    if (GHSquash(node.title).length || GHSquash(node.axDescription).length) return YES;
+    for (NSString *name in node.domClassList) {
+        NSString *lower = name.lowercaseString;
+        if ([lower containsString:@"upload"] || [lower containsString:@"file"] || [lower containsString:@"dropzone"]) return YES;
+    }
+    return NO;
+}
+
+/// First static text in document order, not looking inside controls (their text is theirs).
+static NSString *GHFirstText(id<GHAXNode> node, NSUInteger depth) {
+    for (id<GHAXNode> child in node.children) {
+        NSString *role = child.role ?: @"";
+        if ([role isEqualToString:kRoleStaticText]) {
+            NSString *text = GHTextOfNode(child);
+            if (text.length) return text;
+            continue;
+        }
+        if (depth == 0 || [GHFieldRoles() containsObject:role]) continue;
+        NSString *found = GHFirstText(child, depth - 1);
+        if (found.length) return found;
+    }
+    return nil;
+}
+
+/// The name of a file the widget already holds ("resume.pdf"): a filled upload is never offered again.
+static NSString *GHAttachedFileName(id<GHAXNode> node, NSUInteger depth) {
+    for (id<GHAXNode> child in node.children) {
+        NSString *role = child.role ?: @"";
+        if ([role isEqualToString:kRoleStaticText]) {
+            NSString *text = GHTextOfNode(child);
+            if (GHMatches(GHAttachedFileNamePattern(), text)) return text;
+            continue;
+        }
+        if (depth == 0 || ![role isEqualToString:kRoleGroup]) continue;
+        NSString *found = GHAttachedFileName(child, depth - 1);
+        if (found.length) return found;
+    }
+    return nil;
+}
+
+static NSString *GHUploadKindForText(NSString *text) {
+    NSString *probe = [GHCapture normalizedLabel:text];
+    BOOL cover = GHMatches(GHCoverLetterPattern(), probe);
+    BOOL resume = GHMatches(GHResumePattern(), probe);
+    if (cover == resume) return nil; // neither, or "resume or cover letter": which file is a guess
+    return cover ? GHUploadKindCoverLetter : GHUploadKindResume;
+}
+
+/// The widget one file input belongs to: climb anonymous wrappers until a named one (title, description, an
+/// upload-ish class), never past something that holds a value field, another file input or a real locked action.
+- (GHWalkEntry *)uploadContainerForEntry:(GHWalkEntry *)upload uploads:(NSArray<GHWalkEntry *> *)uploads candidates:(NSArray<GHCandidate *> *)candidates {
+    GHWalkEntry *container = nil;
+    GHWalkEntry *cursor = upload.parent;
+    for (NSUInteger level = 0; cursor && level < kUploadLevelsUp; level++, cursor = cursor.parent) {
+        if (![cursor.node.role isEqualToString:kRoleGroup]) break;
+        BOOL clean = YES;
+        for (GHWalkEntry *other in uploads) if (other != upload && GHEntryIsInside(other, cursor)) clean = NO;
+        for (GHCandidate *candidate in candidates) {
+            if (!clean || !GHEntryIsInside(candidate.entry, cursor)) continue;
+            NSString *kind = candidate.field.kind;
+            BOOL action = [kind isEqualToString:GHKindButton] || [kind isEqualToString:GHKindLink];
+            if (!action) clean = NO;
+            else if (candidate.field.locked && !GHMatches(GHFileRemovalPattern(), candidate.field.label)) clean = NO;
+        }
+        if (!clean) break;
+        container = cursor;
+        if (GHUploadContainerIsNamed(cursor.node)) break;
+    }
+    return container;
+}
+
+/// Which file: the input's own label, else the widget's name or first text, else the text before it. The input's
+/// title is only trusted when it is more than the browser's "Choose File".
+- (NSString *)uploadLabelForEntry:(GHWalkEntry *)upload container:(GHWalkEntry *)container sources:(NSMutableArray<NSString *> *)sources {
+    id<GHAXNode> node = upload.node;
+    id<GHAXNode> titleElement = node.titleUIElement;
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    [names addObject:titleElement ? GHTextOfNode(titleElement) : @""];
+    if (container) {
+        [names addObject:GHSquash(container.node.title)];
+        [names addObject:GHSquash(container.node.axDescription)];
+        [names addObject:GHFirstText(container.node, 2) ?: @""];
+    }
+    for (NSString *own in @[ GHSquash(node.title), GHSquash(node.axDescription) ]) {
+        if (!GHMatches(GHGenericUploadNamePattern(), own)) [names addObject:own];
+    }
+    [names addObject:GHPrecedingText(container ?: upload, kLabelLevelsUp, nil) ?: @""];
+    NSString *label = nil;
+    for (NSString *name in names) {
+        if (name.length == 0) continue;
+        [sources addObject:name];
+        if (!label && !GHMatches(GHAttachLabelPattern(), name)) label = name;
+    }
+    return [GHCapture cleanLabel:label ?: @""];
+}
+
+/// One `file` field per upload widget: labelled by the widget, acted on through its visible "Attach" button (the
+/// real file input is usually a 2 px visually-hidden element). Every other control of the widget (Dropbox,
+/// Google Drive, "Enter manually", "Remove") is part of it and not a field of its own.
+- (void)foldUploadEntries:(NSArray<GHWalkEntry *> *)uploads intoCandidates:(NSMutableArray<GHCandidate *> *)candidates window:(CGRect)window order:(NSUInteger *)order {
+    NSArray<GHCandidate *> *snapshot = [candidates copy];
+    for (GHWalkEntry *upload in uploads) {
+        id<GHAXNode> node = upload.node;
+        GHWalkEntry *container = [self uploadContainerForEntry:upload uploads:uploads candidates:snapshot];
+        NSMutableArray<GHCandidate *> *members = [NSMutableArray array];
+        if (container) for (GHCandidate *candidate in candidates) if (GHEntryIsInside(candidate.entry, container)) [members addObject:candidate];
+        [candidates removeObjectsInArray:members];
+        if (!node.enabled) continue;
+
+        GHCandidate *attach = nil;
+        for (GHCandidate *member in members) {
+            if ([member.field.kind isEqualToString:GHKindButton] && !member.field.locked && GHMatches(GHAttachLabelPattern(), member.field.label)) { attach = member; break; }
+        }
+        CGRect rect = attach ? attach.field.rect : node.frame;
+        GHWalkEntry *anchor = container ?: upload;
+        if (![self isFrame:rect reachableFromEntry:anchor window:window]) {
+            if (attach || !container || ![self isFrame:container.node.frame reachableFromEntry:anchor window:window]) continue;
+            rect = container.node.frame;
+        }
+
+        NSMutableArray<NSString *> *sources = [NSMutableArray array];
+        NSString *label = [self uploadLabelForEntry:upload container:container sources:sources];
+        NSString *legend = @"", *heading = @"";
+        GHLegendAndHeading(upload, &legend, &heading);
+        NSString *everyName = [[sources arrayByAddingObject:legend] componentsJoinedByString:@" "];
+        if ([self isTextSensitive:everyName placeholder:node.placeholder identifier:node.identifier]) continue;
+        if (label.length == 0 && node.identifier.length == 0) continue;
+        if (label.length == 0) label = [GHCapture cleanLabel:[GHCapture normalizedLabel:node.identifier]];
+
+        GHField *field = [GHField fieldWithSignature:@"" label:label kind:GHKindFile];
+        field.identifier = node.identifier;
+        field.inputType = @"file";
+        field.uploadKind = GHUploadKindForText(label) ?: GHUploadKindForText(node.identifier ?: @"") ?: GHUploadKindOther;
+        field.rect = rect;
+        field.axElement = attach ? attach.node.axElement : node.axElement;
+        field.required = node.required || GHMatches(GHRequiredMarkPattern(), label);
+        field.context = [self contextFromLegend:legend heading:heading label:label];
+        field.value = (container ? GHAttachedFileName(container.node, 3) : nil) ?: @"";
+
+        GHCandidate *candidate = [[GHCandidate alloc] init];
+        candidate.entry = anchor;
+        candidate.field = field;
+        candidate.node = attach ? attach.node : node;
+        candidate.uploadNode = node;
+        candidate.signatureRole = node.role ?: kRoleButton;
+        candidate.signatureSubrole = kSubroleFileUpload;
+        candidate.order = (*order)++;
+        [candidates addObject:candidate];
+    }
+}
+
 #pragma mark Field building
 
 - (GHCandidate *)candidateForEntry:(GHWalkEntry *)entry kind:(NSString *)kind window:(CGRect)window order:(NSUInteger)order {
@@ -764,6 +1080,12 @@ static BOOL GHHasBox(CGRect frame) {
             NSString *shown = GHSquash(value);
             field.value = GHMatches(GHPlaceholderChoicePattern(), shown) ? @"" : shown;
             field.options = [self cheapOptionsForSelectNode:node];
+            if ([node.role isEqualToString:kRoleComboBox] && field.options.count == 0) {
+                // react-select and ARIA combo boxes: the options only exist while the list is open.
+                field.options = nil;
+                field.lazyOptions = YES;
+                GHAdoptComboDisplay(field, entry);
+            }
         }
     }
 
@@ -910,6 +1232,14 @@ static void GHRadioSeat(GHWalkEntry *radio, GHWalkEntry *__strong *container, NS
 
 #pragma mark Walk
 
+/// Browser chrome that is not a whole toolbar: tab-bar items (AXRadioButton / AXTabButton, never a form choice)
+/// and the address/search field. Only consulted outside web areas: inside one, the same roles are page content.
+static BOOL GHIsBrowserChrome(id<GHAXNode> node, NSString *role) {
+    if ([node.subrole isEqualToString:kSubroleTabButton]) return YES;
+    NSString *identifier = node.identifier;
+    return identifier.length > 0 && GHMatches(GHAddressFieldIdentifierPattern(), identifier);
+}
+
 - (GHCaptureResult *)captureWindow:(id<GHAXNode>)window {
     GHCaptureLimits *limits = [self.limits copy];
     NSTimeInterval (^clock)(void) = self.clock;
@@ -921,6 +1251,7 @@ static void GHRadioSeat(GHWalkEntry *radio, GHWalkEntry *__strong *container, NS
 
     NSMutableArray<GHCandidate *> *candidates = [NSMutableArray array];
     NSMutableArray<GHWalkEntry *> *looseRadios = [NSMutableArray array];
+    NSMutableArray<GHWalkEntry *> *uploads = [NSMutableArray array];
     NSMutableArray<GHWalkEntry *> *radioGroups = [NSMutableArray array];
     NSMapTable<GHWalkEntry *, NSMutableArray<GHWalkEntry *> *> *groupedRadios = [NSMapTable strongToStrongObjectsMapTable];
     NSUInteger order = 0;
@@ -936,7 +1267,8 @@ static void GHRadioSeat(GHWalkEntry *radio, GHWalkEntry *__strong *container, NS
 
     while (head < queue.count) {
         if (visited >= limits.maxNodes) { result.stop = GHCaptureStopNodes; break; }
-        if (clock() - started > limits.timeBudget) { result.stop = GHCaptureStopTime; break; }
+        NSTimeInterval budget = result.sawWebArea ? MAX(limits.timeBudget, limits.webAreaTimeBudget) : limits.timeBudget;
+        if (clock() - started > budget) { result.stop = GHCaptureStopTime; break; }
         GHWalkEntry *entry = queue[head++];
         visited++;
         id<GHAXNode> node = entry.node;
@@ -944,9 +1276,11 @@ static void GHRadioSeat(GHWalkEntry *radio, GHWalkEntry *__strong *container, NS
         if (role.length == 0) continue; // dead element or a failed fetch: nothing to trust below it
         if ([GHAlwaysSkippedRoles() containsObject:role]) continue;
         if (!entry.insideWebArea && [GHChromeRoles() containsObject:role]) continue;
+        if (!entry.insideWebArea && GHIsBrowserChrome(node, role)) continue;
         if (GHIsSecure(node)) continue;
 
-        if (!entry.insideWebArea && [role isEqualToString:@"AXTabGroup"]) {
+        // Safari nests the page INSIDE its tab group, so a tab group is walked; its own controls stay provisional.
+        if (!entry.insideWebArea && [role isEqualToString:kRoleTabGroup]) {
             entry.insideUnresolvedTabGroup = YES;
         }
 
@@ -963,6 +1297,10 @@ static void GHRadioSeat(GHWalkEntry *radio, GHWalkEntry *__strong *container, NS
         }
 
         NSString *kind = [GHCapture kindForRole:role subrole:node.subrole];
+        if ([role isEqualToString:kRoleButton] && GHIsFileUploadButton(node)) {
+            [uploads addObject:entry]; // folded into one `file` field with its widget after the walk
+            continue;
+        }
         if ([role isEqualToString:kRoleRadioButton]) {
             if (entry.radioGroup) {
                 NSMutableArray *members = [groupedRadios objectForKey:entry.radioGroup];
@@ -1012,6 +1350,11 @@ static void GHRadioSeat(GHWalkEntry *radio, GHWalkEntry *__strong *container, NS
         GHCandidate *candidate = [self radioCandidateForGroup:nil radios:group window:windowFrame order:order++];
         if (candidate) [candidates addObject:candidate];
     }
+    [self foldUploadEntries:uploads intoCandidates:candidates window:windowFrame order:&order];
+    [self foldComboAccessoriesIn:candidates];
+    [candidates filterUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(GHCandidate *candidate, NSDictionary *bindings) {
+        return !([candidate.field.kind isEqualToString:GHKindButton] && GHMatches(GHSiteAutofillPattern(), candidate.field.label));
+    }]];
 
     // In a browser window the page is the only place Ghost works: the URL bar and the find bar are not forms.
     if (result.sawWebArea) {
@@ -1031,6 +1374,7 @@ static void GHRadioSeat(GHWalkEntry *radio, GHWalkEntry *__strong *container, NS
     NSMutableArray<GHField *> *fields = [NSMutableArray array];
     NSMutableDictionary<NSString *, id<GHAXNode>> *nodes = [NSMutableDictionary dictionary];
     NSMutableDictionary<NSString *, NSDictionary *> *radioNodes = [NSMutableDictionary dictionary];
+    NSMutableDictionary<NSString *, id<GHAXNode>> *uploadNodes = [NSMutableDictionary dictionary];
     NSMutableDictionary<NSString *, NSNumber *> *seen = [NSMutableDictionary dictionary];
     NSMutableArray<NSString *> *formParts = [NSMutableArray array];
     NSUInteger links = 0;
@@ -1044,12 +1388,14 @@ static void GHRadioSeat(GHWalkEntry *radio, GHWalkEntry *__strong *container, NS
         [fields addObject:field];
         nodes[field.signature] = candidate.node;
         if (candidate.radioNodes) radioNodes[field.signature] = candidate.radioNodes;
+        if (candidate.uploadNode) uploadNodes[field.signature] = candidate.uploadNode;
         if (GHIsValueKind(field.kind)) [formParts addObject:field.signature];
     }
 
     result.fields = fields;
     result.nodes = nodes;
     result.radioNodes = radioNodes;
+    result.uploadNodes = uploadNodes;
     result.visitedNodes = visited;
     result.partial = result.stop != GHCaptureStopNone || depthLimited;
     result.formSignature = GHFNV1a([formParts componentsJoinedByString:@"\n"]);
