@@ -46,6 +46,61 @@ The first Playwright run also needs `pnpm --filter @ghost/e2e exec playwright in
 
 The implemented offline form path and server endpoints have deterministic fallbacks when keys are missing. Copy `.env.example` to `.env` to enable live model providers. There is currently no `.env` in the repository checkout, and the extension does not call the server yet. Never commit `.env`.
 
+## Run Ghost in the background (macOS)
+
+Ghost can start at login and stay out of the way: no terminal, no `pnpm dev`. Two per-user LaunchAgents do it.
+
+| LaunchAgent | What runs | Restart policy |
+| --- | --- | --- |
+| `dev.ghost.server` | The prediction server on `http://127.0.0.1:8787` (loopback only), as one bundled file: `~/Library/Application Support/Ghost/server/server.mjs`, started by `ghost-server.sh` with an absolute `node` path. No pnpm, tsx or repo needed at run time. | `KeepAlive`, at most one restart every 10 s |
+| `dev.ghost.desktop` | Ghost Desktop, the native menu-bar agent (`~/Applications/Ghost.app`) that draws ghosts in Safari, Chrome, Arc, Firefox, Electron and native apps. See `desktop/README.md`. | `RunAtLoad`; restarted after a crash only, so **Quit** in the menu stays quit |
+
+**Install.** Run it yourself (it adds login items, so no agent or CI ever runs it). Never with `sudo`: the script refuses to run as root.
+
+```bash
+scripts/install-background.sh --dry-run   # prints every action and the rendered plists, changes nothing
+scripts/install-background.sh             # build, install, start
+```
+
+It builds the server bundle (`pnpm --filter @ghost/server bundle`, i.e. `node server/build.mjs` -> `server/dist/server.mjs`) and `make -C desktop app`, copies the bundle to `~/Library/Application Support/Ghost/server/`, copies `Ghost.app` to `~/Applications/` **only if it is not there yet**, runs `make -C desktop install-lib`, writes the two plists to `~/Library/LaunchAgents/`, and loads them with `launchctl bootout` (errors ignored) followed by `launchctl bootstrap gui/$UID`. Options: `--server-only`, `--desktop-only`, `--launch-via-open`, `--render-to DIR` (render and lint the plists into a directory, touch nothing else).
+
+**Permission (once, by hand).** System Settings -> Privacy & Security -> Accessibility -> switch **Ghost** on (`~/Applications/Ghost.app`). Ghost notices within two seconds; nothing to restart. No script here grants, resets or edits privacy permissions. macOS ties the grant of an ad-hoc signed app to its exact code, which is why the installer **never overwrites an existing `~/Applications/Ghost.app`**: the app is a tiny stable host, and updates arrive through `libghost.dylib` next to your profile (`docs/desktop-realworld.md`, section 1):
+
+```bash
+make -C desktop install-lib && launchctl kickstart -k gui/$(id -u)/dev.ghost.desktop
+```
+
+The agent starts the binary inside `Ghost.app` directly. A launchd job is its own "responsible process" for macOS privacy checks (unlike a binary started from a terminal, which is attributed to the terminal), and macOS identifies it by the enclosing bundle, so the grant you give `Ghost.app` applies; launchd also owns the real process, so stopping and crash restarts work. If a future macOS still reports "Needs Accessibility permission" after the grant, reinstall with `--launch-via-open`, which starts the app through LaunchServices (`/usr/bin/open -W -n`) exactly like a double click.
+
+**Keys.** The background server never reads the repo's `.env`. On the first install, `~/.config/ghost/env` (mode 0600, directory 0700) is created from the lines of `.env` whose names are on a fixed allowlist (`XAI_API_KEY`, `OPENAI_API_KEY`, `AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, `BASETEN_*`, `BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID`, `COMPOSIO_API_KEY`, `GHOST_PUBLIC_DEMO_URL`); nothing is echoed and an existing file is never overwritten. The wrapper exports it as data (it is never evaluated as shell), so no key appears in a plist or in `launchctl print`. With no keys Ghost runs on the offline heuristic. After editing the file: `launchctl kickstart -k gui/$(id -u)/dev.ghost.server`.
+
+**Logs and status.** Everything is in `~/Library/Logs/Ghost/` (mode 0600): `server.log`, `server.err.log` (trimmed at 5 MB on each start), `desktop.log` (the agent's own log: labels truncated, never values), `desktop.launchd.log`.
+
+```bash
+launchctl print gui/$(id -u)/dev.ghost.server | head -20
+curl -s http://127.0.0.1:8787/v1/health
+tail -f ~/Library/Logs/Ghost/server.err.log
+```
+
+**Uninstall.**
+
+```bash
+scripts/uninstall-background.sh               # stop and remove both LaunchAgents and the installed server bundle
+scripts/uninstall-background.sh --remove-app  # ... and ~/Applications/Ghost.app plus libghost.dylib
+scripts/uninstall-background.sh --purge       # ... and profile.json, settings.json, ~/.config/ghost/env, the logs
+```
+
+`--dry-run` works here too. By default your profile, your keys, the logs and `Ghost.app` (with its Accessibility grant) are kept. The Accessibility entry itself is yours to remove in System Settings.
+
+**Coexistence with the extension.** The extension and Ghost Desktop share the one server on `:8787`. The extension sends a presence heartbeat every 30 s; Ghost Desktop skips any browser whose heartbeat is fresher than 90 s and says so in its menu ("Chrome: handled by the extension"), so you never get two ghosts on one field. Browsers without the extension (Safari, Firefox) and native apps are handled by Ghost Desktop. While the background server is loaded it owns port 8787: `pnpm dev` cannot start a second one, and `pnpm e2e` would reuse it (with your real keys) instead of the offline heuristic. For development, unload it first:
+
+```bash
+launchctl bootout gui/$(id -u)/dev.ghost.server
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.ghost.server.plist   # back on
+```
+
+**Privacy.** Everything runs on your Mac and the server listens on loopback only. What leaves the machine is what the configured model provider needs: field labels and the *names* of your profile facts for mapping (never their values), and for free-text answers only the relevant non-sensitive facts. Password, card, government ID and sensitive-labelled fields are never captured, predicted, filled, cached or logged. Locked actions (submit, send, pay, delete) are never pressed by Ghost. Your profile lives in `~/Library/Application Support/Ghost/profile.json` (mode 0600) and nothing is written to the repo. Pause Ghost for any app from the menu-bar icon, or toggle it with Alt+Shift+G.
+
 ## Layout
 
 ```
