@@ -270,3 +270,82 @@ await fetch(`${serverUrl}/v1/presence`, {
 - Firefox: the worker's `Origin` is `moz-extension://<uuid>`, which `ALLOWED_ORIGIN` in `server/src/lib/guard.ts` does not accept yet, so every server call from the Firefox build (this one included) gets `403` until that pattern allows `moz-extension://[0-9a-f-]+`.
 
 Ghost Desktop may send `{ "client": "desktop", "version": "<CFBundleShortVersionString>" }` on the same schedule; nothing depends on it yet.
+
+## Vision fallback (`/v1/vision/*`, OpenAI)
+
+Jev reads text only. When the DOM or the macOS accessibility tree has a control with no text (an icon-only button, a canvas app, an image-only PDF, a custom-drawn widget), a client can ask OpenAI to SEE it. The answer is text that joins the state Jev decides over, or a ghost target. Nothing here clicks or types. Code: `server/src/routes/vision.ts`, `server/src/vision/**`. Why and how it fits: `docs/openai.md`.
+
+Configuration: enabled only when the server's LLM config is OpenAI (`OPENAI_API_KEY`; `OPENAI_BASE_URL` is honored). Every offline switch that drops that config also disables vision: `GHOST_PROVIDER=heuristic` (e2e), `GHOST_DECISION_PROVIDER=heuristic` + `GHOST_TEXT_PROVIDER=template`. An xAI or Baseten key does not enable it. `OPENAI_VISION_MODEL` (default `gpt-5.6-luna`), `GHOST_VISION_BUDGET` (default 200 billed calls per process, retries included; `0` disables).
+
+Access: the local-only guard of every route (JSON `Content-Type` or `415`, foreign `Origin` / `Host` `403`), PLUS the loop routes' caller rules (`executors/access.ts`), because vision spends paid quota and carries screen pixels: a web page is refused with `403` even on localhost; a browser extension must be the pinned one (`GHOST_EXTENSION_ID`) or send a valid `X-Ghost-Token` (`GHOST_EXECUTE_TOKEN`), else `403`; a caller without an `Origin` (Ghost Desktop, a script) is admitted; a wrong token is `401`. Checked before availability, so a refused caller never costs a budget unit. `GET /v1/vision` stays open (no call, no pixels). Body limit 2.1 MB (`413`).
+
+### `GET /v1/vision`
+`{ "available": true, "provider": "openai" | null, "model": "gpt-5.6-luna" | null, "budget": { "limit": 200, "used": 3, "remaining": 197 } }`. No model call.
+
+### `POST /v1/vision/label`
+```json
+{
+  "image": "data:image/png;base64,...",
+  "boxes": [{ "id": "ax-17", "x": 368, "y": 36, "width": 48, "height": 48 }],
+  "context": { "app": "Mail", "nearbyText": ["To: team"] }
+}
+```
+- `image`: a base64 data URL, PNG or JPEG only, at most 1,500,000 decoded bytes (`413`). The magic bytes decide the type and must match the data URL (`400`). Width and height are read from the PNG IHDR / JPEG frame header; an image that would need more than 30,000 patches of 32 x 32 px is refused with `413` (OpenAI rejects those rather than resizing them).
+- `boxes`: 1 to 40, unique `id` (1 to 64 characters, never sent to the model: boxes are renamed `b1..bN`), pixel coordinates in the image. A box overhanging the edge is clipped; one entirely outside is `400`.
+- `context` (optional): `app` (at most 64 characters), `nearbyText` (at most 20 strings of at most 80 characters; lines that look sensitive, contain an email address or 7 or more digits, or carry bidi overrides / isolates are dropped before the prompt). Every text field is NFKC-folded and stripped of invisible characters (format characters such as soft hyphens, zero-width characters and Unicode tags, variation selectors, the combining grapheme joiner) before any check, so `Pass<soft hyphen>word` is read as `Password`. A `context.app` with bidi overrides is `400`. `context.windowTitle` is REFUSED with `400`, whatever its value: window titles can be private.
+
+ONE `POST {OPENAI_BASE_URL}/responses` call: `instructions`, one user message with `input_text` (the JSON state: image size, aliased boxes with centers, context) and `input_image` (`detail: "original"` on models that document it, else `"high"`; when that detail level makes OpenAI downscale the image, for example gpt-5.4 / gpt-5.5 above 10,000 patches or 6000 px, or gpt-4o by the tile rules, the state gives the model the size it sees and box coordinates in that grid), `text.format` = `json_schema` with `strict: true` and a FIXED schema (the first request with any new schema is slower), `reasoning: { effort: "none" }` on the gpt-5.6 family (`"low"` on gpt-6-astra, omitted otherwise), `max_output_tokens`, `store: false`.
+
+Response `200`:
+```json
+{ "labels": [{ "id": "ax-17", "label": "Delete", "role": "button", "irreversible": true, "sensitive": false, "confidence": 0.81 }],
+  "provider": "openai", "model": "gpt-5.6-luna", "calibrated": false, "latencyMs": 740 }
+```
+- Exactly one entry per request box, in request order, under the client's id. `role` is `button | link | field | checkbox | tab | menu | other`.
+- Validated in code: an entry with an unknown or repeated id, a role outside the enum or wrong types is dropped, and that box comes back unanswered (`label: null`, `role: "other"`, `confidence: 0`). Labels are trimmed, invisible characters removed, clipped to 40 characters; a label that contains an email address or 7 or more digits, or a bidi override, becomes `null` with confidence `0` (name the control, not its content).
+- `irreversible` = the model's flag OR the shared `isLockedAction` on the model's FULL label (before clipping and scrubbing): the model can lock a control, never unlock one ("Submit application" is locked even if the model says otherwise; so is "Save your changes to the shared folder and publish", clipped to 40 characters, and "Send to alex@example.com", scrubbed to `null`).
+- `sensitive` = the shared `isSensitive` on the full label (password, card, government ID): never fill that control. A label with a bidi override cannot be read by these rules and comes back locked and sensitive.
+- `confidence` is the model's self-report, NOT calibrated (`calibrated: false`).
+
+### `POST /v1/vision/locate`
+`{ "image": "data:image/png;base64,...", "instruction": "the attach resume button", "boxes"?: [...] }`. `instruction` is 1 to 200 characters; one that names a sensitive field ("the password field", hidden characters included) or contains a bidi override is refused with `400` before any call. `boxes` as above, 0 to 40.
+
+Same call style (fixed `ghost_vision_locate` schema). The model prefers a supplied box id; otherwise it gives a center point and approximate size in image pixels.
+
+Response `200`: `{ "box": { "x", "y", "width", "height" } | null, "boxId": "<client id>" | null, "label", "irreversible", "sensitive", "confidence", "provider", "model", "calibrated": false, "latencyMs" }`.
+- A chosen supplied box returns that box's exact rectangle and id. An unknown box id falls back to the point. A point (and size) is mapped back from the model's grid to the image's pixels when OpenAI downscaled it, then becomes a box of the given size (24 x 24 px without one), clamped inside the image. Nothing found: `box: null`, `confidence: 0`. A target without a name code can check (the model's `label: null`, or a label scrubbed as personal data) is also `box: null`, `confidence: 0`.
+- `irreversible` = model flag OR `isLockedAction` on the full label OR on the instruction. A located element whose full label is sensitive is never returned (`box: null`, `sensitive: true`).
+- The result is only a ghost suggestion. The client still draws it, gates it on confidence, and requires an explicit Enter or click for a locked target.
+
+### Errors, cost and privacy
+- `503 { "error": "vision unavailable", "reason" }` without an OpenAI key (zero network). `400` / `413` validation (messages name the path, never a value). `429 { "error": "vision budget exhausted", "limit" }` once the process budget is spent (checked before building the request). `504 { "error": "vision timed out" }` after 8 s. `502 { "error": "vision provider failed", "reason": "upstream" | "network" | "malformed" | "refused" | "incomplete", "upstreamStatus"? }`.
+- No retries on 4xx (429 included). A 5xx is retried once, after 200 ms, only if 2.5 s of the 8 s deadline remain and a budget unit can be taken; that unit is taken before the backoff, so a concurrent request cannot spend it meanwhile (it gets `429`), and every billed attempt is logged and measured.
+- Stateless: images are validated, forwarded once and dropped; nothing from the screen is cached, stored or logged. One log line per call, sizes and counts only: `[ghost] openai /v1/vision/label 740ms model=gpt-5.6-luna calibrated=false cache=miss image=png 480x120 bytes=1330 boxes=3 attempts=1 answered=3 locked=2 droppedText=0`. Latency (failures included) is recorded in `/v1/metrics` under provider `openai`.
+
+## Terminal (`POST /v1/predict/command`)
+
+Predicts the next shell command for the zsh plugin `terminal/ghost.zsh` (setup and privacy: `terminal/README.md`). Code: `server/src/routes/command.ts`, `server/src/command/*`. Same global access rules as every route (`Content-Type: application/json` or `415`, foreign `Origin` / `Host` `403`); body limit 32 KB, streamed bytes included (`413`).
+
+Request (unknown keys ignored, `null` counts as absent):
+```json
+{ "cwd": "northwind-app", "git": { "branch": "main", "dirty": true, "ahead": 0, "behind": 0, "untracked": 1 },
+  "history": ["pnpm install", "pnpm build", "pnpm test", "git status", "git add -A"],
+  "projectScripts": ["pnpm dev", "pnpm test", "make lib"], "prefix": "git c", "lastExitCode": 0 }
+```
+- `cwd` (string, max 255): the directory's basename. The server keeps only the last path segment of whatever arrives. `history` (required, max 30 strings, oldest first) is already filtered by the client. `projectScripts` max 40 strings of 200. `prefix` max 300 (what is typed). `git.dirty` is required inside `git`; counts are non-negative integers. `lastExitCode` 0 to 255. `400` messages name the path, never the value.
+
+Behavior:
+- Safety pass first, the same rules as the client (`server/src/command/filter.ts`, parity fixture `terminal/tests/filter-cases.tsv`): secret-looking history lines are dropped (exports / assignments of *KEY* *TOKEN* *SECRET* *PASS* *PWD*, `--password` / `--pass` / `--auth` flags, `Authorization:`, `Bearer `, `-p<password>`, `-p <password>` after `login` and for mysql / mongo clients, `redis-cli -a`, `openssl -pass`, `curl -u` / `--user` `user:pass`, `user:pass@` URLs, base64 / hex blobs of 24+, random-looking 30+ character runs split by `/`, private key headers, known token shapes, multi-line and 300+ character lines), and so is the command right after `ssh-keygen` / `gpg` / `sshpass` / `security find-generic-password`. A secret-looking `prefix`, or any non-empty `prefix` when the last `history` line is one of those commands, is answered `command: null` with no model call and no cache entry. A secret-looking branch name becomes `""`.
+- Candidates are built IN CODE, at most 60, best first: commands that followed the last command earlier in the history (bigram, plus trigram agreement), context moves (after `git add` -> `git commit -m ""`; after `git commit` with `ahead > 0` -> `git push`; a failed test command -> rerun it; `git status` on a dirty tree -> `git add -A` / `git diff`; `git checkout -b X` -> `git push -u origin X`; `git clone` -> `cd <repo>`; `mkdir X` -> `cd X`; `behind > 0` -> `git pull`; ...), recent unique commands and project scripts. Only commands that extend `prefix` (and differ from it) survive. Destructive commands are NEVER candidates and never returned (`rm -rf`, `git push --force` / `-f` / `+ref`, remote-branch deleting pushes (`-d`, `--delete`, `:branch`, `--prune`), `git reset --hard`, `git clean -f`, `sudo`, `dd`, `mkfs`, `chmod -R 777`, `DROP` / `TRUNCATE`, `kubectl delete`, `terraform destroy`, `docker system prune`, `killall`, `curl | sh`, `npm publish`, ...); the response is checked again before it is sent.
+- ONE Jev call: state `{ cwd, git?, lastCommands (the last 15 filtered commands, oldest first), lastExitCode? }` and one choice question `next_command` whose criteria are `c0..cN` plus `none`. Each option is the command followed by the evidence code found for it, in words (`git commit -m ""  (commits the changes that were just staged)`, `pnpm test  (ran right after the last command 2 times earlier in this session)`), because Jev reads text and does not count; no backticks in options (they refer to state paths). Instructions refer to `cwd`, `git`, `lastCommands` and `lastExitCode` with backticked paths. No candidates means no call.
+- Only `typesafe` and `jev-gateway` answer this route. With `baseten` or `llm` configured the heuristic answers instead: a shell asks after every prompt and while typing, and those providers are rate-limited (Baseten fans one decision out to K + H requests) or slow.
+- Deadline 1.5 s. On error, timeout or an unusable answer the heuristic answers with `fallbackFrom`: highest n-gram count, ties by recency, then context prior, then script order. Its confidence is uncalibrated: the share of the last command's prefix-matching followers, `count / (followers + 0.5)` (+0.05 per trigram agreement), so one observation stays under the 0.7 gate (0.67) and two consistent ones clear it (0.8); a context move uses its prior (0.8 for `git commit -m ""` after `git add`); a unique prefix match 0.75; a recency-only guess on an empty line 0.3.
+- Cache: in-memory LRU of 500 keyed by a SHA-256 of `(cwd, git summary [branch, dirty, ahead > 0, behind > 0, untracked > 0], last 3 commands, prefix, lastExitCode)`. A hit is used only while its command is still one of the request's candidates. Identical concurrent requests share one call. Fallbacks are not cached.
+
+Response:
+```json
+{ "command": "git commit -m \"\"", "confidence": 0.89, "provider": "typesafe", "calibrated": true, "candidates": 8, "latencyMs": 491, "cache": "miss" }
+```
+`command` is `null` when nothing fits (Jev answered `none`, no candidate, secret prefix). `fallbackFrom` is present after a fallback. The client shows the ghost only when `confidence >= GHOST_TERMINAL_MIN_CONFIDENCE` (default 0.7). Log line, numbers only: `[ghost] typesafe /v1/predict/command 488ms questions=1 calibrated=true cache=miss`; latency and cache hits are recorded in `/v1/metrics`.
+
+Measured (2026-09-19, TypeSafe direct, a fictional session with history `pnpm install`, `pnpm build`, `pnpm test`, `git status`, `git add -A`, a dirty tree, four project scripts, no `prefix`, 8 candidates): `git commit -m ""` at confidence 0.89 in 491 ms server-side (560 ms client round trip); the repeat was a 0 ms cache hit. Before options carried their evidence the same session scored 0.69 (502 ms), under the gate.
