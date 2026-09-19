@@ -1,6 +1,7 @@
 #import "GHCore.h"
 #import "GHLog.h"
 #import <JavaScriptCore/JavaScriptCore.h>
+#import <dlfcn.h>
 
 NSString *const GHCoreErrorDomain = @"dev.ghost.desktop.core";
 
@@ -54,6 +55,13 @@ static NSError *GHCoreMakeError(GHCoreError code, NSString *message) {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *env = NSProcessInfo.processInfo.environment[@"DESKTOP_CORE_PATH"];
     if (env.length && [fm fileExistsAtPath:env]) return env;
+    // Beside the image this code was loaded from: libghost.dylib lives OUTSIDE Ghost.app, so that a new core
+    // never changes the bundle's seal (docs/desktop-realworld.md section 1). The bundle is only a fallback.
+    Dl_info image;
+    if (dladdr((__bridge void *)[GHCore class], &image) && image.dli_fname) {
+        NSString *beside = [@(image.dli_fname).stringByDeletingLastPathComponent stringByAppendingPathComponent:@"ghost-core.js"];
+        if ([fm fileExistsAtPath:beside]) return beside;
+    }
     NSString *resource = [NSBundle.mainBundle pathForResource:@"ghost-core" ofType:@"js"];
     if (resource) return resource;
     NSString *exeDir = NSBundle.mainBundle.executablePath.stringByDeletingLastPathComponent ?: @".";

@@ -24,8 +24,8 @@ typedef NS_ENUM(NSInteger, GHCoreError) {
 /// Process-wide instance, loaded from `+defaultBundlePath`. nil (and logged once) when the bundle cannot be loaded.
 + (nullable instancetype)sharedCore;
 
-/// DESKTOP_CORE_PATH (tests), else Ghost.app/Contents/Resources/ghost-core.js, else ghost-core.js or
-/// build/ghost-core.js next to the executable.
+/// DESKTOP_CORE_PATH (tests), else ghost-core.js beside the image this code was loaded from (libghost.dylib),
+/// else Ghost.app/Contents/Resources/ghost-core.js, else ghost-core.js or build/ghost-core.js next to the executable.
 + (nullable NSString *)defaultBundlePath;
 
 - (nullable instancetype)initWithBundlePath:(NSString *)path error:(NSError *_Nullable *_Nullable)error;

@@ -71,6 +71,15 @@ extern const NSUInteger GHMaxConcurrentDrafts;        // 3
 /// nil for the window itself, GHWalkFocusElsewhere, or the signature of the captured field behind `node`.
 - (nullable NSString *)focusSignatureForNode:(nullable id<GHAXNode>)node;
 
+// ---------- harness (GHHarness --autotab reads these; labels and short codes only, never a value) ----------
+/// How many consumed Tabs the walk has finished handling, whatever the outcome.
+@property (nonatomic, readonly) NSUInteger stepCount;
+/// The last of them: { label, action, outcome, verified, reason?, ms }. `outcome` is accepted | parked | refused |
+/// failed | gone | handed-back | not-visible | draft-not-ready | inactive; `reason` is a GHWriteReason code.
+@property (nonatomic, readonly, copy, nullable) NSDictionary<NSString *, id> *lastStep;
+/// { running, active, busy, ghosts, unlocked, accepted, provider, statusLine, current?: { label, action, locked, pending, visible } }
+- (NSDictionary<NSString *, id> *)harnessState;
+
 @end
 
 NS_ASSUME_NONNULL_END

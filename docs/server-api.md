@@ -10,7 +10,7 @@ Browserbase and Composio paths are unit/mock-tested and fall back to simulated e
 - Every `POST` MUST send `Content-Type: application/json`, otherwise `415`. This forces a CORS preflight, so no web page can reach a handler with a "simple" request.
 - A request whose `Origin` header is present and is not `chrome-extension://*` or `http://localhost:*` / `http://127.0.0.1:*` gets `403` (not just missing CORS headers).
 - A request whose `Host` is not `localhost`, `127.0.0.1` or `[::1]` gets `403` (DNS rebinding).
-- Body limits count streamed bytes too: form 512 KB, next 128 KB, metrics 32 KB, ghost-text 64 KB, extract 128 KB, loop synthesize / preview / execute 1 MB, loop compile 256 KB (`413`).
+- Body limits count streamed bytes too: form 512 KB, next 128 KB, metrics 32 KB, presence 2 KB, ghost-text 64 KB, extract 128 KB, loop synthesize / preview / execute 1 MB, loop compile 256 KB (`413`).
 - The loop execution routes (`/v1/loop/compile`, `/v1/loop/preview`, `/v1/loop/execute`, `DELETE /v1/loop/execute/:runId`) are stricter, because they send mail, write sheets and open billed cloud browsers from the user's own accounts. See "Loop execution: access and confirmation" below.
 - Limits on `/v1/predict/form`: at most 100 fields and 64 fact keys (`400` above that).
 
@@ -20,10 +20,25 @@ Decision provider precedence (first match wins), reported by `/v1/health`:
 
 1. `TYPESAFE_API_KEY`: `typesafe` (TypeSafe direct, `@typesafe-ai/sdk`, `POST https://api.typesafe.ai/v1/systemone`)
 2. `AI_GATEWAY_API_KEY`: `jev-gateway` (Vercel AI SDK `experimental_evaluate`, model `typesafe-ai/jev`)
-3. `OPENAI_API_KEY` or `XAI_API_KEY`: `llm` (OpenAI-compatible structured-output adapter; confidence NOT calibrated)
-4. nothing: `heuristic`
+3. `BASETEN_API_KEY`: `baseten` (Baseten Model APIs, hedged self-consistency over structured outputs; confidence is a vote, NOT calibrated; see "Baseten provider" below and `docs/baseten.md`)
+4. `OPENAI_API_KEY` or `XAI_API_KEY`: `llm` (OpenAI-compatible structured-output adapter; confidence NOT calibrated)
+5. nothing: `heuristic`
 
-Text provider: `openai` if `OPENAI_API_KEY`, else `xai` if `XAI_API_KEY` (OpenAI-compatible, base `https://api.x.ai/v1`, default model `grok-4.20-non-reasoning`), else `template`.
+Text provider: `baseten` if `BASETEN_API_KEY` (OpenAI-compatible, base `https://inference.baseten.co/v1`, default model `zai-org/GLM-5.3-Flash`, thinking switched off, reasoning stripped), else `openai` if `OPENAI_API_KEY`, else `xai` if `XAI_API_KEY` (base `https://api.x.ai/v1`, default model `grok-4.20-non-reasoning`), else `template`. `/v1/profile/extract` uses the same client. `/v1/loop/synthesize` still uses OpenAI / xAI only.
+
+Baseten:
+
+| Variable | Meaning |
+| --- | --- |
+| `BASETEN_API_KEY` | Enables decision provider `baseten` and text provider `baseten`. Sent as `Authorization: Bearer`. Never logged. |
+| `BASETEN_BASE_URL` | Default `https://inference.baseten.co/v1`. |
+| `BASETEN_DECISION_MODEL` | Default `zai-org/GLM-5.3-Flash`. Pick a model whose thinking can be switched off (`pnpm --filter @ghost/server baseten:models` lists the live catalog with the switch the server would use). |
+| `BASETEN_TEXT_MODEL` | Default `zai-org/GLM-5.3-Flash`. |
+| `BASETEN_SAMPLES` | K, valid samples a decision waits for. Default 3, clamped to 1..8. Below 3, no answer can reach the 0.7 gate (2 of 2 scores 0.69). |
+| `BASETEN_HEDGE` | H, extra identical requests fired with the K. Default 1, clamped to 0..4. ONE decision costs K + H requests. |
+| `BASETEN_DECISION_MODEL_URL` | Optional OpenAI-compatible base URL of a dedicated deployment (our own Tab model). Decisions only. Unverified: no such deployment exists yet. |
+| `BASETEN_LOGPROBS` | `1` asks for `logprobs` and, if a response ever carries them, uses token probabilities instead of the vote (`confidenceSource: "logprobs"`). Off by default: the Model APIs accept the flag and return none. |
+| `GHOST_WARMUP` | `0` skips the ONE one-token warm-up request sent at server start when `baseten` is the active decision provider. Never sent under Vitest. |
 
 Loop execution (Stage 8):
 
@@ -39,7 +54,22 @@ Loop execution (Stage 8):
 
 With `GHOST_PROVIDER=heuristic` (e2e) both server executors stay simulated even when their keys exist.
 
-Overrides used by tests and e2e so they never need keys: `GHOST_DECISION_PROVIDER=heuristic`, `GHOST_TEXT_PROVIDER=template`. `GHOST_PROVIDER=heuristic` is shorthand for both. `GHOST_FAST_PATH=0` disables the heuristic fast path.
+Overrides used by tests and e2e so they never need keys: `GHOST_DECISION_PROVIDER=heuristic`, `GHOST_TEXT_PROVIDER=template`. `GHOST_PROVIDER=heuristic` is shorthand for both. `GHOST_FAST_PATH=0` disables the heuristic fast path. Both overrides also accept `baseten` (and the other provider names); a forced provider without credentials degrades to `heuristic` / `template`. Forcing `heuristic` + `template` removes the Baseten config from the server entirely: no client, no warm-up, zero network.
+
+## Baseten provider (`server/src/providers/baseten.ts`, `consensus.ts`, `hedge.ts`)
+
+Measured on the Model APIs: `logprobs` / `top_logprobs` are accepted but `choices[].logprobs` never comes back, and `n` must be 1. So confidence comes from self-consistency, and sampling means parallel requests.
+
+- ONE logical decision per form. All questions go into one prompt; the option list shared by a form's questions is sent once (`optionSets`). The answer is a JSON object constrained by `response_format: { type: "json_schema", strict: true }` with one `enum` per question (choice: the option names, options longer than 24 characters or with unusual characters aliased to codes `o<i>` and mapped back; noul: `yes` / `no`; score: `"0".."N"`). Thinking is switched off per model (`chat_template_kwargs`), `temperature` 0.7 (0 when K = 1), `max_tokens` = 48 + 16 per question, header `x-session-affinity: ghost-<hash of model + schema>`.
+- K + H identical requests are fired in parallel. The decision resolves with the first K valid samples and aborts the stragglers. No retries beyond the hedge.
+- Deadline 2.3 s (inside the 2.5 s decision deadline). With at least 1 valid sample at the deadline, the answer comes from what arrived and every confidence is scaled by `votes / K`. With 0 samples the provider throws and the heuristic fallback answers (`fallbackFrom: "baseten"`).
+- Consensus per question: `probabilities` = vote fractions with ONE pseudo-vote shared by the offered options, `(count + 1/n) / (votes + 1)`, so they sum to 1 and 3 of 3 is 0.77 on a 13-option question, never 1.0. `choice` = argmax; a tie answers `none` when offered, otherwise the first tied option at confidence 0. `confidence` = smoothed top fraction x `min(1, votes / K)`. Codes that were never offered are discarded per question. noul = smoothed fraction of yes, pulled toward 0.5 for partial votes. score = mean of the votes plus the smoothed distribution and the legend.
+- `calibrated: false`. Internally every answer carries `confidenceSource: "consensus"`, `votes` and `expected`, and the result carries `sampling` (launched, received, failed, abandoned, partial, rateLimited, arrivalsMs); none of that reaches the wire.
+- Rate budget: the provider reads `x-ratelimit-remaining-requests` and `x-ratelimit-limit-requests`, adds what the bucket refilled since (limit / 60 s, capped at the limit), and never fans out further than that estimate (hedge first, then samples; always at least one request). A 429 sets the remembered budget to 0; a budget older than 60 s is forgotten. Measured on a new account: limit 15 requests per minute, a bucket of about 8 after an idle stretch, one request back every 4 s. Aborted stragglers still count.
+- `401` / `403`: the provider pauses for 60 s (zero network, the heuristic answers) and logs one line without the key.
+
+- Measured (2026-09-19, GLM-5.3-Flash, K=3 + H=1, 12-field form, 8 decisions): p50 1052 ms, slowest 1150 ms, 0 failed, first sample at 604 ms p50. Full numbers, the ambiguous-form comparison and the limitations are in `docs/baseten.md` and `docs/media/bench-providers*.md` (`node scripts/bench-providers.mjs`, `--ambiguous` for the look-alike form; refuses more than 120 real calls).
+- Text: `POST /v1/ghost-text` streams through the OpenAI-compatible client with `chat_template_kwargs` from the same per-model table, `max_tokens`, header `x-session-affinity: ghost-text`; `reasoning_content` deltas are ignored and `<think>` blocks are filtered out of the stream. `firstTokenMs` and `latencyMs` are reported like on the xAI path.
 
 ## Jev wire format (do not invent fields)
 
@@ -64,7 +94,7 @@ The shared TypeScript mirror of this lives in `shared/src/decision.ts` (`Decisio
 ## Routes
 
 ### `GET /v1/health`
-`{ ok: true, provider: "typesafe"|"jev-gateway"|"llm"|"heuristic", calibrated: boolean, textProvider: "openai"|"xai"|"template", model?: string, version: string }`
+`{ ok: true, provider: "typesafe"|"jev-gateway"|"baseten"|"llm"|"heuristic", calibrated: boolean, textProvider: "baseten"|"openai"|"xai"|"template", model?: string, textModel?: string, sampling?: { samples, hedge, confidenceSource: "consensus" }, version: string }`. `model` is the decision model, `textModel` the ghost-text model; `sampling` is present only for `baseten`.
 
 ### `POST /v1/predict/form`
 Request: `FormPredictRequest` from `@ghost/shared` (`origin`, `formSignature`, `fields: CapturedField[]`, `factKeys: string[]`). The server never receives profile VALUES for this route, only fact KEYS.
@@ -202,3 +232,41 @@ Latency attribution: each model call is recorded under the provider that made it
 ## Logging
 
 Every model call logs one line: `provider route latencyMs questions=<n> calibrated=<bool> cache=<hit|miss>`. Never log field values, profile values, or keys.
+
+## `/v1/presence` (coexistence of the extension and Ghost Desktop)
+
+Both clients can draw ghosts in a browser. The extension says "I am alive in this browser" with a heartbeat; Ghost Desktop reads the list and stays out of a browser whose extension heartbeat is younger than 90 s (`docs/desktop.md`, "Coexistence with the extension"). Code: `server/src/routes/presence.ts`. In memory only, nothing is logged, and no model is ever called.
+
+Same access rules as every other route (`Content-Type: application/json` on `POST` or `415`, foreign `Origin` `403`, foreign `Host` `403`). Body limit 2 KB, streamed bytes included (`413`).
+
+### `POST /v1/presence`
+```json
+{ "client": "extension" | "desktop", "browser": "chrome", "version": "0.1.0" }
+```
+- `client` is required. Anything else is `400`.
+- `browser` is optional, 1 to 32 characters after trimming, stored lowercased, alphabet `a-z 0-9 space . _ -` starting with a letter or digit. The extension MUST send it (Desktop ignores an extension entry without one); Desktop omits it.
+- `version` is optional, 1 to 32 characters of `0-9 A-Z a-z . + _ -`.
+- `null` counts as absent. A wrong type, an empty or over-long string, or another character is `400`; error messages name the field, never the value. Unknown keys are ignored.
+- Response `200 { "ok": true }`. One entry is kept per `(client, browser)`; a new heartbeat replaces it.
+
+### `GET /v1/presence`
+```json
+{ "clients": [{ "client": "extension", "browser": "chrome", "version": "0.1.0", "lastSeenMs": 1800000000000, "ageMs": 12000 }] }
+```
+Newest first. `browser` and `version` are `null` when the client did not send them. `lastSeenMs` is the server clock (epoch ms) and `ageMs = now - lastSeenMs` on the same clock, never negative, so a reader needs no clock of its own: use `ageMs`. An entry is pruned 5 minutes after its last heartbeat. At most 32 entries are kept (the oldest goes first), so invented browser names cannot grow the list.
+
+### The heartbeat the extension must send (every 30 s)
+From the background worker, with the same base URL as the other server calls:
+```ts
+await fetch(`${serverUrl}/v1/presence`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ client: "extension", browser: browserName(), version: chrome.runtime.getManifest().version }),
+}).catch(() => undefined); // fire and forget: the server may be down, and that must never surface to the user
+```
+- Send one immediately when the worker starts, then every 30 s. Desktop's freshness window is 90 s, so two lost heartbeats in a row are tolerated. Send only while Ghost is enabled in the extension; to hand a browser back to Desktop just stop sending (there is no "leave" call, the entry ages out).
+- An MV3 service worker is stopped after about 30 s of idleness and a `setInterval` dies with it. Drive the heartbeat with `chrome.alarms` (`periodInMinutes: 0.5`, the minimum since Chrome 120; needs the `"alarms"` permission in `manifest.json` AND `manifest.firefox.json`, the Firefox build fails when the two permission lists drift), or have each visible content script send a `ghost:presence` message every 30 s and let the background throttle to one POST per 25 s (no new permission).
+- `browser` must be one of the names Ghost Desktop maps bundle ids to (`desktop/src/GHServerClient.m`): `chrome`, `chromium`, `arc`, `brave`, `edge`, `opera`, `vivaldi`, `firefox`, `safari`. Detection order: `chrome.runtime.getURL("")` starts with `moz-extension://` is `firefox`; else `navigator.userAgentData.brands` containing `Microsoft Edge` is `edge`, `Opera` is `opera`, `Brave` is `brave`, `Google Chrome` is `chrome`; else `chromium`. Arc and Vivaldi present themselves as Chrome, so they need a user override (an options setting) or Desktop will keep drawing in them.
+- Firefox: the worker's `Origin` is `moz-extension://<uuid>`, which `ALLOWED_ORIGIN` in `server/src/lib/guard.ts` does not accept yet, so every server call from the Firefox build (this one included) gets `403` until that pattern allows `moz-extension://[0-9a-f-]+`.
+
+Ghost Desktop may send `{ "client": "desktop", "version": "<CFBundleShortVersionString>" }` on the same schedule; nothing depends on it yet.

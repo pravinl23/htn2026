@@ -58,7 +58,9 @@ export type FactLocator =
 
 Sources in priority order: `[data-field]`/`[data-testid]` elements with short text, `<dt>/<dd>` pairs, two-column table rows, `label: value` text lines, headings. Max 80 facts per page, text <= 200 chars, skip anything sensitive-looking (`isSensitive` on the label). The background keeps the latest facts per (tab, pathPattern) and a short history per URL so the generalizer can look up "where did this typed value come from".
 
-## 2. Next-action prediction (Stage 5 — server implemented, extension client planned)
+**List sizes** travel inside the same `ghost:page-facts` report (no separate round trip: when the second run ends, the list tab usually shows an item page and could not answer). Per repeated list, first in the report: `{ locator: { by: "css", value: <listSignature> }, label: "ghost:list-length", text: "<item count>" }` and optionally `label: "ghost:list-handled", text: "0,1,7"` (items already showing a handled marker). The trace store keeps them apart from ordinary facts (`traceStore.listInfo`), so they never reach the generalizer or the server. Without a total, no loop is proposed; the next facts report retries.
+
+## 2. Next-action prediction (Stage 5: server implemented, extension client in progress)
 
 - After each user action settles (300 ms debounce) and no form ghosts are pending, the content script sends candidates (visible buttons/links/fields, max 60, filtered in code: in viewport or near it, not in nav chrome unless recently used) plus the last 20 events to `POST /v1/predict/next` (see docs/server-api.md). ONE choice question over candidate ids plus `none`.
 - **Episodic memory**: background stores `(stateSummary, action)` pairs where `stateSummary = pathPattern + the last 3 event shape keys` (see 3.1). Top 5 most similar pairs (exact key match first, then Jaccard over tokens) are included in the request as `memory`. The heuristic provider predicts purely from memory: if the same state summary was followed by the same action at least once before, propose it with confidence 0.75 (once) / 0.9 (twice or more).
@@ -116,6 +118,13 @@ When a loop is detected, Ghost shows a bottom sheet: "You did this twice. Ghost 
 - After each step verify (value stuck, row appended, item marked handled). Stop the whole run on the first mismatch and show which item failed; never retry an irreversible step.
 - Irreversible steps run only after the batch confirmation and are counted in the final report.
 - A run can be cancelled with Esc at any time.
+
+**How it is built** (`background/loopRunner.ts`, `content/loop{Content,Driver,Executor,Surface}.ts`, shared rules in `lib/loopRouting.ts`):
+- **Pull protocol.** The page asks (`ghost:loop-step-request` with its path pattern), runs the one step it gets, reports (`ghost:loop-step-result`), and finds the next step in the reply. A fresh content script just asks again. In background mode the list tab's content script does the asking and runs the steps in hidden same-origin frames (one per item, one per constant page such as `/sheet`, loaded once).
+- **Locked steps have a commit point.** A locked order is *armed* only when it answers a request sent from the step's own page. The executor refuses an unarmed or unconfirmed locked step; the worker refuses its result. An armed step that is asked for again means its result was lost: the run fails with `irreversible-unverified` instead of clicking twice (in a visible run, a page that moved on counts as the click's effect).
+- **Reserved variables** ride in `LoopStepOutcome.extracted`: `@itemUrl` (the page open-item opened, origin + pathname) and `@row|<pathPattern>` (the row the item's first `next-empty` fill picked; its other cells reuse it). A frame or a locked step only ever runs on the exact `@itemUrl`, never on "some page with that pattern".
+- **Report first, then navigate.** In the real tab, open-item and link clicks that only navigate report their outcome before clicking, because a full page load would end the script with the result unsent. The next step verifies the page it lands on. In frames such links are skipped: frames are loaded by url.
+- **Verification.** Extracted values must be non-empty and equal to what the confirmed preview showed (`value-changed`); fills must stick (`value-mismatch`); an item that already shows a handled marker is never opened (`item-handled`); a new `role=alert` after a click is a refusal (`action-rejected`). Everything the run's tab records during a run is tagged synthetic by the worker.
 
 ## 4. Demo sites
 

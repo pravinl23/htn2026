@@ -1,6 +1,7 @@
 #import "GHAppDelegate.h"
 #import "GHController.h"
 #import "GHCore.h"
+#import "GHHarness.h"
 #import "GHLog.h"
 #import "GHProfileStore.h"
 #import "GHServerClient.h"
@@ -16,6 +17,7 @@ static NSString *const kAccessibilityPaneURL = @"x-apple.systempreferences:com.a
 static const NSTimeInterval kTrustPollUntrusted = 1.5;
 static const NSTimeInterval kTrustPollTrusted = 10.0;
 static const NSTimeInterval kServerPoll = 15.0;
+static const NSTimeInterval kLaunchRequestWarmUp = 2.0;   // pipeline start + first capture + offline ghosts
 
 @interface GHAppDelegate ()
 @property (nonatomic, readwrite, nullable) GHCore *core;
@@ -45,6 +47,7 @@ static OSStatus GHHotKeyHandler(EventHandlerCallRef next, EventRef event, void *
     EventHandlerRef _hotKeyHandler;
     NSString *_serverErrorCode;
     BOOL _serverStateKnown;
+    GHHarnessServer *_harnessServer;
     // Items of the menu that is open right now, so their titles follow the state while the user is looking.
     NSMenuItem *_toggleItem;
     NSMenuItem *_statusInfoItem;
@@ -80,9 +83,12 @@ static OSStatus GHHotKeyHandler(EventHandlerCallRef next, EventRef event, void *
     [self pollServer];
     _serverTimer = [NSTimer scheduledTimerWithTimeInterval:kServerPoll target:self selector:@selector(pollServer) userInfo:nil repeats:YES];
     _serverTimer.tolerance = 3.0;
+    [self startHarness];
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
+    [_harnessServer stop];
+    [self.harnessChannel releaseAgentLock];
     [self stopPipeline];
     [self.client cancelAll];
     [self.store stopWatching];
@@ -169,6 +175,39 @@ static OSStatus GHHotKeyHandler(EventHandlerCallRef next, EventRef event, void *
     [_pipeline stop];
     _pipelineRunning = NO;
     GHLog(@"app: pipeline stopped");
+}
+
+#pragma mark - harness
+
+- (GHController *)harnessController {
+    return _pipelineRunning && [_pipeline isKindOfClass:[GHController class]] ? (GHController *)_pipeline : nil;
+}
+
+- (void)startHarness {
+    if (!self.harnessChannel) return;
+    __weak GHAppDelegate *weakSelf = self;
+    _harnessServer = [[GHHarnessServer alloc] initWithChannel:self.harnessChannel controller:^GHController *{ return [weakSelf harnessController]; }];
+    [_harnessServer start];
+    GHHarnessRequest *request = self.launchRequest;
+    if (!request) return;
+    // This agent exists for one --autotab: give the pipeline time to see the window, run, answer, quit.
+    request.delay = MAX(request.delay, kLaunchRequestWarmUp);
+    GHLog(@"harness: request mode=%@ id=%@ (agent launched for it)", request.mode, request.identifier);
+    __block BOOL answered = NO;
+    void (^answer)(NSDictionary<NSString *, id> *) = ^(NSDictionary<NSString *, id> *response) {
+        if (answered) return;
+        answered = YES;
+        NSMutableDictionary<NSString *, id> *out = [response mutableCopy];
+        out[@"mode"] = request.mode;
+        out[@"agent"] = @"standalone";
+        GHHarnessWriteResponse(out, request.outPath);
+        GHLog(@"harness: answered mode=%@ id=%@ error=%@", request.mode, request.identifier, response[@"error"] ?: @"none");
+        [NSApp terminate:nil];
+    };
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(request.deadline * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        answer(GHHarnessErrorResponse(@"timeout", nil));
+    });
+    [GHHarness performRequest:request controller:[self harnessController] completion:answer];
 }
 
 #pragma mark - enable, pause

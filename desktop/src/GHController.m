@@ -80,6 +80,7 @@ static const NSUInteger kFocusClimb = 3;
     NSUInteger _scrollGeneration;
     NSString *_lastStatusLine;
     NSString *_lastRescanLog;
+    CFAbsoluteTime _stepStartedAt;
 }
 
 @synthesize eventTap = _eventTap;
@@ -846,6 +847,7 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
 - (void)drainStep {
     if (_pendingTabs <= 0 || (!_running && !self.assumesActive)) { [self finishDrain]; return; }
     _pendingTabs--;
+    _stepStartedAt = CFAbsoluteTimeGetCurrent();
     __weak GHController *weakSelf = self;
     [self acceptCurrentThen:^{ [weakSelf drainStep]; }];
 }
@@ -878,11 +880,12 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
 - (void)acceptCurrentThen:(dispatch_block_t)done {
     GHGhost *ghost = _walk.current;
     // Paused, disabled or handed to the extension between the key press and now: nothing is written.
-    if (!ghost || !self.active) { [self stopTheHold]; done(); return; }
+    if (!ghost || !self.active) { [self recordStep:@"inactive" reason:nil ghost:ghost]; [self stopTheHold]; done(); return; }
     if (_drainChecksFocus) {
         _drainChecksFocus = NO;
         if ([self userLeftTheWalk]) {
             GHLog(@"controller: focus left the walk before the write; Tab handed back to the app");
+            [self recordStep:@"handed-back" reason:nil ghost:ghost];
             [self stopTheHold];
             [GHEventTap postKeyCode:GHKeyCodeTab];
             done();
@@ -892,6 +895,7 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
     GHField *field = _fields[ghost.signature];
     id<GHAXNode> node = [_result nodeForSignature:ghost.signature];
     if (!field || !node) {
+        [self recordStep:@"gone" reason:GHWriteReasonGone ghost:ghost];
         [_walk drop:ghost.signature];
         _rescanDeferred = YES;
         [self render];
@@ -899,10 +903,11 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
         return;
     }
     // Rule 3: a locked ghost is never activated. Focus lands on it so Enter or a click can confirm.
-    if (ghost.locked) { [self parkOn:node]; done(); return; }
+    if (ghost.locked) { [self recordStep:@"parked" reason:GHWriteReasonLocked ghost:ghost]; [self parkOn:node]; done(); return; }
     if (ghost.pending) { [self acceptPending:ghost then:done]; return; }
     if (![self currentIsVisibleNow]) {
         // A queued press, but the field got hidden or scrolled away meanwhile: no write the user cannot see.
+        [self recordStep:@"not-visible" reason:nil ghost:ghost];
         _pendingTabs = 0;
         _rescanDeferred = YES;
         [self render];
@@ -923,6 +928,7 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
 - (void)acceptPending:(GHGhost *)ghost then:(dispatch_block_t)done {
     if (_drainIsRepeat) {
         if ([_walk skipPendingCurrent]) { [self render]; [self acceptCurrentThen:done]; return; }
+        [self recordStep:@"draft-not-ready" reason:GHWriteReasonPending ghost:ghost];
         [self stopTheHold];
         done();
         return;
@@ -935,7 +941,12 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
         GHController *controller = weakSelf;
         if (!controller) return;
         GHGhost *now = [controller.walk ghostWithSignature:signature];
-        if (!ready || !now || now.pending || controller.walk.current != now) { [controller stopTheHold]; done(); return; }
+        if (!ready || !now || now.pending || controller.walk.current != now) {
+            [controller recordStep:@"draft-not-ready" reason:GHWriteReasonPending ghost:now];
+            [controller stopTheHold];
+            done();
+            return;
+        }
         [controller acceptCurrentThen:done];
     };
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(GHDraftWaitSeconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -980,6 +991,8 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
 - (void)finishedWriting:(NSString *)signature result:(GHWriteResult *)result {
     _quietUntil = CFAbsoluteTimeGetCurrent() + kOwnWriteQuietSeconds;
     if (!_running && !self.assumesActive) return;
+    [self recordStep:result.ok ? @"accepted" : (result.refused ? @"refused" : @"failed") reason:result.ok ? nil : (result.reason ?: @"failed")
+               ghost:[_walk ghostWithSignature:signature]];
     if (result.ok) {
         [self rememberWrittenValueOf:[_walk ghostWithSignature:signature]];
         [_walk accept:signature];
@@ -1016,6 +1029,40 @@ static BOOL GHIsWindowItself(id<GHAXNode> node) {
     if (!field) return;
     if ([ghost.action isEqualToString:GHGhostActionCheck]) field.value = @"true";
     else field.value = ghost.value.length ? ghost.value : ghost.displayText;
+}
+
+#pragma mark - harness
+
+/// Labels and short codes only. `ghost` may already have left the walk; nil records a step without a label.
+- (void)recordStep:(NSString *)outcome reason:(NSString *)reason ghost:(GHGhost *)ghost {
+    NSMutableDictionary<NSString *, id> *step = [NSMutableDictionary dictionary];
+    step[@"outcome"] = outcome;
+    step[@"verified"] = @([outcome isEqualToString:@"accepted"]);
+    if (reason) step[@"reason"] = reason;
+    if (ghost) {
+        step[@"label"] = _fields[ghost.signature].label ?: @"";
+        step[@"action"] = ghost.action ?: @"";
+        step[@"locked"] = @(ghost.locked);
+    }
+    step[@"ms"] = @(round((CFAbsoluteTimeGetCurrent() - _stepStartedAt) * 1000.0));
+    _lastStep = step;
+    _stepCount++;
+}
+
+- (NSDictionary<NSString *, id> *)harnessState {
+    NSUInteger unlocked = 0;
+    for (GHGhost *ghost in _walk.ghosts) if (!ghost.locked) unlocked++;
+    NSMutableDictionary<NSString *, id> *state = [@{
+        @"running": @(_running), @"active": @(self.active), @"busy": @(_busy),
+        @"ghosts": @(_walk.ghosts.count), @"unlocked": @(unlocked), @"accepted": @(_walk.accepted),
+        @"provider": _provider ?: @"", @"statusLine": [self statusLine] ?: @"",
+    } mutableCopy];
+    GHGhost *current = _walk.current;
+    if (current) {
+        state[@"current"] = @{ @"label": _fields[current.signature].label ?: @"", @"action": current.action ?: @"",
+                               @"locked": @(current.locked), @"pending": @(current.pending), @"visible": @(_currentVisible) };
+    }
+    return state;
 }
 
 /// Rule 2: focus moves onto the next ghost's element. Cosmetic: when the app ignores AXFocused, focus stays on the

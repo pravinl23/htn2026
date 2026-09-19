@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Ghost Desktop, the menu-bar agent. Rendered by scripts/install-background.sh: edit the template, not the copy in
+  ~/Library/LaunchAgents. Placeholders: APP_PATH, LOG_DIR (each wrapped in @ signs).
+
+  Why the binary is started directly instead of through /usr/bin/open:
+  * docs/desktop-realworld.md says "launch through LaunchServices" because a binary started from a SHELL inherits the
+    terminal as its TCC responsible process and looks untrusted. A launchd job has no such parent: launchd makes the job its
+    own responsible process, and because the executable sits inside Ghost.app, TCC identifies it by the bundle's signature
+    (dev.ghost.desktop). That is the same identity a double click gets, so one Accessibility grant covers both.
+  * launchd then owns the real process: `launchctl bootout` stops it with SIGTERM (main.m quits through AppKit on SIGTERM),
+    a crash restarts it, and `launchctl print` shows its state. With `open -W -n` launchd would only own the `open` helper;
+    the app itself would be re-parented and would survive a bootout.
+  The LaunchServices variant is kept next to this file (dev.ghost.desktop.open.plist.template, install with
+  the launch-via-open flag) in case a future macOS attributes direct launches differently.
+
+  KeepAlive/SuccessfulExit=false: restart after a crash only. "Quit" from the menu and the second-copy guard both exit 0,
+  so neither is fought by launchd.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>dev.ghost.desktop</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>@APP_PATH@/Contents/MacOS/Ghost</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<!-- Lets System Settings > General > Login Items list this agent under Ghost instead of as an anonymous binary. -->
+	<key>AssociatedBundleIdentifiers</key>
+	<string>dev.ghost.desktop</string>
+	<key>StandardOutPath</key>
+	<string>@LOG_DIR@/desktop.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>@LOG_DIR@/desktop.launchd.log</string>
+</dict>
+</plist>

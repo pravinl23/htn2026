@@ -6,7 +6,7 @@
 // (a class named "GHPipeline" is still looked up at run time as a replacement seam).
 #import <AppKit/AppKit.h>
 
-@class GHCore, GHProfileStore, GHServerClient, GHPresence, GHServerHealth;
+@class GHCore, GHProfileStore, GHServerClient, GHPresence, GHServerHealth, GHHarnessChannel, GHHarnessRequest;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -46,6 +46,12 @@ extern NSNotificationName const GHServerStatusDidChangeNotification;
 @property (nonatomic, readonly, nullable) NSRunningApplication *frontmostUserApp;
 
 - (void)toggleEnabled:(nullable id)sender;
+
+// Harness (GHHarness.h). Both are set by GhostMain before the app runs.
+/// Where harness requests from later `open -n ... --args` launches arrive. nil: this agent serves none.
+@property (nonatomic, strong, nullable) GHHarnessChannel *harnessChannel;
+/// A standalone --autotab: run this one request once the pipeline is up, write its answer, quit.
+@property (nonatomic, strong, nullable) GHHarnessRequest *launchRequest;
 
 // Pure helpers, exposed for tests.
 /// "Needs Accessibility permission", "Off", "On: heuristic only (server offline)", "On: jev, 182 ms"...
