@@ -32,6 +32,9 @@ CGFloat GHGhostTextPadding(CGFloat fieldHeight);
 @property (nonatomic) CGRect axRect;                // AX global, top-left origin
 @property (nonatomic) BOOL locked;
 @property (nonatomic) BOOL streaming;               // Ghost.pending: free text still streaming in
+/// Ghost.guess: the answer engine guessed this (docs/answers.md). Drawn with a dotted underline and a "guess"
+/// chip so it is never mistaken for a fact; hold-Tab stops here.
+@property (nonatomic) BOOL guess;
 + (instancetype)entryWithSignature:(NSString *)signature
                               kind:(NSString *)kind
                        displayText:(NSString *)displayText
@@ -103,6 +106,8 @@ typedef NS_ENUM(NSInteger, GHDrawAnchor) {
 @property (nonatomic, readonly) BOOL current;
 @property (nonatomic, readonly) BOOL locked;
 @property (nonatomic, readonly) BOOL streaming;
+/// The answer under this item is a guess: dotted underline (ghost text) or a "guess" chip (pill).
+@property (nonatomic, readonly) BOOL guess;
 @property (nonatomic, readonly) BOOL showsKeycap;   // pills carry their own keycap
 /// Cursor only: where the pointer's tip rests, panel coordinates.
 @property (nonatomic, readonly) CGPoint tip;

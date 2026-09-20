@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   ANSWER_COUNTER_NAMES,
+  DEFAULT_SETTINGS,
   DEMO_PROFILE,
+  LONG_SHOT_CONFIDENCE,
   LearnedAnswerStore,
   NEEDS_TEXT,
   answerCounterName,
@@ -254,7 +256,7 @@ describe("proposeAnswer: declarations", () => {
   });
 });
 
-describe("proposeAnswer: protected questions are never guessed", () => {
+describe("proposeAnswer: protected questions decline, or say so as a long shot", () => {
   const protectedQuestions: QuestionField[] = [
     VIAM_GENDER,
     VIAM_HISPANIC,
@@ -271,21 +273,48 @@ describe("proposeAnswer: protected questions are never guessed", () => {
   ];
 
   for (const field of protectedQuestions) {
-    it(`proposes nothing, and never a guess, for "${field.label}"`, () => {
-      for (const ctx of [{}, withDemo(), withDemo(DECLINING)]) {
+    it(`never invents a characteristic for "${field.label}"`, () => {
+      for (const ctx of [{}, withDemo()]) {
         const p = propose(field, ctx);
         expect(p.class, field.label).toBe("protected");
-        expect(p.source, field.label).not.toBe("guess");
+        // With the decline setting off, Ghost says nothing at all: the user opted out of these.
+        expect(p.source, field.label).toBe("none");
+      }
+      // With it on, a guess is never dressed up as a fact and never passes hold-Tab unseen.
+      const asked = propose(field, withDemo(DECLINING));
+      expect(asked.class, field.label).toBe("protected");
+      if (asked.source === "guess") {
+        expect(asked.needsReview, field.label).toBe(true);
+        expect(asked.confidence, field.label).toBeLessThan(DEFAULT_SETTINGS.confidenceThreshold);
+        expect(asked.reason, field.label).toContain("check this");
+      } else {
+        expect(["fact", "none"], field.label).toContain(asked.source);
       }
     });
   }
 
-  it("declines only where the form itself offers a way to decline", () => {
+  it("declines where the form offers a way to, and proposes a flagged long shot where it does not", () => {
     const withDecline = propose(VIAM_VETERAN, withDemo(DECLINING));
     expect(withDecline.source).toBe("fact");
+    // docs/always-propose.md: not being able to decline is not a reason to leave the field empty.
     const withoutDecline = propose(q("Do you have a disability?", "select", { options: YES_NO }), withDemo(DECLINING));
-    expect(withoutDecline.source).toBe("none");
+    expect(withoutDecline.source).toBe("guess");
+    expect(withoutDecline.optionLabel).toBe("No"); // the answer that claims the least, exactly as a declaration
+    expect(withoutDecline.needsReview).toBe(true);
+    expect(withoutDecline.confidence).toBe(LONG_SHOT_CONFIDENCE);
     expect(withoutDecline.reason).toContain("no way to decline");
+
+    // A question that is not yes/no gets the least specific option it offers.
+    const race = propose(
+      q("Race/Ethnicity", "select", { options: [{ value: "1", label: "Asian" }, { value: "2", label: "White" }, { value: "3", label: "Two or more races" }] }),
+      withDemo(DECLINING),
+    );
+    expect(race.source).toBe("guess");
+    expect(race.optionLabel).toBe("Two or more races");
+
+    // Nothing to choose from at all is the one case that legitimately proposes nothing.
+    const open = propose(q("What are your pronouns?", "text"), withDemo(DECLINING));
+    expect(open.source).toBe("none");
   });
 
   it("answers a protected question from an explicit profile fact", () => {
@@ -326,9 +355,12 @@ describe("proposeAnswer: ordinary questions", () => {
     expect(prose.source).toBe("none");
     expect(prose.factKey).toBe(NEEDS_TEXT);
 
+    // No neutral option and no yes/no side: still a proposal, as a flagged long shot (docs/always-propose.md).
     const size = propose(q("T-shirt size", "select", { options: [{ value: "1", label: "S" }, { value: "2", label: "M" }] }), withDemo());
-    expect(size.source).toBe("none");
-    expect(size.reason).toContain("needs your answer");
+    expect(size.source).toBe("guess");
+    expect(size.confidence).toBe(LONG_SHOT_CONFIDENCE);
+    expect(size.needsReview).toBe(true);
+    expect(size.reason).toContain("claims the least");
 
     const consent = propose(q("I agree to receive occasional emails about other roles", "checkbox"), withDemo());
     expect(consent.source).toBe("none");

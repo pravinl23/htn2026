@@ -39,4 +39,13 @@ NSAttributedString *GHAttributed(NSString *text, NSFont *font, CGColorRef color,
 CALayer *GHMakeKeycap(NSString *label, CGSize size, CGFloat scale);
 extern const CGSize GHKeycapSize;
 
+// ---------- the guess marker (docs/answers.md: a guess is always visibly a guess) ----------
+/// Amber, the colour Ghost already uses for "this needs your eyes".
+CGColorRef GHGuessColor(CGFloat alpha) CF_RETURNS_NOT_RETAINED;
+/// A dotted amber rule under ghost text, `width` points wide, sitting at y = 0 of its parent.
+CALayer *GHMakeGuessUnderline(CGFloat width, CGFloat scale);
+/// The little "guess" chip that follows a pill's label.
+CALayer *GHMakeGuessChip(CGFloat scale);
+extern const CGSize GHGuessChipSize;
+
 NS_ASSUME_NONNULL_END

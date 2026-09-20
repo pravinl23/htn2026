@@ -54,6 +54,8 @@ CGFloat GHGhostTextPadding(CGFloat fieldHeight) {
                                               axRect:field.rect
                                               locked:[locked isKindOfClass:NSNumber.class] ? [locked boolValue] : field.locked];
     entry.streaming = [pending isKindOfClass:NSNumber.class] && [pending boolValue];
+    id guess = ghost[@"guess"];
+    entry.guess = [guess isKindOfClass:NSNumber.class] && [guess boolValue];
     return entry;
 }
 
@@ -133,6 +135,7 @@ CGFloat GHGhostTextPadding(CGFloat fieldHeight) {
 @property (nonatomic, readwrite) BOOL current;
 @property (nonatomic, readwrite) BOOL locked;
 @property (nonatomic, readwrite) BOOL streaming;
+@property (nonatomic, readwrite) BOOL guess;
 @property (nonatomic, readwrite) BOOL showsKeycap;
 @property (nonatomic, readwrite) CGPoint tip;
 @property (nonatomic, copy, readwrite, nullable) NSString *targetSignature;
@@ -160,13 +163,13 @@ CGFloat GHGhostTextPadding(CGFloat fieldHeight) {
     if (_contentSignature) return _contentSignature;
     NSString *hud = self.hud ? [self.hud.segments componentsJoinedByString:@"\x1f"] : @"";
     _contentSignature = [NSString
-        stringWithFormat:@"%@|%ld|%lu|%.2f,%.2f,%.2f,%.2f|%.2f,%.2f,%.2f,%.2f|%ld|%lx:%lu|%.1f|%.1f,%.1f|%.1f|%d%d%d%d%d|%.2f,%.2f|%@|%@|%.2f",
+        stringWithFormat:@"%@|%ld|%lu|%.2f,%.2f,%.2f,%.2f|%.2f,%.2f,%.2f,%.2f|%ld|%lx:%lu|%.1f|%.1f,%.1f|%.1f|%d%d%d%d%d%d|%.2f,%.2f|%@|%@|%.2f",
                          self.key, (long)self.kind, (unsigned long)self.screenIndex, self.frame.origin.x,
                          self.frame.origin.y, self.frame.size.width, self.frame.size.height, self.clipRect.origin.x,
                          self.clipRect.origin.y, self.clipRect.size.width, self.clipRect.size.height, (long)self.anchor,
                          (unsigned long)self.text.hash, (unsigned long)self.text.length, self.fontSize, self.padLeft,
                          self.padRight, self.cornerRadius, self.multiline, self.current, self.locked, self.streaming,
-                         self.showsKeycap, self.tip.x, self.tip.y, self.targetSignature ?: @"", hud, self.scale];
+                         self.showsKeycap, self.guess, self.tip.x, self.tip.y, self.targetSignature ?: @"", hud, self.scale];
     return _contentSignature;
 }
 
@@ -209,6 +212,7 @@ static GHDrawItem *GHTextItem(GHOverlayEntry *entry, GHMeasured m, BOOL current,
     item.text = entry.displayText;
     item.current = current;
     item.streaming = entry.streaming;
+    item.guess = entry.guess;
     item.multiline = multiline;
     item.fontSize = GHGhostFontSize(m.box.size.height, multiline);
     item.padLeft = multiline ? 8 : GHGhostTextPadding(m.box.size.height);
@@ -239,6 +243,7 @@ static GHDrawItem *GHPillItem(GHOverlayEntry *entry, GHMeasured m, BOOL current,
     item.text = entry.displayText;
     item.current = current;
     item.streaming = entry.streaming;
+    item.guess = entry.guess;
     item.fontSize = 12;
     item.showsKeycap = current && !entry.locked;
     return item;

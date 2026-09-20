@@ -1,9 +1,14 @@
-import type { CapturedField, Ghost, GhostSettings, Profile } from "@ghost/shared";
+import { ACCEPT_KEY_REASON_TEXT, reconcileAccepted } from "@ghost/shared";
+import type {
+  AcceptKeyChoice, CapturedField, Ghost, GhostSettings, LearnedAnswerStore, Profile, TabProbe, TabState, WalkGate,
+} from "@ghost/shared";
 import { ghostEvents } from "../lib/events";
 import type { GhostEmitter, GhostEventMap, PredictionSource } from "../lib/events";
 import { factKeysId, formSignature } from "../lib/formCache";
 import { TEXT_LIMITS } from "../lib/messages";
 import type { ServedAssignment, TextPageContext } from "../lib/messages";
+import { chooseKey, DEFAULT_KEY_PREFS, GhostKeyWatcher, keycapFor, originOf } from "./acceptKey";
+import type { KeyPrefs } from "./acceptKey";
 import { captureFields, computeSignature, findElement, isElementSensitive } from "./capture";
 import { executeGhost, radioGroup } from "./execute";
 import { buildTextRequest } from "./freeText";
@@ -33,7 +38,26 @@ export interface ControllerDeps {
   events?: GhostEmitter;
   /** Streams free-text drafts through the worker (Stage 3). Left out, essay fields get no ghost. */
   drafts?: DraftScheduler;
+  /** Answers the user gave before (docs/answers.md). Left out, Ghost answers from facts and inference only. */
+  getAnswers?(): LearnedAnswerStore | null;
+  /**
+   * Which key accepts a ghost here (docs/accept-key.md). Left out, Ghost uses the default preferences and an
+   * origin it has just met: the Ghost key accepts, Tab is watched, and nothing is remembered between loads.
+   */
+  keys?: KeyPort;
 }
+
+/** What the controller needs from the accept-key store. The content script wires it to `ghost.keys`. */
+export interface KeyPort {
+  prefs(): KeyPrefs;
+  /** What Tab has been observed to do on this origin. */
+  tabState(): TabState;
+  /** One watched Tab press. The shared store decides what it means (shared/src/keys/observe.ts). */
+  observe(probe: Omit<TabProbe, "origin" | "appId">): void;
+}
+
+/** An empty walk gate: nothing required is missing, so every terminal action may be proposed. */
+const OPEN_GATE: WalkGate = { unmetRequired: [], terminalAllowed: true, blockedTerminals: [], allowedTerminals: [] };
 
 /** What the HUD says about where the ghosts on screen came from. */
 interface PredictionInfo {
@@ -62,6 +86,11 @@ const MAX_FORMS_PER_PAGE = 6;
 const MIN_FORM_FIELDS = 2;
 /** After this long on screen the current ghost is what the user is about to accept: an upgrade leaves it alone. */
 const SETTLE_MS = 400;
+/**
+ * Watched Tab presses per page load (docs/accept-key.md section 2). Two clean ones mark an origin free; a page
+ * that keeps answering "cannot tell" is left alone after this many rather than being asked forever.
+ */
+const MAX_PROBES = 6;
 /** Tab on a draft that is still streaming waits this long for the rest of it, then gives the key back. */
 export const DRAFT_WAIT_MS = 4000;
 const CONTROLS = 'input, textarea, select, button, [role="button"]';
@@ -104,6 +133,14 @@ export class GhostController {
   private readonly pinned = new Set<string>();
   private readonly shown = new Set<string>();
   private prediction: PredictionInfo = OFFLINE;
+  /** Why a terminal action may or may not be proposed right now (docs/incremental.md). */
+  private gate: WalkGate = OPEN_GATE;
+  /** Ghosts the user accepted during this walk: the gate counts them as filled before the page is rescanned. */
+  private readonly acceptedSigs = new Set<string>();
+  /** The page's own terminal action, even while the gate withholds it: the walk still heads for it. */
+  private terminal: string | null = null;
+  /** The required field the gate last sent the user to: Tab there still belongs to the walk. */
+  private unmetAnchor: HTMLElement | null = null;
   private factsId = "";
   private epoch = 0;
   private shownAt = 0;
@@ -123,6 +160,16 @@ export class GhostController {
   private pendingTabs = 0;
   /** A held Tab only keeps accepting when the hold began with a press Ghost intercepted. */
   private walking = false;
+  /** docs/accept-key.md: the key for the ghost on screen. Recomputed on every render, read by every key press. */
+  private choice: AcceptKeyChoice | null = null;
+  /** What Tab does on this origin, as far as Ghost has watched. Seeded from the store, refreshed per render. */
+  private tabState: TabState = "unknown";
+  private readonly origin: string;
+  private readonly ghostKey = new GhostKeyWatcher(() => this.prefs().ghostKey);
+  /** A probe press is in flight: the page has the key and focus may be moving. */
+  private probing = false;
+  /** Probes spent on this page load. A page that never gives a clear answer is not asked forever. */
+  private probes = 0;
   private halted = false;
   private rescanDeferred = false;
   private rescanTimer: ReturnType<typeof setTimeout> | null = null;
@@ -137,6 +184,8 @@ export class GhostController {
 
   constructor(private readonly deps: ControllerDeps) {
     this.doc = deps.doc ?? document;
+    this.origin = originOf(this.doc);
+    this.tabState = deps.keys?.tabState() ?? "unknown";
     this.isUserEvent = deps.isUserEvent ?? ((event) => event.isTrusted);
     this.events = deps.events ?? ghostEvents;
   }
@@ -167,7 +216,9 @@ export class GhostController {
     if (this.urlTimer) clearInterval(this.urlTimer);
     this.rescanTimer = this.urlTimer = null;
     this.pendingTabs = 0;
-    this.walking = this.halted = this.rescanDeferred = false;
+    this.walking = this.halted = this.rescanDeferred = this.probing = false;
+    this.ghostKey.reset();
+    this.choice = null;
     this.state.ghosts = [];
     this.state.currentIndex = -1;
     this.state.keystrokesSaved = 0;
@@ -189,17 +240,28 @@ export class GhostController {
     if (pageOwnsTab(this.doc)) return this.standDown();
     const started = performance.now();
     const keepLock = this.state.accepted > 0 && this.lockSignature !== null;
+    const fields = captureFields(this.doc);
+    // An acceptance stands only while the answer does. Nothing else retires one, so a field the user cleared
+    // after Ghost filled it would stay "met" for the life of the page and let the Submit ghost through with a
+    // required field visibly empty (docs/incremental.md sections 1 and 4).
+    this.reconcileAccepted(fields);
     const deps = {
       profile: this.deps.getProfile(), settings: this.deps.getSettings(), keepLock,
       lockSignature: this.lockSignature ?? undefined, drafts: this.deps.drafts,
+      answers: this.deps.getAnswers?.() ?? null, accepted: this.acceptedSigs,
+      // Read once per page, and only where there is something to answer: it strips the company name out of
+      // a question signature so "Why <Company>?" learned here is the same question on the next site.
+      ...(fields.length > 0 && this.company() ? { company: this.company() } : {}),
     };
-    const fields = captureFields(this.doc);
     const factKeys = usableFactKeys(deps.profile);
     this.fields = new Map(fields.map((field) => [field.signature, field]));
     const factsId = factKeysId(factKeys);
     if (factsId !== this.factsId) this.forgetPredictions(factsId);
     const answers = [...this.served.values()].filter((a) => !this.pinned.has(a.signature));
     const plan = planForm(fields, answers, deps, this.source());
+    this.gate = plan.gate;
+    this.terminal = plan.terminal ?? null;
+    this.unmetAnchor = this.unmetElement() ?? this.unmetAnchor;
     this.lastLatencyMs = performance.now() - started;
     this.adopt(plan.ghosts.filter((g) => !this.state.dismissed.has(g.signature)));
     this.announce();
@@ -216,6 +278,7 @@ export class GhostController {
     const had = this.state.ghosts.length > 0;
     this.state.ghosts = [];
     this.state.currentIndex = -1;
+    this.gate = OPEN_GATE;
     this.els.clear();
     if (had || this.jumpShown) this.render();
   }
@@ -238,6 +301,11 @@ export class GhostController {
   /** Company, role and posting text, read once per page and only when a draft is really about to be asked for. */
   private context(): TextPageContext {
     return (this.pageContext ??= extractPageContext(this.doc));
+  }
+
+  /** Who this page is for, as the answer engine and the learner both key their questions by. */
+  company(): string | undefined {
+    return this.context().company;
   }
 
   /**
@@ -270,7 +338,7 @@ export class GhostController {
   private requestPrediction(fields: CapturedField[], factKeys: string[]): void {
     const predict = this.deps.predictForm;
     const wire = predict && factKeys.length > 0 ? predictableFields(fields) : [];
-    if (!predict || wire.length === 0 || (wire.length < MIN_FORM_FIELDS && !this.hasUnlocked())) return;
+    if (!predict || wire.length === 0 || (wire.length < MIN_FORM_FIELDS && !this.hasValueGhost())) return;
     const signature = formSignature(wire);
     if (this.asked.has(signature) || this.asked.size >= MAX_FORMS_PER_PAGE) return;
     this.asked.add(signature);
@@ -341,7 +409,9 @@ export class GhostController {
   private trackLock(): void {
     const { ghosts } = this.state;
     const lock = ghosts.find((g) => g.locked);
-    if (ghosts.some((g) => !g.locked)) this.lockSignature = lock?.signature ?? null;
+    // A gated-away Submit is still the button this walk is heading for: keep it, so the ghost can come back
+    // the moment the last required field is answered (docs/incremental.md section 2 rule 4).
+    if (ghosts.some((g) => !g.locked)) this.lockSignature = lock?.signature ?? this.terminal;
     else if (lock && lock.signature !== this.lockSignature) this.state.ghosts = [];
   }
 
@@ -356,15 +426,42 @@ export class GhostController {
     return this.state.ghosts.some((g) => !g.locked);
   }
 
+  /**
+   * A ghost that carries an ANSWER, rather than one that only offers to move to a control. Ghost always
+   * proposes something (docs/always-propose.md), including on a lone search box, but a page whose only
+   * proposal is "start here" is not a form, and is not worth a server round trip.
+   */
+  private hasValueGhost(): boolean {
+    return this.state.ghosts.some((g) => !g.locked && g.action !== "click");
+  }
+
   /** Rule 2: the lock ghost only becomes current once no unlocked ghost is left, however focus got to the button. */
   private lockedTooEarly(index: number): boolean {
     return this.state.ghosts[index]?.locked === true && this.hasUnlocked();
+  }
+
+  /**
+   * Keep only the acceptances the page still bears out. `reconcileAccepted` drops a signature when the field
+   * is back on the page reporting nothing -- the user selected the text and deleted it, the site's own
+   * validation reset the control, React remounted it empty -- and keeps every signature capture cannot read,
+   * so a combobox or a file input that hides its value never loses the answer Ghost already wrote there.
+   */
+  private reconcileAccepted(fields: CapturedField[]): void {
+    if (this.acceptedSigs.size === 0) return;
+    const kept = reconcileAccepted(fields, this.acceptedSigs);
+    if (kept.size === this.acceptedSigs.size) return;
+    this.acceptedSigs.clear();
+    for (const signature of kept) this.acceptedSigs.add(signature);
   }
 
   /** A new page (or a stopped Ghost) starts a new walk: nothing accepted, nothing dismissed, no Submit to keep. */
   private forgetWalk(): void {
     this.state.accepted = 0;
     this.state.dismissed.clear();
+    this.acceptedSigs.clear();
+    this.gate = OPEN_GATE;
+    this.terminal = null;
+    this.unmetAnchor = null;
     this.state.error = null;
     this.lastLeft = null;
     this.lockSignature = null;
@@ -446,19 +543,66 @@ export class GhostController {
   // ---------- keys ----------
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (!this.interactive || event.isComposing || event.keyCode === 229 || !this.isUserEvent(event)) return;
+    if (!this.interactive || event.isComposing || event.keyCode === 229 || !this.isUserEvent(event)) {
+      this.ghostKey.interrupt();
+      return;
+    }
     // The page owns Tab right now: both keys stay native, even if a ghost is still on screen from a moment ago.
-    if (pageOwnsTab(this.doc)) return;
+    if (pageOwnsTab(this.doc)) return this.ghostKey.reset();
+    // The Ghost key first: it is the key that works everywhere, so it is never shadowed by anything below.
+    const press = this.ghostKey.keydown(event, Date.now());
+    if (press) return this.onGhostKey(event, press.hold);
     if (event.key === "Tab") this.onTab(event);
     else if (event.key === "Escape") this.onEscape(event);
   };
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
     if (event.key === "Tab") this.walking = this.halted = false;
+    if (!this.isUserEvent(event) || pageOwnsTab(this.doc)) return;
+    // A tap completes on the way up: down, nothing in between, up, inside 300 ms (docs/accept-key.md section 3).
+    const press = this.ghostKey.keyup(event, Date.now());
+    if (press) this.onGhostKey(event, press.hold);
   };
+
+  /** Anything that is not a key while the Ghost modifier is down means it is being USED, not tapped. */
+  private readonly onPointerDown = (): void => this.ghostKey.interrupt();
+  private readonly onWindowBlur = (): void => this.ghostKey.reset();
+
+  /**
+   * The Ghost key. It accepts wherever a ghost is on screen, with no question about focus and nothing taken
+   * from the page: a tap of right Option does nothing in macOS and nothing in any page, which is the whole
+   * reason it is the key that always works (docs/accept-key.md section 1).
+   */
+  private onGhostKey(event: KeyboardEvent, hold: boolean): void {
+    if (this.busy) {
+      swallow(event);
+      if (hold) return;
+      this.walking = true;
+      this.halted = false;
+      this.pendingTabs = Math.min(this.pendingTabs + 1, this.state.ghosts.length);
+      return;
+    }
+    if (this.lockedTooEarly(this.state.currentIndex)) this.state.currentIndex = this.nextFrom(0);
+    const ghost = this.visibleCurrent();
+    if (!ghost) {
+      // No ghost to take: the pill, the gate's unmet field, or nothing. The key is only ever ours when it
+      // has something to accept, so a tap on a page with no ghost is left entirely alone.
+      if (!this.jumpToUnmet(event)) this.jump(event);
+      return;
+    }
+    swallow(event);
+    this.walking = true;
+    // A hold stops at everything the user has to look at: a lock, a draft still streaming, a guess.
+    if (hold && (stopsAHold(ghost) || ghost.locked)) this.halted = true;
+    if (hold && this.halted) return;
+    this.pendingTabs++;
+    void this.drain();
+  }
 
   private onTab(event: KeyboardEvent): void {
     if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+    // Tab is the page's until Ghost has watched one press here and seen it behave (docs/accept-key.md section 2).
+    if (!this.tabIsOurs()) return this.probeTab(event);
     if (this.busy) return this.onTabMidWrite(event);
     if (!event.repeat) this.walking = this.halted = false;
     else if (!this.walking) return; // a hold that started as native Tab stays native
@@ -466,14 +610,15 @@ export class GhostController {
     const ghost = this.visibleCurrent();
     if (!ghost) {
       if (event.repeat) swallow(event); // the walk ran out mid-hold: do not let focus race off natively
-      else this.jump(event);
+      else if (!this.jumpToUnmet(event)) this.jump(event);
       return;
     }
     if (!event.repeat && !this.focusInWalk(ghost)) return;
     swallow(event);
     this.walking = true;
-    // A held Tab never accepts a draft that is still being written: the hold stops there.
-    if (event.repeat && ghost.pending) this.halted = true;
+    // A held Tab never accepts a draft that is still being written, nor a guess: the hold stops there so the
+    // user sees it before Submit (docs/answers.md section 3).
+    if (event.repeat && stopsAHold(ghost)) this.halted = true;
     if (event.repeat && this.halted) return;
     this.pendingTabs++;
     void this.drain();
@@ -503,6 +648,118 @@ export class GhostController {
     if (this.awaiting === null) return;
     swallow(event);
     this.dismiss(this.awaiting, "escape");
+  }
+
+  // ---------- which key accepts here (docs/accept-key.md) ----------
+
+  private prefs(): KeyPrefs {
+    return this.deps.keys?.prefs() ?? DEFAULT_KEY_PREFS;
+  }
+
+  /**
+   * May Ghost intercept Tab at this moment? The shared policy decides it for the ghost on screen; with no
+   * ghost (the jump pill, the gate's unmet field) the origin's own state decides, so a site that runs its
+   * own Tab surface never loses the key to a pill either.
+   */
+  private tabIsOurs(): boolean {
+    const { acceptKey } = this.prefs();
+    if (acceptKey === "tab") return true;
+    if (acceptKey === "ghost-key") return false;
+    if (this.tabState !== "free") return false;
+    return this.choice === null || this.choice.key === "tab";
+  }
+
+  /**
+   * The press Ghost learns from. The page gets the key untouched - no preventDefault, no stopPropagation -
+   * and one turn later Ghost looks at what became of it: handled by the page, or focus moved on the way a
+   * native Tab moves it. The walk is then put back exactly where it was, so watching never costs the user
+   * their place in the form, and on a `free` verdict the press they made takes the ghost they aimed it at.
+   */
+  private probeTab(event: KeyboardEvent): void {
+    if (this.probing || event.repeat || this.probes >= MAX_PROBES) return;
+    if (this.choice?.probeTab !== true) return;
+    const ghost = this.visibleCurrent();
+    if (!ghost || !this.focusInWalk(ghost)) return;
+    const before = deepActive(this.doc);
+    const signature = ghost.signature;
+    const focusables = this.doc.querySelectorAll(CONTROLS).length;
+    this.probing = true;
+    this.probes++;
+    setTimeout(() => {
+      this.probing = false;
+      if (!this.running) return;
+      this.settleProbe(event, before, signature, focusables);
+    }, 0);
+  }
+
+  private settleProbe(event: KeyboardEvent, before: Element | null, signature: string, focusables: number): void {
+    const moved = deepActive(this.doc) !== before;
+    // Focus standing still on a page with one control proves nothing: `focusMoved` is left out and the
+    // shared store calls it inconclusive rather than marking the origin on a guess.
+    const probe: Omit<TabProbe, "origin" | "appId"> = { preventedDefault: event.defaultPrevented };
+    if (moved || focusables >= 2) probe.focusMoved = moved;
+    this.deps.keys?.observe(probe);
+    const known = this.deps.keys?.tabState();
+    if (known) this.tabState = known;
+    restoreFocus(this.doc, before);
+    const index = this.indexOfSignature(signature);
+    if (index >= 0) this.state.currentIndex = index;
+    this.render();
+    // Tab turned out to be free here, so the press the user just made was meant for this ghost: it takes it.
+    const free = !event.defaultPrevented && moved;
+    if (free && index >= 0 && !this.busy) {
+      this.walking = true;
+      this.pendingTabs++;
+      void this.drain();
+    }
+  }
+
+  /** What the overlay draws on the keycap and shows in the HUD. Never empty: some key always accepts. */
+  private keyView(): OverlayState["key"] {
+    const choice = this.choice;
+    if (!choice) return undefined;
+    return { key: choice.key, hint: keycapFor(choice), reason: ACCEPT_KEY_REASON_TEXT[choice.reason], probing: choice.probeTab };
+  }
+
+  /** The key for one ghost. Focus "in the walk" counts as being on the field: that is where the walk stands. */
+  private chooseFor(ghost: Ghost | null): AcceptKeyChoice | null {
+    if (!ghost) return null;
+    return chooseKey({
+      prefs: this.prefs(),
+      tab: this.tabState,
+      origin: this.origin,
+      ghost,
+      focusIsOnGhostField: this.focusInWalk(ghost),
+    });
+  }
+
+  // ---------- the end of a gated walk ----------
+
+  /**
+   * docs/incremental.md section 4: with a required field still empty there is no Submit ghost, so Tab at the
+   * end of the walk goes to that field instead. Only inside a walk that has already filled something, and
+   * only when focus is still where the walk left it: everywhere else Tab stays native.
+   */
+  private jumpToUnmet(event: KeyboardEvent): boolean {
+    if (this.state.accepted === 0 || this.state.ghosts.length > 0) return false;
+    const el = this.unmetElement();
+    const active = deepActive(this.doc);
+    if (!el || (active !== null && sameControl(el, active))) return false;
+    if (active && active !== this.doc.body && active !== this.doc.documentElement) {
+      if (!sameControl(this.lastLeft, active) && !sameControl(this.parkedOn, active)) return false;
+    }
+    swallow(event);
+    this.walking = this.halted = true;
+    this.lastLeft = el;
+    reveal(el);
+    this.render();
+    return true;
+  }
+
+  /** The first required field with no answer yet, as an element on this page. */
+  private unmetElement(): HTMLElement | null {
+    const signature = this.gate.unmetRequired[0];
+    return signature === undefined ? null : findElement(signature);
   }
 
   // ---------- jump pill ----------
@@ -553,7 +810,12 @@ export class GhostController {
   private focusInWalk(ghost: Ghost): boolean {
     const active = deepActive(this.doc);
     if (!active || active === this.doc.body || active === this.doc.documentElement) return true;
-    return sameControl(this.els.get(ghost.signature), active) || sameControl(this.lastLeft, active) || sameControl(this.parkedOn, active);
+    return (
+      sameControl(this.els.get(ghost.signature), active) ||
+      sameControl(this.lastLeft, active) ||
+      sameControl(this.parkedOn, active) ||
+      sameControl(this.unmetAnchor, active)
+    );
   }
 
   // ---------- accepting ----------
@@ -591,6 +853,7 @@ export class GhostController {
     if (!this.running) return;
     if (!result.ok) return this.fail(ghost, result.reason ?? "failed");
     this.state.accepted++;
+    this.acceptedSigs.add(ghost.signature);
     this.state.keystrokesSaved += ghost.action === "fill" ? (ghost.value ?? "").length : 1;
     this.state.error = null;
     const field = this.fields.get(ghost.signature);
@@ -598,6 +861,7 @@ export class GhostController {
     this.focusCurrent();
     this.render();
     if (field) this.events.emit("ghost:accepted", { ghost, field, ms: performance.now() - started });
+    if (this.gate.unmetRequired.length > 0) this.rescanDeferred = true; // re-gate once the walk stops writing
     this.checkFinished();
   }
 
@@ -668,7 +932,14 @@ export class GhostController {
     // Rule 5: the user's typing wins for good. A script-made change just needs a fresh look.
     if (ghost && byUser) this.dismiss(ghost.signature, "typed");
     else if (ghost) this.scheduleRescan();
-    else if (byUser) this.rememberTouched(target);
+    else {
+      if (byUser) this.rememberTouched(target);
+      // An answer of the user's own may be the last required one. A plain page changes no markup when a
+      // value changes, so nothing else would ask the gate to look again (docs/incremental.md section 2 rule 4).
+      // It may also be the user CLEARING one Ghost filled, and the gate has to hear about that too -- checking
+      // `unmetRequired` alone would hide exactly the case where the accepted set is the thing that is stale.
+      if (this.gate.unmetRequired.length > 0 || this.acceptedSigs.size > 0) this.scheduleRescan();
+    }
   };
 
   /**
@@ -696,6 +967,7 @@ export class GhostController {
   }
 
   private readonly onFocusIn = (event: Event): void => {
+    if (this.probing) return; // the walk does not follow focus that Ghost's own probe set moving
     const index = this.indexOfElement(event.target as Element | null);
     if (index < 0 || index === this.state.currentIndex || this.lockedTooEarly(index)) {
       if (this.jumpShown) this.render(); // focus left the body: the pill no longer owns Tab
@@ -734,7 +1006,10 @@ export class GhostController {
     const capture = { capture: true };
     const passive = { capture: true, passive: true };
     bind(view, "keydown", this.onKeyDown, capture);
-    bind(view, "keyup", this.onKeyUp, passive);
+    // Not passive: the Ghost key completes on the way up, and accepting it means preventing its default.
+    bind(view, "keyup", this.onKeyUp, capture);
+    bind(view, "pointerdown", this.onPointerDown, passive);
+    bind(view, "blur", this.onWindowBlur, passive);
     bind(view, "input", this.onInput, passive);
     bind(view, "focusin", this.onFocusIn, passive);
     bind(view, "change", this.onCommit, passive);
@@ -794,7 +1069,19 @@ export class GhostController {
     });
     const jump = this.jumpHint();
     this.jumpShown = jump !== null;
-    this.deps.overlay.render({ ghosts: entries, hud: this.hud(), jump, accepted, error });
+    this.tabState = this.deps.keys?.tabState() ?? this.tabState;
+    this.choice = this.chooseFor(ghosts[currentIndex] ?? null);
+    this.deps.overlay.render({
+      ghosts: entries, hud: this.hud(), jump, accepted, error, gate: this.gateView(), key: this.keyView(),
+    });
+  }
+
+  /** What the overlay reports about the gate: the test hooks, and the HUD line that says why Submit is not here. */
+  private gateView(): OverlayState["gate"] {
+    const { unmetRequired, terminalAllowed, reason, firstUnmetLabel } = this.gate;
+    const view: NonNullable<OverlayState["gate"]> = { blocked: !terminalAllowed, unmet: unmetRequired.length };
+    if (reason) view.reason = firstUnmetLabel ? `${reason}: ${firstUnmetLabel}` : reason;
+    return view;
   }
 
   private hud(): OverlayState["hud"] {
@@ -807,6 +1094,17 @@ export class GhostController {
     if (text) hud.text = text;
     return hud;
   }
+}
+
+/**
+ * Puts focus back where a probe found it. Only ever moves focus BACK, never somewhere new: with nothing to go
+ * back to it blurs what the probe's Tab landed on, so the page is left exactly as the user had it.
+ */
+function restoreFocus(doc: Document, before: Element | null): void {
+  const active = deepActive(doc);
+  if (active === before) return;
+  if (before instanceof (doc.defaultView?.HTMLElement ?? HTMLElement)) return (before as HTMLElement).focus({ preventScroll: true });
+  if (active && active !== doc.body && active !== doc.documentElement) (active as HTMLElement).blur?.();
 }
 
 function swallow(event: Event): void {
@@ -827,6 +1125,16 @@ function isRadio(el: Element): el is HTMLInputElement {
 function landingElement(ghost: Ghost, el: HTMLElement): HTMLElement {
   if (!isRadio(el)) return el;
   return radioGroup(el).find((radio) => radio.value === ghost.value) ?? el;
+}
+
+/**
+ * Everything a hold has to stop at before going further (docs/always-propose.md, docs/answers.md section 3):
+ * a draft still being written, and every guess -- which now means every proposal drawn below the "confident"
+ * tier, because the confidence threshold styles a ghost instead of deleting it. A locked action stops a hold
+ * as well, wherever the hold came from: `park()` drops the queued presses without ever pressing it.
+ */
+function stopsAHold(ghost: Ghost): boolean {
+  return ghost.pending === true || ghost.guess === true || (ghost.tier !== undefined && ghost.tier !== "confident");
 }
 
 /** True when the field already holds something: a ghost must never replace it. */

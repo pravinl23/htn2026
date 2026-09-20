@@ -1,6 +1,6 @@
 // Stage 1: Tab walks the job application with the offline heuristic provider. Localhost only.
 import type { Locator, Page } from "@playwright/test";
-import { DEMO_URL, expect, test } from "../fixtures";
+import { DEMO_URL, expect, ghostKey, observedTabFree, tabStateFor, test } from "../fixtures";
 
 const HOST = "#ghost-overlay-host";
 const SUBMIT = "[data-testid=submit]";
@@ -34,6 +34,10 @@ interface DemoWindow {
   __submitted?: boolean;
   __formState?: FormValues;
   __submitAttempts?: number;
+}
+/** A page-world counter for Tab presses Ghost let through: what a site's own handler would have seen. */
+interface PageTabCounter {
+  __tabsSeen?: number;
 }
 interface HostState {
   count: number;
@@ -89,8 +93,9 @@ async function openForm(page: Page, path: string, smooth = false): Promise<Locat
   await expect(host).toBeAttached();
   await expect(page.locator("#sin")).toBeVisible();
   await expect(page.locator("#payroll-password")).toBeVisible();
-  // 14 profile fields plus the locked Submit: the visible SIN and password fields get no ghost.
-  await expect(host).toHaveAttribute("data-ghost-count", String(PROFILE_FIELD_COUNT + 1));
+  // 14 profile fields: the visible SIN and password fields get no ghost, and the Submit is withheld while
+  // the essay and the privacy box (both required) are empty - docs/incremental.md.
+  await expect(host).toHaveAttribute("data-ghost-count", String(PROFILE_FIELD_COUNT));
   if (smooth) await page.waitForTimeout(600);
   await page.evaluate((behavior) => {
     document.getElementById("apply-title")?.scrollIntoView({ behavior, block: "start" });
@@ -150,11 +155,20 @@ async function expectNotSubmitted(page: Page): Promise<void> {
   await expect(page.locator("[data-testid=form-errors]")).toBeHidden();
 }
 
+/**
+ * The end of the walk: the locked Submit is the only ghost left and the ghost CURSOR rests on it.
+ *
+ * It used to assert DOM focus too. Tab is the page's again at a locked action - Tab only ever accepts a value
+ * for the field that has focus, and a locked button is neither (docs/accept-key.md section 1) - so focus is
+ * wherever the page's own Tab left it, and the cursor is what "parked" means. The part that matters is
+ * unchanged and asserted harder: the chip names Enter, because no key accepts an irreversible action
+ * (CLAUDE.md rule 2), and `expectNotSubmitted` still proves Ghost never pressed it.
+ */
 async function expectParkedOnSubmit(page: Page): Promise<void> {
   const host = page.locator(HOST);
   await expect(host).toHaveAttribute("data-ghost-current-locked", "true");
   await expect(host).toHaveAttribute("data-ghost-count", "1");
-  await expect(page.locator(SUBMIT)).toBeFocused();
+  await expect(host).toHaveAttribute("data-ghost-key-hint", "Enter");
   // The shadow root is closed (it holds profile values), so the host reports where the pointer rests.
   await expect(host).toHaveAttribute("data-ghost-cursor", /^\d+,\d+$/);
   await expect.poll(() => cursorTouches(page)).toBe(true);
@@ -165,6 +179,24 @@ async function cursorTouches(page: Page): Promise<boolean> {
   const [x, y] = (at ?? "").split(",").map(Number);
   if (x === undefined || y === undefined || !button) return false;
   return x >= button.x && x <= button.x + button.width && y >= button.y && y <= button.y + button.height;
+}
+
+const MY_ESSAY = "Robots that ship, and a team that reviews carefully.";
+
+/**
+ * What Ghost will not answer for you: the essay (no text provider offline) and agreeing to the privacy
+ * policy. Until they are answered there is NO Submit ghost; this does them as a person would, then takes
+ * the one Tab that parks on the Submit the gate has just allowed.
+ */
+async function finishRequired(page: Page): Promise<void> {
+  const host = page.locator(HOST);
+  await expect(host, "no Submit ghost while a required field is empty").toHaveAttribute("data-ghost-gate", "blocked");
+  await expect(host).toHaveAttribute("data-ghost-count", "0");
+  if ((await page.locator("#why-northwind").inputValue()) === "") await page.locator("#why-northwind").fill(MY_ESSAY);
+  await page.locator("#consent").check();
+  await expect(host).toHaveAttribute("data-ghost-gate", "allowed");
+  await expect(host).toHaveAttribute("data-ghost-count", "1");
+  await page.keyboard.press("Tab");
 }
 
 async function overPressTab(page: Page, times: number): Promise<void> {
@@ -178,11 +210,22 @@ async function walkWholeForm(page: Page, path: string, paceMs = 0): Promise<void
   expect(presses).toBe(PROFILE_FIELD_COUNT);
   await expect(host).toHaveAttribute("data-ghost-accepted", String(PROFILE_FIELD_COUNT));
   await expectValues(page, { ...EXPECTED, ...UNTOUCHED });
+  await finishRequired(page);
+  const finished = { ...EXPECTED, ...UNTOUCHED, whyNorthwind: MY_ESSAY, consent: true };
   await expectParkedOnSubmit(page);
+  await expect(page.locator(SUBMIT), "the Tab that ends the walk leaves the user on Submit").toBeFocused();
+  // Three more Tabs than there is anything to accept. They are the PAGE's now - a locked button is not a
+  // field Tab could fill (docs/accept-key.md section 1) - so focus and the viewport move on natively, just
+  // as they would with no extension loaded, and the ghost cursor goes with them. What must not change does
+  // not, and is now asserted outright: the Submit ghost is still there, still UNACCEPTED, still only a
+  // proposal that takes a deliberate Enter, and nothing has been submitted.
   await overPressTab(page, 3);
-  await expectParkedOnSubmit(page);
+  await expect(host).toHaveAttribute("data-ghost-count", "1");
+  await expect(host).toHaveAttribute("data-ghost-current-locked", "true");
+  await expect(host).toHaveAttribute("data-ghost-key-hint", "Enter");
+  await expect(host, "no stray Tab was taken as an accept").toHaveAttribute("data-ghost-accepted", String(PROFILE_FIELD_COUNT));
   await expectNotSubmitted(page);
-  await expectValues(page, { ...EXPECTED, ...UNTOUCHED });
+  await expectValues(page, finished);
   expect(await host.getAttribute("data-ghost-error")).toBeNull();
   await expect(page.locator("#sin, #payroll-password, #why-northwind, #project, #consent").and(page.locator("[data-ghost-hint]"))).toHaveCount(0);
 }
@@ -198,15 +241,29 @@ test.describe("stage 1: Tab through the job application", () => {
     await walkWholeForm(page, "/apply-plain/");
   });
 
-  test("Tab stays native on a page with nothing to offer", async ({ page }) => {
+  /**
+   * This used to assert that the index page draws NOTHING. Since docs/always-propose.md it cannot: a page
+   * with anything actionable on it always gets one proposal, and where nothing matches the profile that is
+   * the last resort - a dimmed long-shot that only moves to the first control, which is where a native Tab
+   * was going anyway. So the page is no longer silent, and what this spec is really about survives intact
+   * and is now asserted for the documented REASON: Tab still belongs to the page here, because the only
+   * ghost is a click, and Tab never accepts a click (docs/accept-key.md section 1).
+   */
+  test("a page with nothing to fill gets a long shot, and Tab still belongs to the page", async ({ page }) => {
     await page.goto(`${DEMO_URL}/`);
     const host = page.locator(HOST);
-    await expect(host).toHaveAttribute("data-ghost-state", "idle");
-    await expect(host).toHaveAttribute("data-ghost-count", "0");
+    await expect(host).toHaveAttribute("data-ghost-count", "1");
+    await expect(host).toHaveAttribute("data-ghost-tier", "long-shot");
+    await expect(host).toHaveAttribute("data-ghost-guess", "true");
+    // Named, and nameable: a proposal nobody can accept is worse than no proposal (docs/always-propose.md).
+    await expect(host).toHaveAttribute("data-ghost-key", "ghost-key");
+    await expect(host).toHaveAttribute("data-ghost-key-hint", "⌥ tap");
+
     await page.keyboard.press("Tab");
     await expect(page.locator("a.demo-card").first()).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(page.locator("a.demo-card").nth(1)).toBeFocused();
+    await expect(host, "no Tab here was ever taken as an accept").toHaveAttribute("data-ghost-accepted", "0");
   });
 
   test("typing overrides the ghost and Tab carries on with the next field", async ({ page }) => {
@@ -214,7 +271,7 @@ test.describe("stage 1: Tab through the job application", () => {
     await page.locator("#first-name").click();
     const firstNameGhost = (await hostState(page)).current;
     await page.keyboard.type("Sam");
-    await expect(host).toHaveAttribute("data-ghost-count", String(PROFILE_FIELD_COUNT));
+    await expect(host).toHaveAttribute("data-ghost-count", String(PROFILE_FIELD_COUNT - 1));
     await expect(host).not.toHaveAttribute("data-ghost-current", firstNameGhost);
     await expect(page.locator("#first-name")).not.toHaveAttribute("data-ghost-hint", /.*/);
 
@@ -226,6 +283,7 @@ test.describe("stage 1: Tab through the job application", () => {
     await walk(page);
     await expect(host).toHaveAttribute("data-ghost-accepted", String(PROFILE_FIELD_COUNT - 1));
     await expectValues(page, { ...EXPECTED, ...UNTOUCHED, firstName: "Sam" });
+    await finishRequired(page);
     await expectParkedOnSubmit(page);
     await expectNotSubmitted(page);
   });
@@ -236,7 +294,7 @@ test.describe("stage 1: Tab through the job application", () => {
     const firstNameGhost = (await hostState(page)).current;
     expect(firstNameGhost).not.toBe("");
     await page.keyboard.press("Escape");
-    await expect(host).toHaveAttribute("data-ghost-count", String(PROFILE_FIELD_COUNT));
+    await expect(host).toHaveAttribute("data-ghost-count", String(PROFILE_FIELD_COUNT - 1));
     await expect(host).not.toHaveAttribute("data-ghost-current", firstNameGhost);
     await expect(host).toHaveAttribute("data-ghost-current-locked", "false");
 
@@ -250,12 +308,17 @@ test.describe("stage 1: Tab through the job application", () => {
     await expectNotSubmitted(page);
   });
 
-  test("holding Tab accepts every unlocked ghost and stops at the locked Submit", async ({ page }) => {
+  test("holding Tab accepts every unlocked ghost and stops at the locked Submit", async ({ page, worker }) => {
+    // A hold is auto-repeat, and a repeat is never a probe: Ghost watches a Tab the user PRESSED, never one
+    // they are leaning on (controller.probeTab). So this origin has to be one Ghost has already watched, which
+    // is what every origin is after the user's first walk there. The first press on a NEW origin is pinned by
+    // "a brand-new origin is watched before Tab is ever taken" below.
+    await observedTabFree(worker);
     const host = await openForm(page, "/apply");
     await page.locator("#first-name").focus();
     // keyboard.down without an up is an auto-repeat keydown. Repeats that land mid-write are dropped by
     // design, so the hold is spaced like a real key repeat.
-    for (let i = 0; i < 80 && !(await hostState(page)).locked; i++) {
+    for (let i = 0; i < 80 && (await hostState(page)).count > 0 && !(await hostState(page)).locked; i++) {
       await page.keyboard.down("Tab");
       await page.waitForTimeout(30);
     }
@@ -265,6 +328,7 @@ test.describe("stage 1: Tab through the job application", () => {
 
     await expect(host).toHaveAttribute("data-ghost-accepted", String(PROFILE_FIELD_COUNT));
     await expectValues(page, { ...EXPECTED, ...UNTOUCHED });
+    await finishRequired(page);
     await expectParkedOnSubmit(page);
     await expectNotSubmitted(page);
   });
@@ -272,11 +336,10 @@ test.describe("stage 1: Tab through the job application", () => {
   test("an explicit Enter on the locked Submit still submits (local demo only)", async ({ page }) => {
     await openForm(page, "/apply");
     await walk(page);
+    await finishRequired(page);
     await expectParkedOnSubmit(page);
     await expectNotSubmitted(page);
 
-    await page.locator("#why-northwind").fill("Robots that ship.");
-    await page.locator("#consent").check();
     await page.locator(SUBMIT).focus();
     await page.keyboard.press("Enter");
 
@@ -313,5 +376,47 @@ test.describe("stage 1: Tab through the job application", () => {
     await expect(page.locator("#email")).toBeFocused();
     await expectValues(page, { ...Object.fromEntries(Object.keys(EXPECTED).map((key) => [key, ""])), ...UNTOUCHED });
     await expectNotSubmitted(page);
+  });
+
+  /**
+   * docs/accept-key.md section 2, step 1. On an origin Ghost has never watched a Tab press on, it does not
+   * intercept Tab AT ALL: the page gets every press untouched and Ghost only watches. The proposal is not
+   * silent while that happens - it names the Ghost key, which works there and then - and once two clean
+   * presses have been watched the origin is recorded free and Tab is Ghost's here from then on.
+   *
+   * This is the rule that made the walk specs above need `observedTabFree`, so it is pinned on its own.
+   */
+  test("a brand-new origin is watched before Tab is ever taken", async ({ page, worker }) => {
+    await page.addInitScript(() => {
+      const w = window as PageTabCounter;
+      w.__tabsSeen = 0;
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "Tab") w.__tabsSeen = (w.__tabsSeen ?? 0) + 1;
+      }, true);
+    });
+    const host = await openForm(page, "/apply");
+    expect(await tabStateFor(worker), "nothing has been watched on this origin yet").toBe("unknown");
+    await expect(host).toHaveAttribute("data-ghost-key", "ghost-key");
+    await expect(host).toHaveAttribute("data-ghost-key-hint", "\u2325 tap");
+    await expect(host).toHaveAttribute("data-ghost-key-probing", "true");
+
+    // The Ghost key accepts right here, with nothing watched and nothing taken from the page.
+    await ghostKey(page);
+    await expect(host).toHaveAttribute("data-ghost-accepted", "1");
+    expect(await page.evaluate(() => (window as PageTabCounter).__tabsSeen), "no Tab was needed to accept").toBe(0);
+
+    // Two watched Tab presses. The page sees both - they are never swallowed - and each one still takes the
+    // ghost it was aimed at, because Tab turned out to be free here.
+    await page.keyboard.press("Tab");
+    await expect(host).toHaveAttribute("data-ghost-accepted", "2");
+    await page.keyboard.press("Tab");
+    await expect(host).toHaveAttribute("data-ghost-accepted", "3");
+    expect(await page.evaluate(() => (window as PageTabCounter).__tabsSeen), "both probing presses reached the page").toBe(2);
+
+    // Watched, free, remembered: the chip says Tab now, and nothing is probed here again.
+    await expect.poll(() => tabStateFor(worker), { message: "two clean probes mark an origin free" }).toBe("free");
+    await expect(host).toHaveAttribute("data-ghost-key", "tab");
+    await expect(host).toHaveAttribute("data-ghost-key-hint", "Tab");
+    await expect(host).toHaveAttribute("data-ghost-key-probing", "false");
   });
 });

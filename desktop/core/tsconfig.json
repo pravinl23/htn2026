@@ -6,5 +6,5 @@
     "baseUrl": ".",
     "paths": { "@ghost/shared": ["../../shared/src/index.ts"] }
   },
-  "include": ["entry.ts", "predict.ts"]
+  "include": ["entry.ts", "predict.ts", "anywhere.ts", "globals.d.ts"]
 }

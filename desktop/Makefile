@@ -37,7 +37,7 @@ LIB_OBJ   := $(patsubst src/%.m,$(BUILD)/obj/%.o,$(SRC))
 TEST_SRC  := tests/main.m $(wildcard tests/test_*.m)
 TEST_OBJ  := $(patsubst tests/%.m,$(BUILD)/testobj/%.o,$(TEST_SRC))
 
-CORE_SRC  := core/entry.ts core/predict.ts core/build-core.mjs $(wildcard ../shared/src/*.ts)
+CORE_SRC  := $(wildcard core/*.ts) core/build-core.mjs $(wildcard ../shared/src/*.ts) $(wildcard ../shared/src/*/*.ts)
 
 .PHONY: all core host host-force lib app install-lib test run dump selftest trust clean
 all: app

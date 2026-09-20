@@ -4,7 +4,7 @@ import { flashStatus, h } from "./dom";
 import type { OptionsSection } from "./sections";
 import { parseServerUrl } from "./validate";
 
-type BooleanSetting = "enabled" | "showHud" | "learningEnabled";
+type BooleanSetting = "enabled" | "showHud" | "learningEnabled" | "answerProtectedWithDecline";
 
 const THRESHOLD = { min: "0.5", max: "0.95", step: "0.05" };
 
@@ -22,6 +22,7 @@ async function mount(panel: HTMLElement): Promise<void> {
     enabled: toggle("setting-enabled"),
     showHud: toggle("setting-hud"),
     learningEnabled: toggle("setting-learning"),
+    answerProtectedWithDecline: toggle("setting-decline"),
   };
   const threshold = h("input", { type: "range", ...THRESHOLD, "data-testid": "setting-threshold" });
   const thresholdValue = h("output", { class: "value", "data-testid": "setting-threshold-value" });
@@ -73,6 +74,11 @@ async function mount(panel: HTMLElement): Promise<void> {
     urlError,
     field("Debug HUD", "Small overlay with the active provider, last latency, and cache status.", toggles.showHud),
     field("Learn from what I type", "Opt in: values you type into recognized fields become profile facts. Sensitive fields are never learned.", toggles.learningEnabled),
+    field(
+      "Answer gender, race, veteran and disability questions with \"prefer not to answer\"",
+      "On by default. Ghost picks the form's own decline option so the form is complete; it never invents a characteristic. Switch this off and Ghost leaves those questions for you.",
+      toggles.answerProtectedWithDecline,
+    ),
   );
   show(await getSettings());
 }

@@ -484,8 +484,30 @@ function buildField(unit: Unit, usable: HTMLElement[], signature: string): Captu
     value: action ? undefined : currentValue(el, radios),
     rect: unit.radios ? unionRect(usable.map(rectOf)) : rectOf(el),
     locked: action || locked ? locked : undefined,
+    formId: formIdOf(el),
     context: kind === "link" ? undefined : contextOf(el, label), // links never get a ghost; the heading walk is not free
   });
+}
+
+let formIds: WeakMap<HTMLFormElement, string> | null = null;
+let formCount = 0;
+
+/**
+ * Which form this control belongs to, so the gate can tell one form's unmet required field from another's
+ * (shared/src/form/gate.ts). `el.form` is the DOM's own answer and honours a `form=` attribute, so a submit
+ * bar declared outside the form it submits still comes back as part of it. "-" means "no form at all", which
+ * is a scope of its own: a required search box in the site header does not withhold a newsletter's Subscribe.
+ * The ids are per capture pass and never leave the page: they are ordinals, not anything from the markup.
+ */
+function formIdOf(el: HTMLElement): string {
+  const form = (el as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement).form ?? null;
+  if (!(form instanceof HTMLFormElement)) return "-";
+  if (!formIds) formIds = new WeakMap();
+  const known = formIds.get(form);
+  if (known !== undefined) return known;
+  const id = `f${++formCount}`;
+  formIds.set(form, id);
+  return id;
 }
 
 function optionsOf(el: HTMLElement, radios: HTMLInputElement[] | undefined): FieldOption[] | undefined {
@@ -500,6 +522,8 @@ function within(root: ParentNode, el: Element): boolean {
 /** Visible, enabled, non-sensitive interactive elements under `root`, in DOM order. */
 export function captureFields(root: ParentNode = document): CapturedField[] {
   nameCache = new WeakMap();
+  formIds = new WeakMap();
+  formCount = 0;
   openModals = findOpenModals(root);
   try {
     return captureUnits(root);

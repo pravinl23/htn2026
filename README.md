@@ -53,6 +53,12 @@ The first Playwright run also needs `pnpm --filter @ghost/e2e exec playwright in
 
 The implemented offline form path and server endpoints have deterministic fallbacks when keys are missing. Copy `.env.example` to `.env` to enable live model providers. On the audited developer machine, direct TypeSafe/Jev, Baseten, xAI, Browserbase and Composio keys are present; no Sentry DSN is present yet. A live 12-field Jev decision and the complete three-action atomic workflow passed with calibrated TypeSafe/Jev choices. The extension and desktop both use the local server while retaining local fallback. Never commit `.env`.
 
+### Sentry on the demo site
+
+The demo site reports to the Sentry project `ghost-web`: errors, tracing, logs and Session Replay. It reads one build-time variable, `VITE_SENTRY_DSN` (see `demo/.env.example`); a local build also accepts `SENTRY_WEB_DSN` from the repo-root `.env`, which is the name the server already uses. With no DSN the demo initialises no SDK at all - no replay, no spans, no network - so tests and a plain `pnpm dev` stay offline.
+
+What it sends, and only this: a replay with **every input masked** and every password, card and `data-ghost-sensitive` element blocked; two custom spans, `ghost.demo.form-ready` and `ghost.demo.first-ghost`, carrying field counts and durations; and log lines that say a form was ready, a ghost appeared, or that none did. Query strings, request bodies, console breadcrumbs, user identity and any attribute outside the allowlist in `demo/src/observability.ts` are stripped before an event leaves the browser (`pnpm --filter @ghost/demo test`). One gap the SDK does not let us close: rrweb records `location.href` into the replay's meta frame before any callback runs, so a query string typed into the address bar reaches that single field. Do not put a value in a demo URL; the site itself only ever uses `?reset=1`.
+
 ## Run Ghost in the background (macOS)
 
 Ghost can start at login and stay out of the way: no terminal, no `pnpm dev`. Two per-user LaunchAgents do it.

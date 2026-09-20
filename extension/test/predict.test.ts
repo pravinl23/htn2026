@@ -63,16 +63,58 @@ describe("buildGhostsOffline", () => {
     expect(signatures).not.toContain("consent");
   });
 
-  it("drops ghosts below the confidence threshold", () => {
+  // docs/always-propose.md: the threshold changes how a proposal is DRAWN, never whether it exists.
+  it("keeps every ghost below the confidence threshold, drawn as a long shot", () => {
     const fields = [
       field({ signature: "first", label: "First name" }), // 0.95
       field({ signature: "loc", label: "Current location" }), // 0.85
       field({ signature: "hint", label: "Contact", name: "phone" }), // 0.95 - 0.08 from a name hint
     ];
-    expect(buildGhostsOffline(fields, deps({ confidenceThreshold: 0.7 })).map((g) => g.signature)).toEqual(["first", "loc", "hint"]);
-    expect(buildGhostsOffline(fields, deps({ confidenceThreshold: 0.86 })).map((g) => g.signature)).toEqual(["first", "hint"]);
-    expect(buildGhostsOffline(fields, deps({ confidenceThreshold: 0.9 })).map((g) => g.signature)).toEqual(["first"]);
-    expect(buildGhostsOffline(fields, deps({ confidenceThreshold: 0.99 }))).toEqual([]);
+    const tiers = (threshold: number): Array<[string, string | undefined]> =>
+      buildGhostsOffline(fields, deps({ confidenceThreshold: threshold })).map((g) => [g.signature, g.tier]);
+
+    expect(tiers(0.7)).toEqual([["first", "confident"], ["loc", "confident"], ["hint", "confident"]]);
+    // Raising the bar dims the ones that no longer clear it. It never deletes one.
+    expect(tiers(0.86)).toEqual([["first", "confident"], ["loc", "long-shot"], ["hint", "confident"]]);
+    expect(tiers(0.9)).toEqual([["first", "confident"], ["loc", "long-shot"], ["hint", "long-shot"]]);
+    expect(tiers(0.99)).toEqual([["first", "long-shot"], ["loc", "long-shot"], ["hint", "long-shot"]]);
+    // Every long shot is a guess: it carries the chip, its reason, and it stops a held accept key.
+    const strict = buildGhostsOffline(fields, deps({ confidenceThreshold: 0.99 }));
+    expect(strict.every((g) => g.guess === true && (g.reason ?? "") !== "")).toBe(true);
+  });
+
+  it("names a reason, from one short list, for every control it does not propose for", () => {
+    const fields = [
+      field({ signature: "pw", label: "Password", inputType: "password" }),
+      field({ signature: "first", label: "First name", value: "Sam" }),
+      field({ signature: "size", label: "T-shirt size", kind: "select", options: [{ value: "s", label: "S" }, { value: "m", label: "M" }] }),
+      field({ signature: "email", label: "Email", kind: "email" }),
+    ];
+    const plan = planForm(fields, [], deps(), "offline");
+    expect(plan.skips).toEqual([
+      { signature: "pw", reason: "sensitive" },
+      { signature: "first", reason: "already-answered" },
+    ]);
+    // The T-shirt size has no fact and no neutral option, and is proposed anyway, as a long shot.
+    expect(plan.ghosts.map((g) => [g.signature, g.tier])).toEqual([["size", "long-shot"], ["email", "confident"]]);
+  });
+
+  it("proposes the first control on a page it understands nothing on", () => {
+    const fields = [
+      field({ signature: "q", label: "Search", kind: "text" }),
+      field({ signature: "go", label: "Go", kind: "button" }),
+    ];
+    const ghosts = buildGhostsOffline(fields, deps());
+    expect(ghosts.map((g) => [g.signature, g.action, g.tier, g.guess])).toEqual([["q", "click", "long-shot", true]]);
+    expect(ghosts[0]?.reason).toContain("where it would start");
+  });
+
+  it("proposes nothing at all only when there is nothing on the page to act on", () => {
+    expect(buildGhostsOffline([], deps())).toEqual([]);
+    const onlySensitive = [field({ signature: "pw", label: "Password", inputType: "password" })];
+    expect(buildGhostsOffline(onlySensitive, deps())).toEqual([]);
+    const onlyAnswered = [field({ signature: "first", label: "First name", value: "Sam" })];
+    expect(buildGhostsOffline(onlyAnswered, deps())).toEqual([]);
   });
 
   it("never proposes a value for a field that already has one", () => {
@@ -170,17 +212,23 @@ describe("ghostsFromAssignments", () => {
       { signature: "c", factKey: NONE, confidence: 0.99 },
     ];
     const ghosts = ghostsFromAssignments(fields, assignments, deps(), "server");
-    expect(ghosts).toEqual([
-      { signature: "a", action: "fill", value: "University of Waterloo", displayText: "University of Waterloo", confidence: 0.9, locked: false, source: "server" },
-    ]);
+    expect(ghosts[0]).toEqual({
+      signature: "a", action: "fill", value: "University of Waterloo", displayText: "University of Waterloo",
+      confidence: 0.9, locked: false, source: "server", tier: "confident",
+    });
+    // Field B is free text the draft path owns, Field C was answered `none` -- and Field D, which nobody
+    // assigned anything, still gets the answer engine's long shot rather than silence.
+    expect(ghosts.map((g) => [g.signature, g.tier])).toEqual([["a", "confident"], ["d", "long-shot"]]);
   });
 
-  it("multiplies the assignment confidence by the option-match factor before gating", () => {
+  it("multiplies the assignment confidence by the option-match factor, and tiers the result", () => {
     const assignments: FieldAssignment[] = [{ signature: "d", factKey: "country", confidence: 0.8 }];
     const [ghost] = ghostsFromAssignments(fields, assignments, deps({ confidenceThreshold: 0.7 }), "server");
-    expect(ghost).toMatchObject({ signature: "d", action: "select", value: "ca" });
+    expect(ghost).toMatchObject({ signature: "d", action: "select", value: "ca", tier: "guess", guess: true });
     expect(ghost?.confidence).toBeCloseTo(0.8 * 0.88, 5);
-    expect(ghostsFromAssignments(fields, assignments, deps({ confidenceThreshold: 0.75 }), "server")).toEqual([]);
+    // A stricter threshold dims the same ghost instead of removing it (docs/always-propose.md).
+    const [strict] = ghostsFromAssignments(fields, assignments, deps({ confidenceThreshold: 0.75 }), "server");
+    expect(strict).toMatchObject({ signature: "d", value: "ca", tier: "long-shot", guess: true });
   });
 
   it("ignores unknown fact keys, unknown signatures and unresolvable values", () => {
@@ -189,7 +237,11 @@ describe("ghostsFromAssignments", () => {
       { signature: "zzz", factKey: "email", confidence: 0.99 },
       { signature: "d", factKey: "email", confidence: 0.99 },
     ];
-    expect(ghostsFromAssignments(fields, assignments, deps(), "server")).toEqual([]);
+    const ghosts = ghostsFromAssignments(fields, assignments, deps(), "server");
+    // None of those assignments produces a value -- and none of them silences the field either: D is a
+    // dropdown, so the answer engine proposes the option that claims the least, as a long shot.
+    expect(ghosts.map((g) => [g.signature, g.tier, g.answerSource])).toEqual([["d", "long-shot", "guess"]]);
+    expect(ghosts.every((g) => g.value !== "alex.chen.dev@example.com")).toBe(true);
   });
 
   it("refuses a sensitive-looking field even when an assignment points at it", () => {
@@ -232,10 +284,12 @@ describe("upgradeGhosts", () => {
     ]);
   });
 
-  it("gates server assignments with the same live threshold", () => {
+  it("tiers server assignments with the live threshold instead of dropping them", () => {
     const fields = [field({ signature: "handle", label: "Where can we see your code?" })];
-    expect(upgradeGhosts(fields, [jev("handle", "github", 0.75)], deps({ confidenceThreshold: 0.7 }), "server")).toHaveLength(1);
-    expect(upgradeGhosts(fields, [jev("handle", "github", 0.75)], deps({ confidenceThreshold: 0.8 }), "server")).toHaveLength(0);
+    const loose = upgradeGhosts(fields, [jev("handle", "github", 0.75)], deps({ confidenceThreshold: 0.7 }), "server");
+    expect(loose.map((g) => g.tier)).toEqual(["guess"]);
+    const strict = upgradeGhosts(fields, [jev("handle", "github", 0.75)], deps({ confidenceThreshold: 0.8 }), "server");
+    expect(strict.map((g) => [g.value, g.tier])).toEqual([["https://github.com/alexchen-dev", "long-shot"]]);
   });
 
   it("never lets an uncalibrated answer override a more confident offline ghost with another fact", () => {
@@ -349,7 +403,10 @@ describe("free-text drafts (Stage 3)", () => {
     const ghosts = planForm(applyForm(), [], streaming, "offline").ghosts;
     expect(ghosts.map((g) => g.signature)).toEqual(["first", "email", "grad", "auth", "sponsor", "why", "submit"]);
     expect(ghosts.find((g) => g.signature === "why")).toEqual({
-      signature: "why", action: "fill", value: "I want to build", displayText: "I want to build", confidence: LLM_CONFIDENCE, locked: false, source: "llm", pending: true,
+      signature: "why", action: "fill", value: "I want to build", displayText: "I want to build", confidence: LLM_CONFIDENCE,
+      locked: false, source: "llm", pending: true,
+      // 0.8 is under CONFIDENT_TIER: a draft is a suggestion to read, so it wears the chip and stops a hold.
+      tier: "guess", guess: true, reason: "a draft written for you: read it before you take it",
     });
     const finished = deps({}, { drafts: draftsOf({ why: { text: "I want to build robots.", pending: false } }) });
     const ghost = planForm(applyForm(), [], finished, "offline").ghosts.find((g) => g.signature === "why");
@@ -365,11 +422,12 @@ describe("free-text drafts (Stage 3)", () => {
     expect(ghosts.find((g) => g.signature === "first")?.source).toBe("server");
   });
 
-  it("gates drafts on confidence: the fixed 0.8 must clear the user's threshold", () => {
+  it("still drafts when the user's threshold is above the fixed 0.8, and draws the draft as a long shot", () => {
     const strict = deps({ confidenceThreshold: 0.85 }, { drafts: draftsOf({ why: { text: "Robots.", pending: false } }) });
     const plan = planForm(applyForm(), [], strict, "offline");
-    expect(plan.textFields).toEqual([]);
-    expect(plan.ghosts.map((g) => g.signature)).not.toContain("why");
+    // The threshold is not a veto on spending the call, only on how sure the result is allowed to look.
+    expect(plan.textFields.map((f) => f.signature)).toEqual(["why"]);
+    expect(plan.ghosts.find((g) => g.signature === "why")).toMatchObject({ value: "Robots.", tier: "long-shot", guess: true });
   });
 
   it("wants a real prompt from an uncalibrated mapper, and takes a calibrated needs_text at the threshold", () => {
@@ -379,6 +437,9 @@ describe("free-text drafts (Stage 3)", () => {
     expect(draftableFields(fields, [...facts, needsText("notes", 0.84, false)], deps()).map((f) => f.signature)).toEqual([]);
     expect(draftableFields(fields, [...facts, needsText("notes", 0.74, true)], deps()).map((f) => f.signature)).toEqual(["notes"]);
     expect(draftableFields(fields, [...facts, needsText("notes", 0.69, true)], deps())).toEqual([]);
+    // Both bars are about what the FIELD IS, so the user's own threshold does not move them either way.
+    const picky = deps({ confidenceThreshold: 0.95 });
+    expect(draftableFields(fields, [...facts, needsText("notes", 0.74, true)], picky).map((f) => f.signature)).toEqual(["notes"]);
   });
 
   it("drafts nothing outside a form of the user's own details: a comment box or a chat input is not an essay question", () => {

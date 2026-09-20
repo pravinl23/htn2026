@@ -79,6 +79,25 @@ export class Raster {
     return this.fill(x, y, w, thickness, color).fill(x, y + h - thickness, w, thickness, color).fill(x, y, thickness, h, color).fill(x + w - thickness, y, thickness, h, color);
   }
 
+  /** A right- or left-pointing solid triangle filling the w x h box: the play / next / previous glyph. */
+  triangle(x: number, y: number, w: number, h: number, color: Rgb, direction: "right" | "left" = "right"): this {
+    for (let i = 0; i < Math.round(w); i += 1) {
+      const t = direction === "right" ? i / w : 1 - i / w;
+      const colHeight = Math.max(1, Math.round(h * (1 - t)));
+      this.fill(x + i, y + Math.round((h - colHeight) / 2), 1, colHeight, color);
+    }
+    return this;
+  }
+
+  /** A straight line of square dabs: diagonals (an X, a speaker cone) that `fill` alone cannot draw. */
+  line(x0: number, y0: number, x1: number, y1: number, color: Rgb, thickness = 2): this {
+    const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
+    for (let i = 0; i <= steps; i += 1) {
+      this.fill(Math.round(x0 + ((x1 - x0) * i) / steps), Math.round(y0 + ((y1 - y0) * i) / steps), thickness, thickness, color);
+    }
+    return this;
+  }
+
   /** Width in pixels of `text` at `scale` (each glyph is 5 wide plus 1 of spacing). */
   static textWidth(text: string, scale: number): number {
     return Math.max(0, text.length * 6 - 1) * scale;

@@ -2,8 +2,34 @@
 // plus the look-alikes that used to produce confident wrong ghosts. "A wrong ghost is worse than no ghost."
 import { describe, expect, it } from "vitest";
 import { DEMO_PROFILE, NEEDS_TEXT, NONE, mapFieldToFact, mapFormHeuristically, type CapturedField, type FieldKind } from "../src";
+import { demoGraph } from "./helpers/factFixtures";
 
 const factKeys = Object.keys(DEMO_PROFILE.facts);
+// Every case runs twice: against the flat profile, and against the fact graph that now drives the mapper.
+// A form that worked before the graph must work after it, to the same fact.
+const GRAPH = demoGraph();
+/**
+ * The labels that map DIFFERENTLY once the graph holds what a résumé never did: an address, an employer,
+ * a job title, a work inbox, a shirt size. Every one of these used to be a "look-alike that maps to
+ * nothing" purely because Ghost had no such fact, which is exactly the gap the graph closes. Everything
+ * not listed here maps identically with or without the graph.
+ */
+const WITH_GRAPH: Record<string, string> = {
+  "Zip code": "address.home.postalCode",
+  "Postal code": "address.home.postalCode",
+  "ZIP / Postal code": "address.home.postalCode",
+  "Address line 1": "address.home.street",
+  "Street address": "address.home.street",
+  "Current company": "work.employer.current",
+  "Current employer": "work.employer.current",
+  "Company name": "work.employer.current",
+  "Current title": "work.title",
+  "What is your current job title?": "work.title",
+  "Twitter handle": "links.twitter",
+  "T-shirt size": "preferences.shirtSize",
+  "Dietary restrictions": "preferences.dietary",
+  "Work email": "contact.email.work",
+};
 const rect = { x: 0, y: 0, width: 100, height: 20 };
 const THRESHOLD = 0.7;
 
@@ -25,6 +51,8 @@ function run(cases: Case[], check: (confidence: number, c: Case) => void): void 
       const a = mapFieldToFact(field(label, kind, extra), factKeys);
       expect(a.factKey).toBe(expected);
       check(a.confidence, c);
+      const graphed = mapFieldToFact(field(label, kind, extra), factKeys, GRAPH);
+      expect(graphed.factKey, "with the fact graph").toBe(WITH_GRAPH[label] ?? expected);
     });
   }
 }

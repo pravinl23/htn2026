@@ -38,7 +38,7 @@ Two prediction sources, combined in code before anything is asked of a model:
 1. **Priors.** Per `PageKind`, an ordered list of roles people usually want next: `media` → `play`, then `fullscreen`, then `next`; `feed` → `primary-item`, then `search`, then `scroll-more`; `commerce` with a non-empty cart → `cart`, then `checkout` (locked); `reader` → `scroll-more`, then `back`. Priors are weak (0.55 to 0.7) and never beat memory.
 2. **Role-keyed memory.** The episodic store gains a second key: `(pageKind, previous role, affordance role)` alongside the existing signature key. This is what makes "I always go fullscreen after starting a video" transfer to a video it has never seen, and "I always click the cart after adding" transfer between shops. Signature memory stays for exact repeats on one page.
 
-The model (Jev) still makes the final choice over the filtered candidates, now labelled with their role and the page kind in the state, plus `none`. Code decides what is even offered; the model picks; code verifies and executes. Ghost proposes the top candidate whenever anything clears the threshold, and a prior alone is enough to propose something on a page it has never seen.
+The model (Jev) still makes the final choice over the filtered candidates, now labelled with their role and the page kind in the state, plus `none`. Code decides what is even offered; the model picks; code verifies and executes. Ghost ALWAYS proposes the top candidate; the threshold only decides how it is drawn (`docs/always-propose.md`). A prior alone is enough on a page it has never seen.
 
 ## 4. Naming what has no name (OpenAI vision)
 

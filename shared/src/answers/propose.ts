@@ -34,11 +34,19 @@ export const DECLINE_CONFIDENCE = 0.8;
 export const GUESS_CONFIDENCE = 0.72;
 /** A legal declaration inferred rather than known: the most conservative answer, always flagged. */
 export const DECLARATION_GUESS_CONFIDENCE = 0.7;
+/**
+ * The last rung of the ladder: a question that offers no neutral option and no conservative side, answered
+ * with the least specific thing it offers. Below the default threshold on purpose, so it is drawn as a
+ * dimmed long shot with its reason showing (docs/always-propose.md) -- and still one key to take or ignore.
+ */
+export const LONG_SHOT_CONFIDENCE = 0.6;
 
 export interface AnswerSettings {
   /**
-   * Opt in: answer protected questions with the form's OWN "prefer not to answer" option. Off by default,
-   * because declining is still an answer and it is the user's to give. Ghost never invents a characteristic.
+   * Answer protected questions with the form's OWN "prefer not to answer" option. ON by default, which is what
+   * `DEFAULT_SETTINGS` ships and what docs/answers.md section 1 describes: declining is a true answer for
+   * anyone, it completes the form, and one correction turns it into a disclosure if the user wants one.
+   * Turning it off leaves every protected question to the user. Ghost never invents a characteristic either way.
    */
   answerProtectedWithDecline?: boolean;
 }
@@ -124,6 +132,27 @@ const DECLARATION_DEFAULTS: Partial<Record<QuestionTopic, { want: boolean; why: 
 // "except" are NOT here: "convicted of a crime other than a minor traffic violation" is not a negated question.
 const NEGATED_QUESTION = /\bwithout\b|\bnot\b|\bunable\b|\bineligible\b|\bnever\b|\bno longer\b|\b(don|doesn|didn|haven|hasn|isn|aren|won|can) t\b/;
 
+/**
+ * A subordinate clause qualifies the noun in front of it, never the question's own predicate. In
+ * "a felony THAT HAS NOT been expunged" the negation belongs to the expunging, and reading it as the
+ * question's would answer "Yes, I have been convicted" -- a self-incriminating statement Ghost invented.
+ * Only the head clause is read for negation.
+ */
+const SUBORDINATE_CLAUSE = /\b(?:that|which|who|whom|whose|where|when|unless|except|other than|apart from|aside from|besides)\b/;
+
+/**
+ * "without restriction" / "without limitation" qualify the SCOPE of an authorization; they do not negate it.
+ * Reading them as a negation turns "authorized to work in the US without restriction" into "Yes" -- exactly the
+ * flattering declaration docs/answers.md section 7 forbids. "without sponsorship" and "without a visa" DO negate
+ * what is being asked about, so only the scope words are taken out.
+ */
+const SCOPE_QUALIFIER = /\bwithout\s+(?:any\s+)?(?:restriction|limitation|limit|condition|qualification|constraint|reservation|caveat|exception|further)s?\b/g;
+
+/** The part of the label whose negation is the question's own. */
+function headClause(label: string): string {
+  return (label.split(SUBORDINATE_CLAUSE)[0] ?? label).replace(SCOPE_QUALIFIER, " ");
+}
+
 // "Do you require / need a work permit?" states the same thing as "are you authorized" the other way round.
 const ASKS_WHAT_IS_NEEDED = /\b(require|requires|required|requiring|need|needs|needed|needing)\b/;
 const INVERTS_ON_NEED: ReadonlySet<QuestionTopic> = new Set<QuestionTopic>(["workAuthorization", "immigrationStatus"]);
@@ -143,6 +172,11 @@ const NEUTRAL_OPTIONS: ReadonlyArray<readonly [RegExp, number]> = [
   [/\bprefer not to\b|\bdecline to\b|\bdo not wish to\b|\bdon t wish to\b|\brather not say\b/, 3],
   [/^no preference\b|^unsure\b|^not sure\b|^i don t know\b|^undecided\b/, 4],
 ];
+
+// Options that answer without narrowing anything down. Used only where a question offers no neutral option
+// at all: the least specific thing it can be told is still an answer, and a visible guess costs one keystroke.
+const BROAD_OPTION =
+  /\btwo or more\b|\bmultiple\b|\bmixed\b|\bvarious\b|\bseveral\b|\bcombination\b|\bunspecified\b|\bunknown\b|\bnot specified\b|\bunsure\b|\bgeneral\b/;
 
 const YES_VALUE = /^(true|yes|y|1|on|checked)$/i;
 const NO_VALUE = /^(false|no|n|0|off|unchecked)$/i;
@@ -196,11 +230,12 @@ function topicFact(profile: Profile, topic: QuestionTopic, country: string | und
   }
   const plain = profile.facts[base];
   if (plain) return { key: base, value: plain, confidence: FACT_CONFIDENCE, reason: `profile states ${topic}` };
-  // The question names no country: the profile's own country is the one it can be speaking about.
-  const own = profileCountry(profile);
-  const ownKey = own ? `${base}.${own}` : undefined;
-  const ownValue = ownKey ? profile.facts[ownKey] : undefined;
-  if (ownKey && ownValue) return { key: ownKey, value: ownValue, confidence: OWN_COUNTRY_FACT_CONFIDENCE, reason: `profile states ${topic} for its own country` };
+  // The question names no country and the profile only states this topic for ONE, which is not an answer to it.
+  // "Will you now or in the future require sponsorship?" is the commonest question on a US board and names
+  // nowhere; answering it from `requiresSponsorship.CA` would put "No, I will not require sponsorship" on a US
+  // form as a `fact` -- unflagged, above every threshold, and written by hold-Tab. docs/answers.md section 2
+  // makes only the UNQUALIFIED key a fallback, and section 7 forbids the flattering side of a declaration.
+  // So: no fact here. The conservative guess answers it, visibly, and one correction learns the real key.
   return null;
 }
 
@@ -266,9 +301,40 @@ export function neutralOption(options: readonly FieldOption[] | undefined): Fiel
   return best?.option ?? null;
 }
 
-/** The option that means "I am not answering this". The only answer Ghost ever gives to a protected question. */
+/** The option that means "I am not answering this". The first answer Ghost gives to a protected question. */
 export function declineOption(options: readonly FieldOption[] | undefined): FieldOption | null {
   return usableOptions(options).find((o) => isDeclineOption(o.label)) ?? null;
+}
+
+/**
+ * The least specific option a question offers, for the rare question with no neutral option and no decline
+ * (docs/answers.md section 1, docs/always-propose.md): a visible guess the user corrects in one keystroke
+ * beats an empty field. Breadth wins ("Two or more races"); failing that the shortest label, which is the
+ * one that qualifies itself the least. A declaration-style option is never picked: signing is the user's.
+ */
+export function leastSpecificOption(options: readonly FieldOption[] | undefined): FieldOption | null {
+  let best: { option: FieldOption; rank: number; length: number } | null = null;
+  for (const option of usableOptions(options)) {
+    const text = probeText(option.label);
+    if (DECLARATION_OPTION.test(text)) continue;
+    const rank = BROAD_OPTION.test(text) ? 0 : 1;
+    if (!best || rank < best.rank || (rank === best.rank && text.length < best.length)) {
+      best = { option, rank, length: text.length };
+    }
+  }
+  return best?.option ?? null;
+}
+
+/** The same proposal every long shot makes: pick `option`, say why, and ask to be checked. */
+function longShot(skeleton: Skeleton, option: FieldOption, why: string): AnswerProposal {
+  return proposal(
+    skeleton,
+    { action: "select", value: option.value, optionLabel: option.label, factor: 1 },
+    "guess",
+    LONG_SHOT_CONFIDENCE,
+    why,
+    { needsReview: true },
+  );
 }
 
 function base(field: QuestionField, classification: Classification, signature: string): Omit<AnswerProposal, "value" | "confidence" | "source" | "reason" | "needsReview"> {
@@ -346,22 +412,46 @@ function guessProtected(field: QuestionField, ctx: AnswerContext, skeleton: Skel
     return nothing(skeleton, "protected characteristic: only you can answer this");
   }
   const decline = declineOption(field.options);
-  if (!decline) return nothing(skeleton, "protected characteristic with no way to decline: only you can answer this");
-  // Not a guess: declining is a true answer for anyone, and the user asked for it in the settings.
-  return proposal(
-    skeleton,
-    { action: "select", value: decline.value, optionLabel: decline.label, factor: 1 },
-    "fact",
-    DECLINE_CONFIDENCE,
-    "declined by setting",
-  );
+  if (decline) {
+    // Not a guess: declining is a true answer for anyone, and the user asked for it in the settings.
+    return proposal(
+      skeleton,
+      { action: "select", value: decline.value, optionLabel: decline.label, factor: 1 },
+      "fact",
+      DECLINE_CONFIDENCE,
+      "declined by setting",
+    );
+  }
+  // No way to decline at all, which is rare. Ghost still proposes (docs/answers.md section 1, and
+  // docs/always-propose.md): flagged, drawn as a long shot, one keystroke to correct. An empty field here is
+  // a form nobody can submit, which helps the user less than a guess they can see.
+  const options = usableOptions(field.options);
+  if (options.length > 0) {
+    // A yes/no protected question has no neutral side, so the same principle as a declaration applies: the
+    // answer that claims the least. Only a real yes/no set, never a lone checkbox, which is already answered.
+    const negative = expressBoolean(field, false);
+    if (negative && negative.action === "select" && negative.factor >= 0.9) {
+      return proposal(skeleton, negative, "guess", LONG_SHOT_CONFIDENCE, "no way to decline this one: the answer that claims the least - check this", { needsReview: true });
+    }
+    const broad = leastSpecificOption(options);
+    if (broad) return longShot(skeleton, broad, "no way to decline this one: the least specific option it offers - check this");
+  }
+  return nothing(skeleton, "protected characteristic with nothing to choose from: only you can answer this");
 }
 
 function guessDeclaration(field: QuestionField, classification: Classification, skeleton: Skeleton): AnswerProposal {
   const topic = classification.topic;
+  // A consent to be screened is a permission the applicant GRANTS, not a fact about them, and an unticked box
+  // is already an answer -- there is no empty state for Ghost to fill, exactly as for the bare consent box in
+  // `guessOrdinary`. So Ghost does not tick "I consent to a credit check" or "I agree to a drug screen" on
+  // anyone's behalf. A yes/no CONTROL is different: it has no unanswered state and the form cannot be sent
+  // without one, so there the routine consent is still proposed, flagged, and hold-Tab stops on it.
+  if (topic === "backgroundCheck" && field.kind === "checkbox") {
+    return nothing(skeleton, "consent to be screened: ticking this is yours to do");
+  }
   const fallback = topic ? DECLARATION_DEFAULTS[topic] : undefined;
   if (fallback) {
-    const label = probeText(field.label);
+    const label = headClause(probeText(field.label));
     // "Do you REQUIRE a work permit?" asks the opposite of "are you authorized": needing one is the
     // conservative answer, exactly as needing sponsorship is.
     const inverted = topic !== undefined && INVERTS_ON_NEED.has(topic) && ASKS_WHAT_IS_NEEDED.test(label);
@@ -386,7 +476,10 @@ function guessDeclaration(field: QuestionField, classification: Classification, 
       { needsReview: true },
     );
   }
-  return nothing(skeleton, "legal declaration with no conservative answer: only you can answer this");
+  // No yes/no side and no neutral option. Still propose: the option that narrows things down the least.
+  const broad = leastSpecificOption(field.options);
+  if (broad) return longShot(skeleton, broad, "no conservative answer to this one: the least specific option it offers - check this");
+  return nothing(skeleton, "legal declaration with nothing to choose from: only you can answer this");
 }
 
 function guessOrdinary(field: QuestionField, skeleton: Skeleton): AnswerProposal {
@@ -411,7 +504,10 @@ function guessOrdinary(field: QuestionField, skeleton: Skeleton): AnswerProposal
         : "no profile fact: the answer that claims the least";
       return proposal(skeleton, yesNo, "guess", GUESS_CONFIDENCE, reason);
     }
-    return nothing(skeleton, "no profile fact and no neutral option: needs your answer");
+    // "Remote / Hybrid / On-site": no option claims nothing, so pick the one that claims the least and say so.
+    const broad = leastSpecificOption(options);
+    if (broad) return longShot(skeleton, broad, "no profile fact and no neutral option: the one that claims the least - check this");
+    return nothing(skeleton, "no profile fact and nothing to choose from: needs your answer");
   }
   if (field.kind === "checkbox") return nothing(skeleton, "an unchecked box is already an answer: agreeing is yours to do");
   if (field.kind === "text" || field.kind === "textarea") return nothing(skeleton, "free text: the draft path answers this", NEEDS_TEXT);

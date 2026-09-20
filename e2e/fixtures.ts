@@ -168,6 +168,51 @@ export async function removeStorage(worker: Worker, key: string): Promise<void> 
   await worker.evaluate((k) => chrome.storage.local.remove(k), key);
 }
 
+// ---------- which key accepts a ghost (docs/accept-key.md) ----------
+
+/** `ghost.keys` in extension/src/lib/storage.ts. */
+const KEYS_KEY = "ghost.keys";
+
+/**
+ * One tap of the Ghost key: right Option down, nothing in between, up (docs/accept-key.md section 3). This is
+ * the key that accepts wherever Tab is not Ghost's - a click ghost, a locked action, an origin whose Tab has
+ * never been watched. Chromium reports it exactly as a real tap does: key "Alt", code "AltRight", location 2.
+ */
+export async function ghostKey(page: Page): Promise<void> {
+  await page.keyboard.down("AltRight");
+  await page.keyboard.up("AltRight");
+}
+
+/**
+ * Marks an origin as one Ghost has already watched a Tab press on and found free: the state every browser is
+ * in after the user's first form walk on a site (docs/accept-key.md section 2, shared/src/keys/observe.ts).
+ *
+ * Specs that are about the WALK - does Tab accept, advance, stop at a lock - use this so they are not also
+ * re-testing how an origin is first observed. What a BRAND-NEW origin does has its own spec
+ * ("a brand-new origin is watched before Tab is ever taken" in stage1-form.spec.ts).
+ *
+ * Written as plain JSON on purpose: e2e does not depend on @ghost/shared, and `normalizeKeys` repairs
+ * anything it does not recognise, so a drift in the stored shape shows up as a failing walk, not a silent pass.
+ */
+export async function observedTabFree(worker: Worker, origin: string = DEMO_URL): Promise<void> {
+  await writeStorage(worker, KEYS_KEY, {
+    acceptKey: "auto",
+    ghostKey: "right-option",
+    memory: {
+      max: 300,
+      entries: [
+        { id: origin, tab: "free", probes: { free: 2, taken: 0 }, presses: { tab: 0, ghost: 0 }, missed: 0, run: null, flips: 0, pinned: false },
+      ],
+    },
+  });
+}
+
+/** What Ghost has observed about Tab on one origin, for a spec that is about the observing itself. */
+export async function tabStateFor(worker: Worker, origin: string = DEMO_URL): Promise<string> {
+  const keys = await readStorage<{ memory?: { entries?: Array<{ id: string; tab: string }> } }>(worker, KEYS_KEY);
+  return (keys?.memory?.entries ?? []).find((entry) => entry.id === origin)?.tab ?? "unknown";
+}
+
 /** Open pages react through chrome.storage.onChanged, exactly as they do when the options page saves. */
 export async function patchSettings(worker: Worker, patch: SettingsPatch): Promise<void> {
   await worker.evaluate(async ({ key, change }) => {

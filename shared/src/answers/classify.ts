@@ -19,6 +19,7 @@ export type QuestionTopic =
   | "religion"
   | "sexualOrientation"
   | "maritalStatus"
+  | "familyStatus"
   | "workAuthorization"
   | "requiresSponsorship"
   | "immigrationStatus"
@@ -144,8 +145,12 @@ const PROTECTED_RULES: readonly TopicRule[] = [
   { topic: "pronouns", pattern: /\bpronouns?\b/ },
   { topic: "hispanicLatino", pattern: /\bhispanic\b|\blatin[oax]\b|\blatine\b/ },
   {
+    // "Do you identify as a member of an underrepresented group?" asks about race or origin without naming one.
+    // A bare Yes/No answer set gives `looksLikeEeoScale` nothing to see, so the vocabulary has to carry it:
+    // otherwise the question falls through to the ordinary guess, which would state a claim about the applicant.
     topic: "ethnicity",
-    pattern: /\bethnic\w*\b|\brace\b|\bracial\b|\bvisible minorit\w+\b|\bindigenous\b|\baboriginal\b|\bfirst nations\b|\bnational origin\b|\bheritage\b|\bancestry\b/,
+    pattern:
+      /\bethnic\w*\b|\brace\b|\bracial\b|\bvisible minorit\w+\b|\bminority group\b|\bindigenous\b|\baboriginal\b|\bfirst nations\b|\bnational origin\b|\bheritage\b|\bancestry\b|\bunder ?represented\b|\bbipoc\b|\bfirst generation\b|\bprotected (class|characteristic|group)\b/,
     veto: /\brace condition\b|\bracing\b/,
   },
   { topic: "veteranStatus", pattern: /\bveterans?\b|\bmilitary (service|status|experience)\b|\barmed forces\b|\bvevraa\b/ },
@@ -157,7 +162,20 @@ const PROTECTED_RULES: readonly TopicRule[] = [
   },
   { topic: "religion", pattern: /\breligio\w+\b|\bfaith\b|\bcreed\b/ },
   { topic: "maritalStatus", pattern: /\bmarital status\b|\bare you (married|single)\b|\bcivil partnership\b|\bspousal status\b/ },
-  { topic: "age", pattern: /\bage\b|\bhow old are you\b|\bage (range|group|band|bracket)\b/, veto: /\baverage\b/ },
+  {
+    // Pregnancy and family plans are protected in every jurisdiction that protects sex, and an employer asking
+    // is the classic unlawful question. Ghost answers it the way it answers any other protected one: it declines.
+    topic: "familyStatus",
+    pattern:
+      /\bpregnan\w*\b|\bmaternity\b|\bpaternity\b|\bparental leave\b|\bfamil(y|ial) status\b|\b(start|starting|have|having|expand\w*)\b[^.?]{0,15}\ba family\b|\bplan\w*\b[^.?]{0,20}\b(children|kids|a family)\b|\bdo you have (any )?(children|kids|dependents)\b|\bchild ?care (responsibilit|arrangement|needs)\w*\b|\bcaregiv\w+ (status|responsibilit\w+)\b/,
+    veto: /\bparental leave policy\b/,
+  },
+  {
+    topic: "age",
+    pattern:
+      /\bage\b|\bhow old are you\b|\bage (range|group|band|bracket|cohort)\b|\bwhich generation\b|\bgeneration do you\b|\bgeneration (x|y|z)\b|\bgen (x|y|z)\b|\bmillennial\w*\b|\bbaby boomer\w*\b/,
+    veto: /\baverage\b/,
+  },
 ];
 
 // A statement with legal weight. Never guessed: a wrong answer is a false statement on a legal form.
@@ -286,6 +304,33 @@ export function classifyQuestion(field: QuestionField): Classification {
   }
   if (protectedHit || selfId || eeoScale) return withCountry(protectedResult(), country);
   return withCountry({ class: "ordinary", reason: "no protected characteristic and no legal declaration" }, country);
+}
+
+/**
+ * A question about a protected characteristic. Ghost answers these (with the form's own way of declining),
+ * but it never mentions one to a server: the desktop client has enforced this since it shipped
+ * (`desktop/core/predict.ts`), and `isProtectedQuestion` is the one rule both clients now share.
+ *
+ * Wider than the classifier on purpose, exactly as the desktop's own guard is: a question whose OPTIONS are
+ * demographic is protected for the purpose of what leaves the machine, even when it offers no way to decline
+ * and the label gives nothing away. This decides disclosure only, never how a question is answered.
+ */
+export function isProtectedQuestion(field: QuestionField): boolean {
+  if (field.kind === "button" || field.kind === "link") return false;
+  if (classifyQuestion(field).class === "protected") return true;
+  return (field.options ?? []).some((o) => DEMOGRAPHIC_OPTION.test(probeText(o.label)) || DEMOGRAPHIC_OPTION.test(probeText(o.value)));
+}
+
+/**
+ * A question whose text, options and answer all stay on this machine (docs/answers.md section 7).
+ * Protected characteristics AND legal declarations qualify: "Explain the circumstances of any conviction"
+ * or "describe the accommodations you need" is a disclosure whether it rides along as a question or as an
+ * answer, so neither is sent to `/v1/ghost-text`, kept in `profile.pastAnswers`, or drafted by a server.
+ * Learning still keeps them, locally, in the learned-answer store: that is the user's own answer, on their disk.
+ */
+export function staysOnThisMachine(field: QuestionField): boolean {
+  const questionClass = classifyQuestion(field).class;
+  return questionClass === "protected" || questionClass === "declaration";
 }
 
 /** Kinds that can never carry an answer. */

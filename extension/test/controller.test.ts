@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GhostController } from "../src/content/controller";
 import type { ControllerDeps } from "../src/content/controller";
 import { Overlay } from "../src/content/overlay";
+import { ghostKeyTap, TAB_KEYS, watchedKeys } from "./keys-port";
 
 const FORM = `
   <form id="form">
@@ -54,6 +55,9 @@ function startController(extra: Partial<ControllerDeps> = {}): GhostController {
     getProfile: () => DEMO_PROFILE,
     getSettings: () => settings,
     isUserEvent: () => true, // jsdom cannot mint trusted events
+    // Tab, pinned: which key an origin ends up taking is docs/accept-key.md's question, asked in
+    // "who owns Tab on a new origin" at the bottom of this file. Everything above it is about the walk.
+    keys: TAB_KEYS,
     ...extra,
   });
   controller.start();
@@ -140,12 +144,16 @@ describe("start", () => {
     expect($("#pw").value).toBe("");
   });
 
-  it("creates no ghosts when nothing clears the confidence threshold", () => {
+  // docs/always-propose.md: an impossible threshold dims every proposal. It never removes one.
+  it("keeps every ghost when nothing clears the confidence threshold, drawn as long shots", () => {
     settings.confidenceThreshold = 0.999;
     const c = startController();
-    expect(c.state.ghosts).toEqual([]);
-    expect(host().getAttribute("data-ghost-state")).toBe("idle");
-    expect(key("Tab").defaultPrevented).toBe(false);
+    expect(c.state.ghosts.length).toBeGreaterThan(0);
+    expect(c.state.ghosts.filter((g) => !g.locked).every((g) => g.tier === "long-shot" && g.guess === true)).toBe(true);
+    expect(host().getAttribute("data-ghost-state")).toBe("ready");
+    expect(host().getAttribute("data-ghost-tier")).toBe("long-shot");
+    // Still one key to take and one key to ignore: a dim ghost is a ghost.
+    expect(key("Tab").defaultPrevented).toBe(true);
   });
 });
 
@@ -184,12 +192,20 @@ describe("Tab", () => {
     expect($<HTMLSelectElement>("#auth").value).toBe("yes");
   });
 
-  it("is left alone when there is no ghost", () => {
+  it("offers to start where the page starts when there is nothing it can answer", () => {
     mountForm(`<form><label for="q">Search</label><input id="q" /><button type="button" id="go">Go</button></form>`);
     const c = startController();
+    // docs/always-propose.md: a page with something on it is never answered with silence. The proposal is
+    // the least intrusive one there is -- focus the first control, which is where Tab was going anyway.
+    expect(c.state.ghosts.map((g) => [g.action, g.tier])).toEqual([["click", "long-shot"]]);
+    expect(key("Tab").defaultPrevented).toBe(true);
+  });
+
+  it("is left alone when the page holds nothing it may act on at all", () => {
+    mountForm(`<form><label for="pw">Password</label><input id="pw" type="password" /></form>`);
+    const c = startController();
     expect(c.state.ghosts).toEqual([]);
-    const event = key("Tab");
-    expect(event.defaultPrevented).toBe(false);
+    expect(key("Tab").defaultPrevented).toBe(false);
   });
 
   it("never touches Shift+Tab or Tab with Ctrl, Alt or Meta", async () => {
@@ -367,9 +383,18 @@ describe("Escape", () => {
   });
 
   it("is left alone when there is nothing to dismiss", () => {
-    mountForm(`<form><label for="q">Search</label><input id="q" /></form>`);
+    // A sensitive field is never captured, so this page really does offer Ghost nothing.
+    mountForm(`<form><label for="pw">Password</label><input id="pw" type="password" /></form>`);
     startController();
     expect(key("Escape").defaultPrevented).toBe(false);
+  });
+
+  it("dismisses the long shot Ghost offers on a page it knows nothing about", () => {
+    mountForm(`<form><label for="q">Search</label><input id="q" /></form>`);
+    const c = startController();
+    expect(c.state.ghosts).toHaveLength(1);
+    expect(key("Escape").defaultPrevented).toBe(true);
+    expect(c.state.ghosts).toEqual([]);
   });
 
   it("clears a lone Submit ghost once every value ghost was dismissed", () => {
@@ -702,5 +727,87 @@ describe("HUD", () => {
     startController();
     expect(overlay.shadow.querySelector(".hud")?.getAttribute("data-visible")).toBe("false");
     expect(host().shadowRoot).toBeNull(); // closed: the page cannot read ghost values or the HUD
+  });
+});
+
+// docs/accept-key.md sections 1 and 2. Every test above pins Tab because it is about the walk; these are
+// about who owns the key in the first place, so they run on the real default (`acceptKey: "auto"`).
+describe("who owns Tab on a new origin", () => {
+  it("does not steal Tab on an origin it has never watched: the page keeps the key, and the press is watched", async () => {
+    const keys = watchedKeys(); // brand new origin: tabState "unknown"
+    const c = startController({ keys });
+    expect(c.state.ghosts.length).toBeGreaterThan(0);
+    expect(host().getAttribute("data-ghost-key")).toBe("ghost-key");
+    expect(host().getAttribute("data-ghost-key-hint")).toBe("⌥ tap");
+    expect(host().getAttribute("data-ghost-key-probing")).toBe("true");
+
+    $("#first").focus();
+    const event = key("Tab");
+    // The page gets the key untouched, and nothing is written on the strength of a guess about this origin.
+    expect(event.defaultPrevented).toBe(false);
+    expect($("#first").value).toBe("");
+    expect(c.state.accepted).toBe(0);
+    // One press watched, and the walk is left exactly where it was.
+    await vi.waitFor(() => expect(keys.probes).toHaveLength(1));
+    expect(keys.probes[0]).toMatchObject({ preventedDefault: false });
+    expect(currentId(c)).toBe("first");
+  });
+
+  it("accepts with the Ghost key there: a tap of right Option fills the ghost and advances", async () => {
+    const c = startController({ keys: watchedKeys() });
+    $("#first").focus();
+    const up = ghostKeyTap();
+    await vi.waitFor(() => expect(c.state.accepted).toBe(1));
+    expect(up.defaultPrevented).toBe(true);
+    expect($("#first").value).toBe("Alex");
+    expect(currentId(c)).toBe("last");
+  });
+
+  it("keeps its hands off Tab for good on an origin observed handling it, and still accepts with the Ghost key", async () => {
+    const keys = watchedKeys("taken");
+    const c = startController({ keys });
+    expect(host().getAttribute("data-ghost-key")).toBe("ghost-key");
+    expect(host().getAttribute("data-ghost-key-probing")).toBe("false");
+
+    $("#first").focus();
+    expect(key("Tab").defaultPrevented).toBe(false);
+    expect($("#first").value).toBe("");
+    // Nothing left to learn here: a place that takes Tab is not probed again.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(keys.probes).toEqual([]);
+
+    ghostKeyTap();
+    await vi.waitFor(() => expect(c.state.accepted).toBe(1));
+    expect($("#first").value).toBe("Alex");
+  });
+
+  it("takes Tab once watching has found it free, and the probing press itself accepts the ghost it was aimed at", async () => {
+    const keys = watchedKeys();
+    const c = startController({ keys });
+    // jsdom does not move focus on Tab, so the page stands in for the browser's own focus move: this is
+    // what a probe on an origin that leaves Tab alone looks like.
+    const nativeTab = (event: KeyboardEvent): void => {
+      if (event.key !== "Tab" || event.defaultPrevented) return;
+      keys.state = "free"; // two clean probes; the shared store's own counting is tested in shared/
+      $("#last").focus();
+    };
+    document.addEventListener("keydown", nativeTab);
+    try {
+      $("#first").focus();
+      expect(key("Tab").defaultPrevented).toBe(false);
+      await vi.waitFor(() => expect(keys.probes).toHaveLength(1));
+    } finally {
+      document.removeEventListener("keydown", nativeTab);
+    }
+    expect(keys.probes[0]).toMatchObject({ preventedDefault: false, focusMoved: true });
+    // The user meant that press for the ghost, so it takes it rather than being spent on learning.
+    await vi.waitFor(() => expect($("#first").value).toBe("Alex"));
+    expect(c.state.accepted).toBe(1);
+
+    // And from here on Tab is Ghost's on this origin: the next press accepts without any probe.
+    await tabUntilAccepted(c, 2);
+    expect($("#last").value).toBe("Chen");
+    expect(keys.probes).toHaveLength(1);
+    expect(host().getAttribute("data-ghost-key")).toBe("tab");
   });
 });

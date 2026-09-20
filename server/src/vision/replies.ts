@@ -1,5 +1,6 @@
 import { isLockedAction, isSensitive } from "@ghost/shared";
 import { isRecord } from "../providers/errors";
+import { affordanceRolesFor, type AffordanceHints, type AffordanceRole } from "./affordance";
 import type { VisionImage } from "./image";
 import { VISION_ROLES, type ImageView, type VisionRole } from "./prompts";
 import { cleanText, looksLikePersonalData, reordersText, VISION_LIMITS, type VisionBox } from "./validation";
@@ -9,6 +10,11 @@ export interface VisionLabel {
   id: string;
   label: string | null;
   role: VisionRole;
+  /**
+   * The affordance role the label implies (docs/anywhere.md section 2), derived in code from the RETURNED label, never
+   * asked of the model. A hint for the client's ranker, which also sees layout, page kind and memory.
+   */
+  affordance: AffordanceRole;
   /** The model's flag OR the shared lock rules on its full label (before clipping): the model can lock, never unlock. */
   irreversible: boolean;
   /** The full label names a password, card or government-ID field (rule 3): never fill it. */
@@ -80,7 +86,7 @@ function confidenceOf(value: unknown): number | undefined {
  * One entry per request box, in request order. An entry that names an unknown or repeated id, a role outside the enum,
  * or has the wrong types is dropped; a box without a valid entry comes back unanswered (label null, confidence 0).
  */
-export function validateLabelReply(reply: unknown, boxes: VisionBox[]): { labels: VisionLabel[]; answered: number } {
+export function validateLabelReply(reply: unknown, boxes: VisionBox[], hints: AffordanceHints = {}): { labels: VisionLabel[]; answered: number } {
   if (!isRecord(reply) || !Array.isArray(reply.labels)) throw new VisionError("malformed", "reply has no labels array");
   const byAlias = new Map(boxes.map((box) => [box.alias, box]));
   const answers = new Map<string, VisionLabel>();
@@ -96,12 +102,17 @@ export function validateLabelReply(reply: unknown, boxes: VisionBox[]): { labels
       id: box.id,
       label,
       role: entry.role as VisionRole,
+      affordance: "unknown",
       ...codeFlags(entry.label, entry.irreversible),
       // A label code threw away is no label: nothing about it is confident.
       confidence: label === null && entry.label !== null ? 0 : confidence,
     });
   }
-  const labels = boxes.map((box) => answers.get(box.id) ?? { id: box.id, label: null, role: "other" as const, irreversible: false, sensitive: false, confidence: 0 });
+  const unanswered = { label: null, role: "other" as const, affordance: "unknown" as const, irreversible: false, sensitive: false, confidence: 0 };
+  const labels: VisionLabel[] = boxes.map((box) => answers.get(box.id) ?? { id: box.id, ...unanswered });
+  // One pass over the whole batch, so a player bar's icons see each other (see affordance.ts).
+  const roles = affordanceRolesFor(labels, hints);
+  for (const label of labels) label.affordance = roles.get(label.id) ?? "unknown";
   return { labels, answered: answers.size };
 }
 

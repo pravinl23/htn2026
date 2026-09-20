@@ -1,20 +1,9 @@
 {
-  "_readme": [
-    "One guarded autotab walk over https://job-boards.greenhouse.io/viamrobotics/jobs/6185046004 in Safari.",
-    "ghostctl autotab 30 --frontmost Safari --expect-field \"First Name\" --interval 450",
-    "--expect-field re-captures the frontmost window before every press: a tab that changed under the run would stop it with \"expect-field-missing\" and send nothing.",
-    "No field value is in this file: labels, outcomes, short reason codes and timings only.",
-    "Step 4 is the react-select fix: the driver now AXPresses the combo box open and reads all eight options of \"How did you hear about this opportunity at Viam?\". None of them matches the fictional profile's referral source (Hack the North), so it closes the menu with one Escape and reports no-matching-option. It used to report combobox-no-list, having seen no options at all.",
-    "Step 9: Country already held a value (react-select keeps a chosen value in a sibling node, not in the input), so it was refused untouched.",
-    "The walk starts where the page's focus was and wraps around; it ends parked on the locked \"Submit application\", which Ghost never presses.",
-    "Nothing was submitted."
-  ],
   "agent": "running",
   "app": "com.apple.Safari",
-  "browser": "Safari",
   "expectField": "First Name",
   "final": {
-    "accepted": 8,
+    "accepted": 14,
     "active": true,
     "busy": false,
     "current": {
@@ -22,145 +11,201 @@
       "label": "Submit application",
       "locked": true,
       "pending": false,
-      "visible": false
+      "visible": true
     },
     "ghosts": 1,
     "provider": "typesafe",
     "running": true,
-    "status": "Attached resume-alex-chen.pdf",
     "statusLine": "Parked on the locked action in Safari (Enter confirms)",
     "unlocked": 0
   },
   "lockedLabel": "Submit application",
   "mode": "autotab",
-  "posted": 11,
-  "requested": 30,
+  "posted": 16,
+  "requested": 40,
   "steps": [
     {
-      "action": "fill",
+      "action": "select",
       "consumed": true,
-      "ghost": "LinkedIn Profile",
-      "ms": 561,
-      "next": "Github",
-      "outcome": "accepted",
-      "step": 1,
-      "verified": 1,
-      "writeMs": 283
-    },
-    {
-      "action": "fill",
-      "consumed": true,
-      "ghost": "Github",
-      "ms": 661,
-      "next": "Website",
-      "outcome": "accepted",
-      "step": 2,
-      "verified": 1,
-      "writeMs": 89
-    },
-    {
-      "action": "fill",
-      "consumed": true,
-      "ghost": "Website",
-      "ms": 623,
+      "ghost": "How did you hear about this opportunity at Viam?",
+      "ms": 732,
       "next": "How did you hear about this opportunity at Viam?",
-      "outcome": "accepted",
-      "step": 3,
-      "verified": 1,
-      "writeMs": 84
+      "outcome": "jumped",
+      "step": 1,
+      "verified": 0,
+      "writeMs": 9
     },
     {
       "action": "select",
       "consumed": true,
       "ghost": "How did you hear about this opportunity at Viam?",
-      "ms": 487,
-      "next": "First Name",
-      "outcome": "refused",
-      "reason": "combobox-no-matching-option",
+      "ms": 1791,
+      "next": "Are you legally authorized to work in the United States for any employer?",
+      "outcome": "accepted",
+      "step": 2,
+      "verified": 1,
+      "writeMs": 1757
+    },
+    {
+      "action": "select",
+      "consumed": true,
+      "ghost": "Are you legally authorized to work in the United States for any employer?",
+      "ms": 1296,
+      "next": "Gender",
+      "outcome": "accepted",
+      "step": 3,
+      "verified": 1,
+      "writeMs": 1260
+    },
+    {
+      "action": "select",
+      "consumed": true,
+      "ghost": "Gender",
+      "ms": 1391,
+      "next": "Are you Hispanic/Latino?",
+      "outcome": "accepted",
       "step": 4,
-      "verified": 0,
-      "writeMs": 474
+      "verified": 1,
+      "writeMs": 1363
     },
     {
-      "action": "fill",
+      "action": "select",
       "consumed": true,
-      "ghost": "First Name",
-      "ms": 472,
-      "next": "First Name",
-      "outcome": "jumped",
+      "ghost": "Are you Hispanic/Latino?",
+      "ms": 1351,
+      "next": "Veteran Status",
+      "outcome": "accepted",
       "step": 5,
-      "verified": 0,
-      "writeMs": 2
+      "verified": 1,
+      "writeMs": 1331
     },
     {
-      "action": "fill",
+      "action": "select",
       "consumed": true,
-      "ghost": "First Name",
-      "ms": 593,
-      "next": "Last Name",
+      "ghost": "Veteran Status",
+      "ms": 1347,
+      "next": "Disability Status",
       "outcome": "accepted",
       "step": 6,
       "verified": 1,
-      "writeMs": 110
+      "writeMs": 1322
+    },
+    {
+      "action": "select",
+      "consumed": true,
+      "ghost": "Disability Status",
+      "ms": 1401,
+      "next": "First Name",
+      "outcome": "accepted",
+      "step": 7,
+      "verified": 1,
+      "writeMs": 1358
+    },
+    {
+      "action": "fill",
+      "consumed": true,
+      "ghost": "First Name",
+      "ms": 730,
+      "next": "Last Name",
+      "outcome": "accepted",
+      "step": 8,
+      "verified": 1,
+      "writeMs": 65
     },
     {
       "action": "fill",
       "consumed": true,
       "ghost": "Last Name",
-      "ms": 538,
+      "ms": 732,
       "next": "Email",
       "outcome": "accepted",
-      "step": 7,
+      "step": 9,
       "verified": 1,
-      "writeMs": 87
+      "writeMs": 69
     },
     {
       "action": "fill",
       "consumed": true,
       "ghost": "Email",
-      "ms": 603,
+      "ms": 731,
       "next": "Country",
       "outcome": "accepted",
-      "step": 8,
+      "step": 10,
       "verified": 1,
-      "writeMs": 83
+      "writeMs": 70
     },
     {
       "action": "select",
       "consumed": true,
       "ghost": "Country",
-      "ms": 472,
+      "ms": 734,
       "next": "Phone",
       "outcome": "refused",
       "reason": "combobox-has-value",
-      "step": 9,
+      "step": 11,
       "verified": 0,
-      "writeMs": 13
+      "writeMs": 4
     },
     {
       "action": "fill",
       "consumed": true,
       "ghost": "Phone",
-      "ms": 907,
+      "ms": 732,
       "next": "Resume/CV",
       "outcome": "accepted",
-      "step": 10,
+      "step": 12,
       "verified": 1,
-      "writeMs": 161
+      "writeMs": 85
     },
     {
       "action": "upload",
       "consumed": true,
       "ghost": "Resume/CV",
-      "ms": 5037,
+      "ms": 2622,
+      "next": "LinkedIn Profile",
+      "outcome": "accepted",
+      "step": 13,
+      "verified": 1,
+      "writeMs": 2608
+    },
+    {
+      "action": "fill",
+      "consumed": true,
+      "ghost": "LinkedIn Profile",
+      "ms": 733,
+      "next": "Github",
+      "outcome": "accepted",
+      "step": 14,
+      "verified": 1,
+      "writeMs": 67
+    },
+    {
+      "action": "fill",
+      "consumed": true,
+      "ghost": "Github",
+      "ms": 732,
+      "next": "Website",
+      "outcome": "accepted",
+      "step": 15,
+      "verified": 1,
+      "writeMs": 68
+    },
+    {
+      "action": "fill",
+      "consumed": true,
+      "ghost": "Website",
+      "ms": 735,
       "next": "Submit application",
       "outcome": "accepted",
-      "step": 11,
+      "step": 16,
       "verified": 1,
-      "writeMs": 5026
+      "writeMs": 70
     }
   ],
   "stopped": "locked",
-  "totalMs": 15567,
-  "trusted": true
+  "totalMs": 21126,
+  "trusted": true,
+  "browser": "Safari",
+  "url": "https://job-boards.greenhouse.io/viamrobotics/jobs/6185046004",
+  "note": "One ghostctl autotab run: real, untagged Tab presses through Ghost's own event tap. No value appears anywhere in this record - only labels, actions, outcomes and timings. 'refused' means Ghost left the field exactly as it found it."
 }

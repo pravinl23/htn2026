@@ -74,6 +74,14 @@ NSString *const GHUploadKindOther = @"other";
     copy.context = self.context;
     copy.uploadKind = self.uploadKind;
     copy.lazyOptions = self.lazyOptions;
+    copy.unnamed = self.unnamed;
+    copy.axDescription = self.axDescription;
+    copy.classTokens = self.classTokens;
+    copy.insideMediaControls = self.insideMediaControls;
+    copy.listSignature = self.listSignature;
+    copy.listIndex = self.listIndex;
+    copy.nearbyPrice = self.nearbyPrice;
+    copy.badgeCount = self.badgeCount;
     copy.axElement = self.axElement;
     return copy;
 }
@@ -125,6 +133,36 @@ static NSNumber *GHFiniteNumber(CGFloat value) {
 
 - (NSDictionary<NSString *, id> *)toWireJSONObject {
     return [self JSONObjectIncludingValue:NO];
+}
+
+/// `AffordanceCandidate` (shared/src/affordance/roles.ts) for the in-process core: what this control OFFERS.
+/// Deliberately NOT the CapturedField shape -- no value, no options, no rect -- and deliberately not sent
+/// anywhere: it stays inside the process, like every other hint in docs/anywhere.md.
+- (NSDictionary<NSString *, id> *)toCandidateJSONObject {
+    NSString *kind = self.kind ?: GHKindText;
+    NSMutableDictionary<NSString *, id> *json = [NSMutableDictionary dictionary];
+    json[@"id"] = self.signature ?: @"";
+    json[@"kind"] = ([kind isEqualToString:GHKindButton] || [kind isEqualToString:GHKindLink]) ? kind : @"field";
+    json[@"label"] = self.label ?: @"";
+    json[@"locked"] = @(self.locked);
+    if (self.context.length) json[@"context"] = self.context;
+    if (self.axDescription.length) json[@"description"] = self.axDescription;
+    if (self.inputType.length) json[@"inputType"] = self.inputType;
+    if (self.placeholder.length) json[@"placeholder"] = self.placeholder;
+    if (self.name.length) json[@"name"] = self.name;
+    if (self.identifier.length) json[@"identifier"] = self.identifier;
+    if (self.classTokens.count) json[@"classTokens"] = self.classTokens;
+    if (self.insideMediaControls) json[@"insideMediaControls"] = @YES;
+    if (self.nearbyPrice) json[@"nearbyPrice"] = @YES;
+    if (self.badgeCount > 0) json[@"badgeCount"] = @(self.badgeCount);
+    if (self.listSignature.length) json[@"list"] = @{ @"listSignature": self.listSignature, @"index": @(self.listIndex) };
+    return json;
+}
+
++ (NSArray<NSDictionary<NSString *, id> *> *)candidateJSONObjectsForFields:(NSArray<GHField *> *)fields {
+    NSMutableArray *out = [NSMutableArray arrayWithCapacity:fields.count];
+    for (GHField *field in fields) [out addObject:[field toCandidateJSONObject]];
+    return out;
 }
 
 static NSString *GHStringOrNil(id value) {

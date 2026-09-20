@@ -12,8 +12,10 @@
 //      options)
 //   5. pick with the injected matcher (native port of shared matchOption); below 0.7 there is no pick
 //   6. AXPress the option; if that did nothing, arrow keys to it and Return, only while the list is open and that
-//      very option is highlighted (the guard re-reads both right before the Return)
-//   7. verify: the list closed and the combobox shows the chosen text
+//      very option is highlighted (the guard re-reads both right before the Return). A press that CLOSED the list
+//      without choosing anything (react-select answers a real mouse press on its row, not a synthesized one) opens
+//      the menu once more and takes that same keyboard path -- once, and only while the control still shows nothing.
+//   7. verify: the list closed and the combobox shows the chosen text (looked for up to `verifyAttempts` times)
 //   otherwise: one Escape (only while the combobox has focus), backspace away what was typed (only while it still
 //   has focus and still holds text), and report SKIPPED so the walk leaves the field alone.
 //
@@ -43,6 +45,19 @@ typedef GHOptionMatch (^GHOptionMatcher)(NSArray<NSString *> *options, NSString 
 /// words contained 0.88, keyword overlap 0.6 + 0.25 * overlap; placeholders are never options; nothing under 0.7;
 /// a tie under 1 is no answer. Keep in step with the TypeScript (tests/test_combobox.m pins the cases).
 GHOptionMatch GHMatchOption(NSArray<NSString *> *options, NSString *answer);
+
+/// Native port of `isDeclineOption` (shared/src/answers/classify.ts): the option that means "I am not
+/// answering this", in any ATS's wording ("Decline To Self Identify", "I don't wish to answer", "I do not want
+/// to answer", "Prefer not to say"). The first one wins, with score 1; -1 when the list offers no way to
+/// decline. `answer` is ignored: declining is the same answer however it is spelled.
+/// Keep in step with the TypeScript (tests/test_combobox.m pins the wordings).
+GHOptionMatch GHMatchDeclineOption(NSArray<NSString *> *options, NSString *answer);
+
+/// Native port of `neutralOption` (shared/src/answers/propose.ts): the option that commits the applicant to the
+/// least -- "Other" first, then "None of the above", "N/A", a decline, "No preference" -- ignoring options that
+/// state something legal ("I certify..."). Score 1 when there is one; -1 when every option is a claim about the
+/// applicant. `answer` is ignored. Keep in step with the TypeScript (tests/test_combobox.m pins the ranking).
+GHOptionMatch GHMatchNeutralOption(NSArray<NSString *> *options, NSString *answer);
 
 typedef NS_ENUM(NSInteger, GHComboBoxOutcome) {
     GHComboBoxOutcomeChosen = 1,
@@ -88,6 +103,9 @@ extern NSString *const GHComboBoxMethodKeys;
 @property (nonatomic, readonly) BOOL pressedEscape;
 /// What was typed is gone again (the list's own Escape handling or our backspaces).
 @property (nonatomic, readonly) BOOL clearedTyping;
+/// The answer was not among the options and the list's own neutral choice ("Other") was taken instead: a guess,
+/// and the walk shows it as one.
+@property (nonatomic, readonly) BOOL tookNeutral;
 @property (nonatomic, readonly) NSTimeInterval elapsed;
 @property (nonatomic, readonly) BOOL chosen;
 /// The walk should skip this field and go on.
@@ -107,6 +125,10 @@ extern NSString *const GHComboBoxMethodKeys;
 
 /// Default GHMatchOption.
 @property (nonatomic, copy, null_resettable) GHOptionMatcher matcher;
+/// Used instead of `matcher` when a run asks to decline. Default GHMatchDeclineOption.
+@property (nonatomic, copy, null_resettable) GHOptionMatcher declineMatcher;
+/// Used when a run asks for a neutral fallback and `matcher` found nothing. Default GHMatchNeutralOption.
+@property (nonatomic, copy, null_resettable) GHOptionMatcher neutralMatcher;
 @property (nonatomic) double threshold;                  // GHComboBoxMatchThreshold
 /// Same contract as GHWriter.isNodeSensitive: with no block set every combobox counts as sensitive (fail closed).
 @property (nonatomic, copy, nullable) BOOL (^isNodeSensitive)(id<GHAXNode> node);
@@ -119,11 +141,31 @@ extern NSString *const GHComboBoxMethodKeys;
 @property (nonatomic) NSTimeInterval listTimeout;        // 1.5
 @property (nonatomic) NSTimeInterval openTimeout;        // 0.7: how long a press gets to open a menu before typing
 @property (nonatomic) NSTimeInterval verifyDelay;        // 0.15
+/// How many times a verification looks before it gives up, `verifyDelay` apart. A page updates its accessibility
+/// tree after it updates itself, so one look is a race (the same lesson the upload check learned). Default 6.
+@property (nonatomic) NSUInteger verifyAttempts;         // 6
 @property (nonatomic) NSTimeInterval keyStepDelay;       // 0.06
 @property (nonatomic, readonly) BOOL running;
 
 /// `completion` runs exactly once (inline for refusals, else on the queue `after` uses).
 - (void)chooseAnswer:(NSString *)answer inComboBox:(id<GHAXNode>)comboBox completion:(void (^)(GHComboBoxResult *result))completion;
+/// With `decline` YES the run picks whichever option MEANS "prefer not to answer" (`declineMatcher`) instead of
+/// matching `answer` literally, and a demographic combo box is no longer refused: declining is the one answer
+/// Ghost may give to an EEO question, because it claims nothing about anybody (docs/answers.md section 1).
+/// Everything else -- sensitivity, disabled, already answered, verification -- is unchanged.
+- (void)chooseAnswer:(NSString *)answer
+          inComboBox:(id<GHAXNode>)comboBox
+             decline:(BOOL)decline
+          completion:(void (^)(GHComboBoxResult *result))completion;
+/// With `neutralFallback` YES an answer the list does not offer falls back to whatever the list itself calls the
+/// neutral choice ("Other", "None of the above", "N/A"), which is what docs/answers.md section 3 asks of an
+/// ORDINARY question whose profile fact is not among the options -- "Hack the North" on a list of eight sources.
+/// It is never combined with `decline`, and never used for a declaration (a Yes/No question has no neutral side).
+- (void)chooseAnswer:(NSString *)answer
+          inComboBox:(id<GHAXNode>)comboBox
+             decline:(BOOL)decline
+     neutralFallback:(BOOL)neutralFallback
+          completion:(void (^)(GHComboBoxResult *result))completion;
 /// The event tap calls this for every UNTAGGED keyDown while a run is going. Any thread.
 - (void)noteUserKeyEvent;
 - (void)cancel;

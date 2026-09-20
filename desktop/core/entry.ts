@@ -7,17 +7,25 @@
 import {
   DEFAULT_SETTINGS,
   DEMO_PROFILE,
+  LearnedAnswerStore,
+  answerCounterName,
+  classifyQuestion,
   isLockedAction,
   isSensitive,
+  recordCorrection as recordAnswerCorrection,
 } from "@ghost/shared";
 import type {
+  AnswerSettings,
   CapturedField,
+  CorrectionOptions,
   FieldKind,
   FieldOption,
   GhostSettings,
   GhostSource,
+  LearnedAnswersSnapshot,
   LockProbe,
   Profile,
+  QuestionField,
   SensitiveProbe,
 } from "@ghost/shared";
 // ./predict.ts is a port of the pure rules of extension/src/content/predict.ts: threshold gating, skip
@@ -25,15 +33,18 @@ import type {
 // On top of them it adds the Desktop rules for real forms: upload ghosts from resumePath / coverLetterPath,
 // lazy (react-select) choices, no ghost for EEO / demographic questions or another country's work authorization.
 import {
-  ghostsFromAssignments,
+  gateForFields,
+  planFields,
+  proposeForField,
   isFileFact,
   isPlaceholderChoice,
   isProtectedFactKey,
   isProtectedQuestion,
   mapFormForDesktop,
   upgradeGhosts as upgrade,
+  walkGhosts,
 } from "./predict";
-import type { DesktopField, PredictDeps, ServedAssignment } from "./predict";
+import type { DesktopField, DesktopGhost, PredictDeps, ServedAssignment } from "./predict";
 
 export const version = "1";
 
@@ -91,11 +102,56 @@ export function mapForm(fieldsJson: string, factKeysJson: string): string {
   return JSON.stringify(mapFormForDesktop(asFields(fieldsJson), factKeys));
 }
 
+/**
+ * Answers the user gave before, read back from ~/Library/Application Support/Ghost/answers.json.
+ * A file that is missing, empty, corrupt or not the right shape is simply an empty store: a broken file
+ * must never stop Ghost from proposing anything. Nothing in here ever leaves the machine.
+ */
+function asAnswers(json: string | undefined | null): LearnedAnswerStore {
+  if (typeof json !== "string" || json.trim() === "") return new LearnedAnswerStore();
+  try {
+    const raw = JSON.parse(json) as unknown;
+    if (!isObject(raw)) return new LearnedAnswerStore();
+    return LearnedAnswerStore.fromJSON(raw as unknown as LearnedAnswersSnapshot);
+  } catch {
+    return new LearnedAnswerStore();
+  }
+}
+
+/**
+ * The answer policy knobs, from settings.json. Protected questions are answered with the form's OWN
+ * "prefer not to answer" option unless `answerProtectedWithDecline: false` turns that off, which is the
+ * shared default (docs/answers.md section 1).
+ */
+function asAnswerSettings(settingsJson: string): AnswerSettings {
+  const raw = parse<unknown>(settingsJson, "settings");
+  const given = isObject(raw) ? raw.answerProtectedWithDecline : undefined;
+  return { answerProtectedWithDecline: typeof given === "boolean" ? given : DEFAULT_SETTINGS.answerProtectedWithDecline };
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
 function asDeps(profileJson: string, settingsJson: string, optionsJson?: string): PredictDeps {
   const options = optionsJson ? parse<unknown>(optionsJson, "options") : {};
   const keepLock = isObject(options) && options.keepLock === true;
   const lockSignature = isObject(options) && typeof options.lockSignature === "string" ? options.lockSignature : undefined;
-  return { profile: asProfile(profileJson), settings: asSettings(settingsJson), keepLock, lockSignature };
+  const deps: PredictDeps = {
+    profile: asProfile(profileJson),
+    settings: asSettings(settingsJson),
+    keepLock,
+    lockSignature,
+    answerSettings: asAnswerSettings(settingsJson),
+  };
+  if (isObject(options)) {
+    if (typeof options.answers === "string") deps.answers = asAnswers(options.answers);
+    else if (isObject(options.answers)) deps.answers = LearnedAnswerStore.fromJSON(options.answers as unknown as LearnedAnswersSnapshot);
+    const accepted = stringList(options.accepted);
+    if (accepted.length > 0) deps.accepted = accepted;
+    if (typeof options.company === "string" && options.company.trim() !== "") deps.company = options.company.trim();
+  }
+  return deps;
 }
 
 function asSource(source: string): GhostSource {
@@ -103,8 +159,10 @@ function asSource(source: string): GhostSource {
 }
 
 /**
- * Ghost[] in field order with the lock ghost last. `optionsJson` is optional: `{ keepLock?, lockSignature? }`,
- * the same knobs the extension controller passes once a walk has accepted something.
+ * Ghost[] in field order with the lock ghost last -- and no lock ghost at all while a required field before it
+ * is still empty (docs/incremental.md). `optionsJson` is optional:
+ * `{ keepLock?, lockSignature?, answers?, accepted?, company? }`. `answers` is the answers.json snapshot (a
+ * string or the object itself), `accepted` the signatures the user has already taken in this walk.
  */
 export function ghostsFor(
   fieldsJson: string,
@@ -115,7 +173,25 @@ export function ghostsFor(
   optionsJson?: string,
 ): string {
   const assignments = cleanAssignmentList(parse<unknown>(assignmentsJson, "assignments"));
-  return JSON.stringify(ghostsFromAssignments(asFields(fieldsJson), assignments, asDeps(profileJson, settingsJson, optionsJson), asSource(source)));
+  return JSON.stringify(walkGhosts(asFields(fieldsJson), assignments, asDeps(profileJson, settingsJson, optionsJson), asSource(source)));
+}
+
+/**
+ * Why a control got NO ghost, in field order: `[{ signature, reason }]`, where reason is one of "sensitive",
+ * "already-answered", "no-candidate" or "paused" (docs/always-propose.md). Low confidence is never one of
+ * them. For the native HUD and for anyone auditing that nothing was dropped quietly.
+ */
+export function walkSkips(
+  fieldsJson: string,
+  assignmentsJson: string,
+  profileJson: string,
+  settingsJson: string,
+  source: string,
+  optionsJson?: string,
+): string {
+  const assignments = cleanAssignmentList(parse<unknown>(assignmentsJson, "assignments"));
+  const plan = planFields(asFields(fieldsJson), assignments, asDeps(profileJson, settingsJson, optionsJson), asSource(source));
+  return JSON.stringify(plan.skips);
 }
 
 /**
@@ -312,5 +388,115 @@ export function isPlaceholder(value: string, label: string): boolean {
   return isPlaceholderChoice(String(value ?? ""), String(label ?? ""));
 }
 
+// ---------- the answer engine (docs/answers.md) and the gate (docs/incremental.md) ----------
+
+const MAX_CORRECTION_CHARS = 4000;
+
+/** One captured field as a question. Anything malformed is a question with no label, which is never learned. */
+function asQuestion(json: string): QuestionField {
+  const raw = parse<unknown>(json, "field");
+  const object = isObject(raw) ? raw : {};
+  const field: QuestionField = {
+    label: typeof object.label === "string" ? object.label : "",
+    kind: (typeof object.kind === "string" ? object.kind : "text") as FieldKind,
+  };
+  for (const key of ["context", "name", "id", "placeholder", "autocomplete", "inputType"] as const) {
+    const value = object[key];
+    if (typeof value === "string" && value !== "") field[key] = value;
+  }
+  const options = wireOptions(object.options);
+  if (options && options.length > 0) field.options = options;
+  return field;
+}
+
+/**
+ * What Ghost proposes for every field, in field order: `{ signature, value, optionLabel?, confidence, source,
+ * class, reason, needsReview, signature: questionKey }`. Exposed for the options page, the harness and tests;
+ * the walk itself gets the same answers through `ghostsFor` / `upgradeGhosts`.
+ * `answersJson` is the answers.json snapshot; a missing or corrupt one is simply no learned answers.
+ */
+export function proposeAnswers(fieldsJson: string, profileJson: string, answersJson: string, settingsJson: string): string {
+  const deps: PredictDeps = {
+    profile: asProfile(profileJson),
+    settings: asSettings(settingsJson),
+    answers: asAnswers(answersJson),
+    answerSettings: asAnswerSettings(settingsJson),
+  };
+  const out = asFields(fieldsJson).map((field) => {
+    const proposal = proposeForField(field, deps);
+    return { ...proposal, signature: field.signature, questionKey: proposal.signature };
+  });
+  return JSON.stringify(out);
+}
+
+/**
+ * The user answered a question themselves (or changed what Ghost filled): keep it, keyed by the question
+ * rather than by the site. Returns `{ answers, counter, changed, refusal? }`, where `answers` is the new
+ * snapshot to write back to answers.json and `counter` is the value-free telemetry counter name.
+ * Nothing here ever leaves the machine, and a value that looks like a secret is refused.
+ */
+export function recordCorrection(fieldJson: string, value: string, answersJson: string, nowIso?: string): string {
+  const store = asAnswers(answersJson);
+  const field = asQuestion(fieldJson);
+  const text = typeof value === "string" ? value.slice(0, MAX_CORRECTION_CHARS) : "";
+  const parsedNow = typeof nowIso === "string" && nowIso !== "" ? Date.parse(nowIso) : NaN;
+  const options: CorrectionOptions = Number.isFinite(parsedNow) ? { now: parsedNow } : {};
+  const result = recordAnswerCorrection(field, text, store, options);
+  const out: Record<string, unknown> = {
+    answers: store.toJSON(),
+    counter: answerCounterName(result.event),
+    changed: result.changed,
+    class: classifyQuestion(field).class,
+  };
+  if (result.refusal) out.refusal = result.refusal;
+  if (result.learned) out.questionKey = result.learned.signature;
+  return JSON.stringify(out);
+}
+
+/**
+ * The walk gate for a captured page: `{ unmetRequired, terminalAllowed, reason?, firstUnmetLabel?,
+ * blockedTerminals, allowedTerminals }`. The HUD shows `reason` and `firstUnmetLabel` when the Submit ghost
+ * is withheld. `optionsJson` may carry `accepted`: signatures the user has already taken in this walk.
+ */
+export function gateFor(fieldsJson: string, ghostsJson: string, optionsJson?: string): string {
+  const rawGhosts = parse<unknown>(ghostsJson, "ghosts");
+  const ghosts = (Array.isArray(rawGhosts) ? rawGhosts : []).filter(isObject) as unknown as DesktopGhost[];
+  const options = optionsJson ? parse<unknown>(optionsJson, "options") : {};
+  const accepted = isObject(options) ? stringList(options.accepted) : [];
+  return JSON.stringify(gateForFields(asFields(fieldsJson), ghosts, accepted));
+}
+
 // The names docs/desktop.md promises. `isSensitive` and `isLockedAction` take a JSON probe.
 export { isSensitiveProbe as isSensitive, isLockedActionProbe as isLockedAction };
+
+// ---------- Ghost anywhere (docs/anywhere.md) ----------
+// The next-action pass for a window that is not a form: affordances, the kind of place, priors and role memory.
+// Everything it needs comes from the capture the native side already makes; nothing here names an app or a site.
+export { nextAction, recordRoleOutcome, emptyRoleMemory, lockedForCandidate } from "./anywhere";
+
+// ---------- the knowledge layer (docs/knowledge.md) ----------
+// One model of one person, on any surface: the SAME `rankActions` the browser ranker calls and the same one the
+// benchmark in docs/knowledge.md section 6 scores. Strings in, strings out; the file itself belongs to the native
+// side, which reads it, passes the text in, and writes back what comes out.
+export { rankWindow, recordWindowOutcome, forgetKnowledgeSurface } from "./knowledge";
+
+// ---------- cold start (docs/cold-start.md) ----------
+// The one-time local pass that turns what is already on the machine into facts and habit priors. The rules are
+// pure (shared/src/coldstart); every file, database and permission belongs to the native side, which hands the
+// text in here. Nothing scanned ever leaves the machine.
+export {
+  coldStartPlan,
+  coldStartPlanSummary,
+  coldStartClassify,
+  coldStartVCard,
+  coldStartResumeText,
+  coldStartGitRemote,
+  coldStartPackageAuthor,
+  coldStartMerge,
+  coldStartHabits,
+  coldStartSurfaces,
+  coldStartGraphApply,
+  coldStartGraphDescribe,
+  coldStartGraphForget,
+  coldStartGraphEmpty,
+} from "./coldstart";

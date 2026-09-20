@@ -9,6 +9,7 @@ import type { ControllerDeps } from "../src/content/controller";
 import { DraftScheduler } from "../src/content/freeText";
 import type { OpenTextStream } from "../src/content/freeText";
 import { Overlay } from "../src/content/overlay";
+import { TAB_KEYS } from "./keys-port";
 import { createEmitter } from "../src/lib/events";
 import type { GhostEmitter, GhostEventMap } from "../src/lib/events";
 import type { GhostTextRequest, TextPortEvent } from "../src/lib/messages";
@@ -82,6 +83,8 @@ function start(worker: ReturnType<typeof fakeWorker>, extra: Partial<ControllerD
     getProfile: () => profile,
     getSettings: () => settings,
     isUserEvent: () => true, // jsdom cannot mint trusted events
+    // Tab, pinned: this file is about the walk, not about which key an origin takes (docs/accept-key.md).
+    keys: TAB_KEYS,
     drafts: new DraftScheduler({ open: worker.open }),
     ...extra,
   });
@@ -164,11 +167,16 @@ describe("speculative generation", () => {
     expect(worker.streamFor("#why").request).not.toHaveProperty("maxChars");
   });
 
-  it("drafts nothing when the user's threshold is above the fixed draft confidence", () => {
+  it("still drafts when the user's threshold is above the fixed draft confidence", () => {
+    // docs/always-propose.md: the threshold styles a proposal, it never cancels the work that makes one.
     settings = { ...DEFAULT_SETTINGS, confidenceThreshold: 0.85 };
     const worker = fakeWorker();
-    start(worker);
-    expect(worker.opened).toEqual([]);
+    const c = start(worker);
+    expect(worker.opened.length).toBeGreaterThan(0);
+    for (const ghost of c.state.ghosts.filter((g) => g.source === "llm")) {
+      expect(ghost.tier).toBe("long-shot");
+      expect(ghost.guess).toBe(true);
+    }
   });
 
   it("stays on the Stage 1 ghosts when the server cannot be reached", () => {
@@ -375,15 +383,28 @@ describe("Tab while the draft is still streaming", () => {
     expect($<HTMLTextAreaElement>("#why").value).toBe(WHY_DRAFT);
   });
 
-  it("a held Tab does accept a draft that was already finished", async () => {
+  it("a held Tab stops at a finished draft, and a fresh press takes it", async () => {
+    // A draft is written FOR the user, not known about them: 0.8 is under the confident tier, so the hold
+    // stops there and asks to be read before Submit (docs/always-propose.md, docs/answers.md section 3).
     const worker = fakeWorker();
     const c = start(worker);
     worker.streamFor("#why").emit(done(WHY_DRAFT));
     worker.streamFor("#project").emit({ type: "error", error: "stream ended early" });
     await tabUntilAccepted(c, 1);
-    for (let n = 2; n <= 3; n++) {
-      key("Tab", { repeat: true });
-      await vi.waitFor(() => expect(c.state.accepted).toBe(n));
+    const draft = c.state.ghosts.find((g) => g.source === "llm");
+    expect(draft).toMatchObject({ tier: "guess", guess: true });
+
+    for (let i = 0; i < 6; i++) key("Tab", { repeat: true });
+    // However long the hold runs, it never writes the draft: it parks on it so the user reads it first.
+    await vi.waitFor(() => expect(c.state.ghosts.some((g) => g.source === "llm")).toBe(true));
+    expect($<HTMLTextAreaElement>("#why").value).toBe("");
+
+    // The user looked, then pressed Tab themselves: the whole draft lands, and the walk parks on Submit.
+    document.activeElement?.dispatchEvent(new KeyboardEvent("keyup", { key: "Tab", bubbles: true }));
+    for (let i = 0; i < 4 && c.state.ghosts.some((g) => !g.locked); i++) {
+      const before = c.state.accepted;
+      key("Tab");
+      await vi.waitFor(() => expect(c.state.accepted).toBeGreaterThan(before));
     }
     expect($<HTMLTextAreaElement>("#why").value).toBe(WHY_DRAFT);
     expect(c.state.ghosts.map((g) => g.locked)).toEqual([true]);

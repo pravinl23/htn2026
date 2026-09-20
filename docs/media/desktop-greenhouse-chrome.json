@@ -1,0 +1,88 @@
+{
+  "browser": "Google Chrome",
+  "url": "https://job-boards.greenhouse.io/viamrobotics/jobs/6185046004",
+  "note": "Labels, kinds and RECT GEOMETRY only - never a value. Same Ghost build and same profile as the Safari run.",
+  "capture": {
+    "fieldCount": 39,
+    "visitedNodes": 473,
+    "formSignature": "15f92deb9ad160e4",
+    "partial": false,
+    "stableAcrossTwoDumps": true,
+    "expectFieldMatched": true
+  },
+  "prediction": {
+    "ghosts": 14,
+    "locked": 0,
+    "provider": "typesafe",
+    "gateReason": "4 required fields still empty: First Name",
+    "currentGhost": {
+      "action": "fill",
+      "label": "First Name",
+      "locked": false,
+      "pending": false,
+      "visible": false
+    }
+  },
+  "walk": {
+    "requested": 40,
+    "posted": 4,
+    "stopped": "stalled",
+    "accepted": 0,
+    "steps": [
+      {
+        "action": "fill",
+        "consumed": true,
+        "ghost": "First Name",
+        "ms": 945,
+        "next": "First Name",
+        "outcome": "jumped",
+        "step": 1,
+        "verified": 0,
+        "writeMs": 3
+      },
+      {
+        "action": "fill",
+        "consumed": false,
+        "ghost": "First Name",
+        "ms": 1000,
+        "next": "First Name",
+        "outcome": "not-consumed",
+        "step": 2,
+        "verified": 0
+      },
+      {
+        "action": "fill",
+        "consumed": false,
+        "ghost": "First Name",
+        "ms": 944,
+        "next": "First Name",
+        "outcome": "not-consumed",
+        "step": 3,
+        "verified": 0
+      },
+      {
+        "action": "fill",
+        "consumed": false,
+        "ghost": "First Name",
+        "ms": 943,
+        "next": "First Name",
+        "outcome": "not-consumed",
+        "step": 4,
+        "verified": 0
+      }
+    ]
+  },
+  "whatDiffersFromSafari": [
+    "GEOMETRY, and it is what stops the walk. 36 of 39 captured fields report height 0 and are all clamped to y=843, the bottom of the viewport: Chrome gives an off-screen node a CLIPPED frame rather than its real one. Only the three elements above the fold (the logo, 'Back to jobs', 'Apply') have real rects. Ghost therefore reads every form field as not visible, the one jump it is allowed (AXScrollToVisible) does not move Chrome's page, and it correctly hands Tab back to the app rather than writing blind.",
+    "NO FILE FIELD. Chrome exposes the upload widget as buttons ('Attach', 'Attach: No file chosen', 'Dropbox', 'Google Drive', 'Enter manually') and no element of kind 'file', so no Resume/CV upload ghost exists: 14 ghosts against Safari's 15.",
+    "READING ORDER is not the page's. 'Race & Ethnicity Definitions' arrives fourth and the six 'Toggle flyout' buttons arrive last, whereas Safari's order matches the page. The gate still names the right first unmet field because it reads requiredness, not position.",
+    "A BIGGER TREE for the same page: 472 nodes against Safari's 368, and 39 fields against 31.",
+    "THE TREE NEEDS TIME. Chrome builds its web accessibility tree on demand: the first attempt, run 14 s after the page opened, saw the field count swing 10 -> 75 -> 3 -> 0 -> 45 -> 55 and the form signature change under the walk ('new page, the walk starts over'), and every combobox sequence was aborted by an untagged key because focus was no longer in a walk that had just been rebuilt. After 20 s it was stable and identical across two dumps."
+  ],
+  "whatIsTHESAMEasSafari": [
+    "Capture is complete and stable once the tree settles (partial: false, same signature twice).",
+    "The answer engine produced 14 ghosts - every question on the form except the upload Chrome does not expose.",
+    "The gate withheld Submit: 0 locked ghosts, and the HUD reason was '4 required fields still empty: First Name'.",
+    "Nothing was written, nothing was submitted, and no key was posted into the page."
+  ]
+}

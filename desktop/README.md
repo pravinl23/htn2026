@@ -10,32 +10,74 @@ does not match the SDK).
 
 ## Current status
 
-`make -C desktop core lib test`: 319 native tests, 0 failures, zero compiler warnings (2026-09-19, after the first live
-Safari run and the three fixes it forced).
+`make -C desktop core lib test`: **373 native tests, 0 failures**, zero compiler warnings (2026-09-19, after the
+second live Safari run and the two combobox fixes it forced).
 
-**Verified LIVE in Safari** (2026-09-19, 18:00-18:20 EDT, granted host `~/Applications/Ghost.app`, real Jev/TypeSafe server,
-the real Greenhouse posting `job-boards.greenhouse.io/viamrobotics/jobs/6185046004`, the fictional Alex Chen profile):
+**A COMPLETE application, verified LIVE in Safari** (2026-09-19, 20:26 EDT, granted host `~/Applications/Ghost.app`,
+real TypeSafe/Jev server on :8787, the real Greenhouse posting `job-boards.greenhouse.io/viamrobotics/jobs/6185046004`,
+the fictional Alex Chen profile). `ghostctl autotab 40 --interval 700 --frontmost Safari --expect-field "First Name"`
+posted **16 real Tab presses in 21.1 s**, **accepted 14** and stopped itself with `"stopped": "locked"`, parked on
+**Submit application**. **Every question on the form is answered:**
 
-- **The whole Tab walk, with nothing but Tab**: `ghostctl autotab 30 --interval 700 --frontmost Safari` posted **11 real Tab
-  presses in 13.8 s** and stopped itself with `"stopped": "locked"`, parked on **Submit application** (`Parked on the locked
-  action in Safari (Enter confirms)`). **8 accepted**: First Name, Last Name, Email, Phone, LinkedIn Profile, Github, Website
-  (AXValue + read-back, 67 to 157 ms each) and **Resume/CV through the real macOS open panel** (Attach, Command+Shift+G, the
-  path only in the go-to field, 3.65 s). Nothing was submitted; **Submit was never pressed**, and the harness refuses to Tab
-  past a locked ghost.
-- **Untouched, as designed**: the US work-authorization question and all four EEO questions (Gender, Hispanic/Latino, Veteran
-  Status, Disability Status) were never focused, typed into or opened. The phone widget's Country combobox already had a
-  value, so it was refused with `combobox-has-value`.
-- **Independently checked afterwards** with `ghostctl dump-tree` (values reduced to their length): First Name 4, Last Name 4,
-  Email 25, Phone 15, LinkedIn 36, Github 31, Website 20 characters; the resume widget shows `resume-alex-chen.pdf` and a
-  **Remove file** button; every EEO and work-authorization combobox still empty. Saved as
-  `docs/media/desktop-greenhouse-autotab.json` and `docs/media/desktop-greenhouse-final-form.json`.
-- **Capture**: 31 fields out of 377 nodes in 142 to 248 ms, **complete** (`"partial": false`), form signature stable across
-  rescans. `/v1/predict/form` through TypeSafe/Jev: 575 ms the first time (10 assignments), then cache hits (2 ms), so each
-  Tab after the first is a 2 ms rescan plus the write.
-- Earlier: `ghostctl trust` and `ghostctl dump-tree` (433 nodes, about 0.5 s); that dump is the fixture
-  `tests/fixtures/greenhouse-safari-viam.json`.
+- **7 text fields** (First Name, Last Name, Email, Phone, LinkedIn Profile, Github, Website): AXValue + read-back,
+  65 to 85 ms each.
+- **Resume/CV** through the real macOS open panel in 2.6 s; the widget then shows a **Remove file** button.
+- **"How did you hear about this opportunity at Viam?"**: the list is LinkedIn / Indeed / A friend / TikTok /
+  Instagram / Twitter / Meetup-Event / Other, and it does not offer the profile's "Hack the North" at all. An
+  ordinary question is still answered, with the list's own neutral option (`docs/answers.md` section 3): **Other**,
+  chosen and verified, nothing typed.
+- **"Are you legally authorized to work in the United States for any employer?"**: **No**, the conservative
+  inference from a profile that states Canada and says nothing about the US, shown as a guess.
+- **All four EEO questions** (Gender, Hispanic/Latino, Veteran Status, Disability Status): each set to **that
+  question's own way of declining**, chosen from what the page offered and never a wording of ours.
+- **Country** was already chosen by the page when it loaded (Greenhouse geolocates it). Ghost refused it with
+  `combobox-has-value` and left it exactly as it was: Ghost never overwrites a value.
+- **Nothing was submitted.** Submit was never pressed, and the harness refuses to Tab past a locked ghost.
 
-**What the live run fixed** (each with tests over fakes/fixtures):
+**Independently checked afterwards** with `ghostctl dump-tree` (values reduced to their length): First Name 4,
+Last Name 4, Email 25, Phone 15, LinkedIn 36, Github 31, Website 20 characters; the Resume/CV widget shows
+**Remove file**; and **7 `select__single-value` nodes with 0 `select__placeholder` nodes left** - every one of the
+seven comboboxes holds a chosen option. Saved as `docs/media/desktop-greenhouse-autotab.json` and
+`docs/media/desktop-greenhouse-final-form.json` (labels and value LENGTHS only).
+
+**Capture**: 31 fields out of 368 nodes in about 170 ms, complete (`"partial": false`), signature stable across
+rescans. `/v1/predict/form` through TypeSafe/Jev: 457 ms the first time (10 assignments), then cache hits (3 ms).
+
+**The gate is live too** (`docs/incremental.md`): before the walk there are **15 ghosts and 0 locked** - no Submit
+ghost at all - and the HUD says `1 required field still empty: Are you legally authorized to work in the United
+States for any employer?`. The Submit ghost appears, locked, only once every required field is answered.
+
+**What the second live run fixed** (each with tests over fakes and the saved fixture):
+
+1. **A synthesized AXPress on a react-select option row chooses nothing.** It closes the menu, and the first run
+   reported `combobox-not-verified` for all five remaining questions. The row answers a real mouse press. The
+   driver now opens the menu once more and takes the arrow-keys-and-Return path it already had (the one a person
+   without a mouse uses) - once per run, and only while the control still shows nothing at all, so a press that
+   chose the WRONG option is never answered with a second choice. Live: all five went from `not-verified` to
+   `chosen`, `method=keys`, `score=1.00`.
+2. **One look was a race.** A verification now looks up to `verifyAttempts` (6) times, `verifyDelay` apart - the
+   same lesson the upload check learned - and a press that left the list open still falls to the keyboard at once.
+3. **An ordinary question whose answer is not on the list was left empty.** `GHMatchNeutralOption` (native port of
+   `neutralOption` in `shared/src/answers/propose.ts`) now answers it with whatever the list itself calls the
+   neutral choice, ranked "Other" > "None of the above" > "N/A" > a decline > "No preference", never an option that
+   states something legal ("I certify..."). It is asked for only by an **ordinary** lazy select (`lazyMatch:
+   "neutral"`); a declaration's Yes/No has no neutral side, and a protected question still declines.
+
+**In Google Chrome the same build captures and predicts, and the walk cannot move** (`docs/media/desktop-greenhouse-chrome.json`).
+Capture is complete and stable once Chrome has built its tree (39 fields, 472 nodes, same signature twice, about
+20 s after the page opens), the answer engine produces **14 ghosts**, and the gate correctly withholds Submit with
+`4 required fields still empty: First Name`. But **36 of those 39 fields report height 0 and are all clamped to
+y=843**, the bottom of the viewport: Chrome gives an off-screen node a CLIPPED frame instead of its real one. Ghost
+reads every form field as not visible, `AXScrollToVisible` does not move Chrome's page, and Ghost hands Tab back to
+the app rather than write blind. Chrome also exposes no element of kind `file` (the upload widget is a row of
+buttons: Attach / Dropbox / Google Drive / Enter manually), so there is no upload ghost, and its reading order is
+not the page's. Nothing was written and nothing was submitted in Chrome. Treating a zero-height frame as
+"off screen" rather than "not there", and finding a scroll Chrome honours, is the next piece of work.
+
+**Not verified live**: no screenshot of any of this exists. `screencapture -x -R` answers `could not create image
+from rect`, which needs Screen Recording permission for the terminal; no setting was changed to get one.
+
+**What the FIRST live run fixed** (each with tests over fakes/fixtures):
 
 1. **The 120 ms capture budget was too small for a real posting.** The controller saw 261 to 278 of 377 nodes, 25 to 27
    fields, lost the bottom of the form (the locked Submit with it) and changed the form signature between rescans. A walk that
@@ -47,10 +89,9 @@ the real Greenhouse posting `job-boards.greenhouse.io/viamrobotics/jobs/61850460
    the panel closed called a good upload `upload-not-verified`. The check is now repeated (8 x 0.35 s) and also looks at the
    widget node captured before the upload and at a Remove control where the field was.
 
-**Known live gap**: on the "How did you hear about this opportunity at Viam?" react-select, no option list ever appears in the
-AX tree after Ghost types the answer, so the field is **skipped cleanly** (`combobox-no-list`: nothing chosen, nothing left
-behind, no stray keys, the walk goes on). Whether the typing reaches the react-select input at all is the next thing to look
-at. A list that opens and says "No options" is now recognised as an open list and closed with one Escape
+**The live gap the first run left is closed.** The "How did you hear" react-select used to show no option list at
+all (`combobox-no-list`); it now opens on a press, shows all eight options and is answered with the list's own
+neutral option. A list that opens and says "No options" is recognised as an open list and closed with one Escape
 (`combobox-no-matching-option`) instead of waiting out the 1.5 s timeout.
 
 **Verified only with fakes and the saved fixture** (still not seen live):
@@ -62,13 +103,16 @@ at. A list that opens and says "No options" is now recognised as an open list an
   (one Tab: Attach, Command+Shift+G, the path typed only into the go-to field, Return, Return on Upload, the page and a fresh
   capture show the file name), LinkedIn Profile, Github, Website, "How did you hear" (Hack the North), and it ends parked on
   the locked Submit application, focused, never pressed.
-- Choosing an option in a combobox (live, the only two comboboxes Ghost was allowed to touch were refused: one already had a
-  value, the other never showed a list).
+- Choosing an option in a combobox is now **live** (six of the seven on the real posting; Country was refused because it
+  already held a value), including a press that only closes the menu, a decline that survives it, a page whose tree catches
+  up late, a press that picked the wrong option (never a second choice), and a control that will not reopen (left alone).
 - Hold-Tab stops at an upload or combobox ghost without starting it (one fresh press starts it) and never accepts a pending
   draft; any untagged key while the panel or a list is driven aborts the sequence and the keys pressed meanwhile are dropped;
   an upload the widget does not show is a failure; a combobox without the answer is skipped and left as it was.
 - The jump: Tab on the page with the current ghost off screen scrolls it into view and writes nothing; a page that scrolls
   smoothly is read again before Ghost gives up; a page that refuses gets the Tab back, and Tab stays native afterwards.
+  (Live: it works in Safari and is exactly the branch Chrome falls into, because Chrome reports a zero-height frame for
+  everything below the fold - see "Current status".)
 - `GHPageContext` (company, role, posting text) feeds `/v1/ghost-text` for text areas and long questions (stub server).
 - Profile file facts (`resumePath`, `coverLetterPath`) are validated on load; `profile.example.json` loads through the store.
 - Review fixes (fakes only): every step of a walk re-reads live focus (a queued Tab, a held Tab, the end of a draft wait),
@@ -84,8 +128,7 @@ at. A list that opens and says "No options" is now recognised as an open list an
 Safari stays frontmost, Command+Shift+G focuses its go-to field, the whole upload sequence verifies, AXScrollToVisible
 scrolls Safari's page, and the capture budget question is answered (see fix 1).
 
-**Still unchecked**: how WebKit exposes react-select's option list and whether AXPress on an option selects it (the live
-posting never showed a list at all); Chrome, Firefox and Arc structures. The server exposes `/v1/presence`; the extension
+**Still unchecked**: Firefox and Arc structures, and whether Chrome can be made to scroll at all. The server exposes `/v1/presence`; the extension
 heartbeat is not wired yet, so do not run both clients in the same browser. Note that `autotab --frontmost Safari` only
 makes sure **Safari** is in front, not which tab: check the page with `ghostctl dump` right before a run.
 

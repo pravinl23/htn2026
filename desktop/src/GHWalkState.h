@@ -36,6 +36,25 @@ extern NSString *const GHGhostActionUpload;
 /// A select answered before its options exist (react-select): `value` is the intended answer, matched against the
 /// real options when the ghost is accepted (GHComboBoxDriver).
 @property (nonatomic) BOOL lazy;
+/// Lazy selects only: YES when the answer is "whichever option means *prefer not to answer*" rather than this
+/// exact text (the core's `lazyMatch: "decline"`). Every ATS words the decline its own way.
+@property (nonatomic) BOOL declineAnswer;
+/// A lazy select whose answer may not be on the list: take the list's own neutral option ("Other") instead of
+/// leaving an ordinary question empty (docs/answers.md section 3).
+@property (nonatomic) BOOL neutralFallback;
+/// The answer engine guessed this (docs/answers.md): drawn with a dotted underline and a "guess" chip, and
+/// hold-Tab always stops here. Never auto-accepted.
+@property (nonatomic) BOOL guess;
+/// Hold-Tab stops and the HUD says "check this": every guess, and every attestation.
+@property (nonatomic) BOOL needsReview;
+/// fact | learned | guess: where the answer came from. Empty when the core did not say.
+@property (nonatomic, copy, nullable) NSString *answerSource;
+/// ordinary | declaration | protected.
+@property (nonatomic, copy, nullable) NSString *answerClass;
+/// Why, in words the HUD can show. Value-free: never the answer, never a label.
+@property (nonatomic, copy, nullable) NSString *reason;
+/// The site-independent key a correction to this question is learned under (the core's `questionKey`).
+@property (nonatomic, copy, nullable) NSString *questionKey;
 + (nullable instancetype)ghostWithDictionary:(nullable NSDictionary<NSString *, id> *)dictionary;
 + (NSArray<GHGhost *> *)ghostsWithDictionaries:(nullable NSArray *)dictionaries;
 - (NSDictionary<NSString *, id> *)dictionary;
@@ -100,6 +119,9 @@ static inline BOOL GHKeyDecisionConsumes(GHKeyDecision decision) { return decisi
 @property (nonatomic, readonly) NSInteger currentIndex;
 @property (nonatomic, readonly, nullable) GHGhost *current;
 @property (nonatomic, readonly) NSInteger accepted;
+/// The signatures the user accepted in this walk. The gate treats a required field the user has taken a ghost
+/// for as met, even before the page has been rescanned (docs/incremental.md section 3).
+@property (nonatomic, readonly, copy) NSSet<NSString *> *acceptedSignatures;
 @property (nonatomic, readonly, copy) NSSet<NSString *> *dismissed;
 /// The field the walk just left (accepted, dismissed, typed over): Tab pressed there still belongs to the walk.
 @property (nonatomic, readonly, copy, nullable) NSString *leftSignature;

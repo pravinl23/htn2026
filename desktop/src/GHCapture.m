@@ -387,6 +387,7 @@ static BOOL GHIsValueKind(NSString *kind) {
 @property (nonatomic, readwrite) NSTimeInterval elapsed;
 @property (nonatomic, readwrite) CGRect windowFrame;
 @property (nonatomic, readwrite) BOOL sawWebArea;
+@property (nonatomic, readwrite, strong, nullable) id<GHAXNode> windowNode;
 @property (nonatomic, readwrite, strong, nullable) id<GHAXNode> webAreaNode;
 @property (nonatomic, readwrite, copy) NSString *formSignature;
 @property (nonatomic, strong) NSDictionary<NSString *, id<GHAXNode>> *nodes;
@@ -527,6 +528,17 @@ static NSArray *GHReadingOrder(NSArray *items, CGRect (^rectOf)(id item)) {
     if (label.length == 0) return NO;
     if ([GHCapture nativeLooksLocked:label]) return YES;
     return [_safety isLockedProbe:@{ @"text": label }];
+}
+
+/// A control with no name that is still worth keeping for the next-action path: it is drawn at a size a person
+/// could click, and it carries SOMETHING a name could be derived from later -- an identifier, class tokens, a
+/// description, or simply pixels a vision label can read (docs/anywhere.md section 4). Purely structural: no
+/// word list, no site. Anything smaller than a tap target is a spacer, a decoration or a hit-box artifact.
+- (BOOL)isWorthNamingLater:(id<GHAXNode>)node {
+    CGRect frame = node.frame;
+    if (frame.size.width < 12.0 || frame.size.height < 12.0) return NO;
+    if (frame.size.width > 600.0 && frame.size.height > 600.0) return NO; // a whole region, not a control
+    return YES;
 }
 
 static BOOL GHIsSecure(id<GHAXNode> node) {
@@ -1052,7 +1064,12 @@ static NSString *GHUploadKindForText(NSString *text) {
 
     GHNaming *naming = [self namingForEntry:entry kind:kind];
     NSString *label = naming.label;
-    if ((isButton || isLink) && label.length == 0) return nil;
+    // A control with no readable name is useless to the FORM walk (nothing can be mapped to it) and is dropped.
+    // Ghost anywhere needs it anyway: a player's fullscreen button, a cart glyph and a kebab menu have no name
+    // anywhere in the tree, and naming them is exactly what the affordance layer and the vision fallback are
+    // for (docs/anywhere.md sections 2 and 4). With `capturesUnnamedControls` such a control is kept, marked
+    // `unnamed`, and only ever reaches the next-action path: it can never carry a value ghost.
+    if ((isButton || isLink) && label.length == 0 && !(self.capturesUnnamedControls && [self isWorthNamingLater:node])) return nil;
 
     NSString *legend = @"", *heading = @"";
     if (!isLink) GHLegendAndHeading(entry, &legend, &heading);
@@ -1071,6 +1088,11 @@ static NSString *GHUploadKindForText(NSString *text) {
 
     if (isButton || isLink) {
         field.locked = [self isLabelLocked:label];
+        field.unnamed = label.length == 0;
+        // Generic naming evidence the affordance layer reads as icon words, and the raw description a vision
+        // label would replace. Never a value, never page text: a description is at most a control's own name.
+        field.axDescription = GHSquash(node.axDescription).length ? GHSquash(node.axDescription) : nil;
+        field.classTokens = node.domClassList.count ? node.domClassList : nil;
     } else {
         field.placeholder = GHSquash(node.placeholder).length ? GHSquash(node.placeholder) : nil;
         NSString *value = node.value ?: @"";
@@ -1398,6 +1420,7 @@ static BOOL GHIsBrowserChrome(id<GHAXNode> node, NSString *role) {
         if (GHIsValueKind(field.kind)) [formParts addObject:field.signature];
     }
 
+    result.windowNode = window;
     result.fields = fields;
     result.nodes = nodes;
     result.radioNodes = radioNodes;

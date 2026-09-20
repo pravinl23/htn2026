@@ -194,26 +194,37 @@ static NSArray<NSDictionary *> *GhostsWithConfidences(NSDictionary *settings) {
     return [Core() ghostsForFields:fields assignments:assignments profile:[Core() demoProfile] settings:settings source:@"server" options:nil];
 }
 
-GH_TEST(core_ghostsFor_gates_by_threshold) {
+// docs/always-propose.md: the threshold picks the TIER a ghost is drawn at. It never removes one.
+GH_TEST(core_ghostsFor_tiers_by_threshold_and_never_drops) {
     NSMutableDictionary *settings = [[Core() defaultSettings] mutableCopy];
     settings[@"confidenceThreshold"] = @0.9;
     NSDictionary *strict = BySignature(GhostsWithConfidences(settings));
     GH_ASSERT(strict[@"txt|first"] != nil);
-    GH_ASSERT(strict[@"txt|site"] == nil);
+    GH_ASSERT(strict[@"txt|site"] != nil); // 0.8 is under the bar: dimmed, not gone
+    GH_ASSERT_EQUAL_OBJECTS(strict[@"txt|site"][@"tier"], @"long-shot");
+    GH_ASSERT_EQUAL_OBJECTS(strict[@"txt|site"][@"guess"], @YES);
+    GH_ASSERT_EQUAL_OBJECTS(strict[@"txt|first"][@"tier"], @"confident");
     GH_ASSERT_NEAR([strict[@"txt|first"][@"confidence"] doubleValue], 0.95, 1e-9);
     settings[@"confidenceThreshold"] = @0.7;
-    GH_ASSERT(BySignature(GhostsWithConfidences(settings))[@"txt|site"] != nil);
+    NSDictionary *loose = BySignature(GhostsWithConfidences(settings));
+    GH_ASSERT(loose[@"txt|site"] != nil);
+    GH_ASSERT_EQUAL_OBJECTS(loose[@"txt|site"][@"tier"], @"guess");
     settings[@"confidenceThreshold"] = @0.99;
-    GH_ASSERT_EQUAL_INT(GhostsWithConfidences(settings).count, 0);
+    NSArray<NSDictionary *> *all = GhostsWithConfidences(settings);
+    GH_ASSERT_EQUAL_INT(all.count, 2);
+    for (NSDictionary *ghost in all) GH_ASSERT_EQUAL_OBJECTS(ghost[@"tier"], @"long-shot");
 }
 
 GH_TEST(core_ghostsFor_confidence_includes_option_match_quality) {
-    // 0.75 for the fact times 0.88 for a fuzzy option match is below the default 0.7.
+    // 0.75 for the fact times 0.88 for a fuzzy option match is below the default 0.7: a long shot, not a silence.
     GHField *select = Field(@"sel|school", @"School", GHKindSelect);
     select.options = @[ @{ @"value": @"", @"label": @"Select" }, @{ @"value": @"uw", @"label": @"University of Waterloo (Ontario)" } ];
     NSArray *assignments = @[ @{ @"signature": @"sel|school", @"factKey": @"school", @"confidence": @0.75 } ];
     GHCore *core = Core();
-    GH_ASSERT_EQUAL_INT([core ghostsForFields:@[ select ] assignments:assignments profile:[core demoProfile] settings:[core defaultSettings] source:@"server" options:nil].count, 0);
+    NSArray<NSDictionary *> *weak = [core ghostsForFields:@[ select ] assignments:assignments profile:[core demoProfile] settings:[core defaultSettings] source:@"server" options:nil];
+    GH_ASSERT_EQUAL_INT(weak.count, 1);
+    GH_ASSERT_EQUAL_OBJECTS(weak[0][@"tier"], @"long-shot");
+    GH_ASSERT_EQUAL_OBJECTS(weak[0][@"value"], @"uw");
     assignments = @[ @{ @"signature": @"sel|school", @"factKey": @"school", @"confidence": @0.95 } ];
     NSArray<NSDictionary *> *ghosts = [core ghostsForFields:@[ select ] assignments:assignments profile:[core demoProfile] settings:[core defaultSettings] source:@"server" options:nil];
     GH_ASSERT_EQUAL_INT(ghosts.count, 1);
@@ -231,7 +242,10 @@ GH_TEST(core_ghostsFor_broken_threshold_falls_back_to_default) {
     }
     NSArray<GHField *> *fields = @[ Field(@"txt|first", @"First name", GHKindText) ];
     NSArray *weak = @[ @{ @"signature": @"txt|first", @"factKey": @"firstName", @"confidence": @0.6 } ];
-    GH_ASSERT_EQUAL_INT([Core() ghostsForFields:fields assignments:weak profile:[Core() demoProfile] settings:@{ @"confidenceThreshold": @"broken" } source:@"server" options:nil].count, 0);
+    // Under the default 0.7, so it is drawn as a long shot -- a broken setting still must not silence it.
+    NSArray<NSDictionary *> *dim = [Core() ghostsForFields:fields assignments:weak profile:[Core() demoProfile] settings:@{ @"confidenceThreshold": @"broken" } source:@"server" options:nil];
+    GH_ASSERT_EQUAL_INT(dim.count, 1);
+    GH_ASSERT_EQUAL_OBJECTS(dim[0][@"tier"], @"long-shot");
 }
 
 GH_TEST(core_ghostsFor_skips_filled_fields) {
@@ -295,7 +309,9 @@ GH_TEST(core_ghostsFor_never_produces_ghosts_for_sensitive_probes) {
 
 GH_TEST(core_ghostsFor_only_ticks_checkboxes) {
     GHCore *core = Core();
-    NSDictionary *profile = @{ @"facts": @{ @"workAuthorization": @"yes", @"requiresSponsorship": @"no" }, @"pastAnswers": @[] };
+    // The country matters: an unqualified `workAuthorization` only answers a question that names a country
+    // when the profile says it lives there (docs/answers.md section 2).
+    NSDictionary *profile = @{ @"facts": @{ @"workAuthorization": @"yes", @"requiresSponsorship": @"no", @"country": @"Canada" }, @"pastAnswers": @[] };
     GHField *authorized = Field(@"chk|auth", @"I am authorized to work in Canada", GHKindCheckbox);
     authorized.value = @"false";
     GHField *alreadyTicked = Field(@"chk|auth2", @"Legally authorized to work", GHKindCheckbox);
@@ -304,12 +320,18 @@ GH_TEST(core_ghostsFor_only_ticks_checkboxes) {
     sponsorship.value = @"true"; // fact says no: Ghost must not untick
     GHField *consent = Field(@"chk|terms", @"I agree to the terms", GHKindCheckbox);
     NSArray<GHField *> *fields = @[ authorized, alreadyTicked, sponsorship, consent ];
-    NSArray *assignments = [core mapFields:fields factKeys:@[ @"workAuthorization", @"requiresSponsorship" ]];
+    NSArray *assignments = [core mapFields:fields factKeys:@[ @"workAuthorization", @"requiresSponsorship", @"country" ]];
     NSArray<NSDictionary *> *ghosts = [core ghostsForFields:fields assignments:assignments profile:profile settings:[core defaultSettings] source:@"offline" options:nil];
     GH_ASSERT_EQUAL_INT(ghosts.count, 1);
     GH_ASSERT_EQUAL_OBJECTS(ghosts.firstObject[@"signature"], @"chk|auth");
     GH_ASSERT_EQUAL_OBJECTS(ghosts.firstObject[@"action"], @"check");
     GH_ASSERT_EQUAL_OBJECTS(ghosts.firstObject[@"value"], @"true");
+
+    // Without a country, the same profile says nothing about Canada: the conservative answer is "not
+    // authorized", and an unticked box is already that, so Ghost offers nothing rather than unticking.
+    NSDictionary *noCountry = @{ @"facts": @{ @"workAuthorization": @"yes", @"requiresSponsorship": @"no" }, @"pastAnswers": @[] };
+    NSArray *quiet = [core ghostsForFields:@[ authorized ] assignments:assignments profile:noCountry settings:[core defaultSettings] source:@"offline" options:nil];
+    GH_ASSERT_EQUAL_INT(quiet.count, 0);
 }
 
 GH_TEST(core_ghostsFor_lock_rules) {
@@ -341,9 +363,22 @@ GH_TEST(core_ghostsFor_survives_garbage_input) {
     GHCore *core = Core();
     NSArray *junk = @[ @{ @"signature": @"a" }, @{ @"factKey": @"email", @"confidence": @"high" }, @"string", @{ @"signature": @"txt|first", @"factKey": @"email; drop", @"confidence": @1 } ];
     NSArray *ghosts = [core ghostsForFields:@[ Field(@"txt|first", @"First name", GHKindText) ] assignments:junk profile:[core demoProfile] settings:@{} source:@"bogus" options:nil];
-    GH_ASSERT_EQUAL_INT(ghosts.count, 0);
+    // Every malformed assignment is dropped, and the answer engine still answers the question from the profile:
+    // Ghost never gives up on a field because a server said something unusable (docs/answers.md section 1).
+    GH_ASSERT_EQUAL_INT(ghosts.count, 1);
+    GH_ASSERT_EQUAL_OBJECTS(ghosts.firstObject[@"value"], @"Alex");
+    GH_ASSERT_EQUAL_OBJECTS(ghosts.firstObject[@"answerSource"], @"fact");
+    GH_ASSERT(ghosts.firstObject[@"guess"] == nil);
+    // No fields at all is still nothing at all.
     NSString *raw = [core callString:@"ghostsFor" arguments:@[ @"[]", @"[]", @"{}", @"{}", @"offline" ]];
     GH_ASSERT_EQUAL_OBJECTS(raw, @"[]");
+    // And a profile with nothing in it still proposes: with no answer to give, Ghost offers to go there
+    // (docs/always-propose.md), as a long shot that commits nothing.
+    NSArray *empty = [core ghostsForFields:@[ Field(@"txt|first", @"First name", GHKindText) ] assignments:junk
+                                    profile:@{ @"facts": @{}, @"pastAnswers": @[] } settings:@{} source:@"bogus" options:nil];
+    GH_ASSERT_EQUAL_INT(empty.count, 1);
+    GH_ASSERT_EQUAL_OBJECTS(empty.firstObject[@"action"], @"click");
+    GH_ASSERT_EQUAL_OBJECTS(empty.firstObject[@"tier"], @"long-shot");
 }
 
 GH_TEST(core_upgradeGhosts_merges_server_answer) {

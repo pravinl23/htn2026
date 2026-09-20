@@ -1,6 +1,6 @@
 // Speculative free-text drafts: every essay field of a form starts generating while the user is still on the
 // first fields, so the draft is already there when Tab reaches it. One draft per field signature per page load.
-import { isSensitive } from "@ghost/shared";
+import { isSensitive, staysOnThisMachine } from "@ghost/shared";
 import type { CapturedField, PastAnswer, Profile } from "@ghost/shared";
 import { TEXT_LIMITS, TEXT_PORT, hasContactValue, isTextPortEvent, textFacts } from "../lib/messages";
 import type { GhostTextRequest, TextPageContext, TextPortEvent, TextPortStart } from "../lib/messages";
@@ -230,6 +230,9 @@ export function clipDraft(raw: string, limit: number | undefined, pending: boole
 export function buildTextRequest(field: CapturedField, profile: Profile, pageContext: TextPageContext, limit?: number): GhostTextRequest | null {
   const fieldLabel = field.label.trim().slice(0, TEXT_LIMITS.label);
   if (!fieldLabel || isSensitive({ label: fieldLabel, name: field.name, id: field.id, placeholder: field.placeholder, autocomplete: field.autocomplete, inputType: field.inputType })) return null;
+  // "Describe the accommodations you need" and "explain the circumstances of any conviction" are free text,
+  // but asking a server to draft one discloses the question. The user writes these themselves.
+  if (staysOnThisMachine(field)) return null;
   if (field.signature.length > TEXT_LIMITS.signature) return null;
   const request: GhostTextRequest = {
     fieldLabel,
@@ -246,7 +249,10 @@ export function buildTextRequest(field: CapturedField, profile: Profile, pageCon
 export function similarPastAnswers(label: string, pastAnswers: PastAnswer[], max: number = TEXT_LIMITS.pastAnswers): GhostTextRequest["pastAnswers"] {
   const wanted = tokens(label);
   return pastAnswers
+    // `isSensitive` covers passwords, cards and government IDs; it has no protected or declaration vocabulary,
+    // so a stored answer about disability, a conviction or work authorization needs its own guard here.
     .filter((past) => past.question?.trim() && past.answer?.trim() && !isSensitive({ label: past.question }) && !hasContactValue(past.answer))
+    .filter((past) => !staysOnThisMachine({ label: past.question, kind: "textarea" }))
     .map((past) => ({ past, score: overlap(wanted, tokens(past.question)) }))
     .filter(({ score }) => score >= MIN_SIMILARITY)
     .sort((a, b) => b.score - a.score)

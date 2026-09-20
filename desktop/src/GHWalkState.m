@@ -42,6 +42,15 @@ NSString *const GHGhostActionUpload = @"upload";
     ghost.pending = [pending isKindOfClass:[NSNumber class]] && [pending boolValue];
     // Only a select can be lazy: anything else claiming it is an ordinary ghost.
     ghost.lazy = [action isEqualToString:GHGhostActionSelect] && [lazy isKindOfClass:[NSNumber class]] && [lazy boolValue];
+    ghost.declineAnswer = ghost.lazy && [dictionary[@"lazyMatch"] isEqual:@"decline"];
+    ghost.neutralFallback = ghost.lazy && [dictionary[@"lazyMatch"] isEqual:@"neutral"];
+    // A locked ghost is an action, never an answer: it is never a guess and never learned from.
+    ghost.guess = !ghost.locked && [dictionary[@"guess"] isKindOfClass:[NSNumber class]] && [dictionary[@"guess"] boolValue];
+    ghost.needsReview = ghost.guess || (!ghost.locked && [dictionary[@"needsReview"] isKindOfClass:[NSNumber class]] && [dictionary[@"needsReview"] boolValue]);
+    ghost.answerSource = [dictionary[@"answerSource"] isKindOfClass:[NSString class]] ? dictionary[@"answerSource"] : nil;
+    ghost.answerClass = [dictionary[@"answerClass"] isKindOfClass:[NSString class]] ? dictionary[@"answerClass"] : nil;
+    ghost.reason = [dictionary[@"reason"] isKindOfClass:[NSString class]] ? dictionary[@"reason"] : nil;
+    ghost.questionKey = [dictionary[@"questionKey"] isKindOfClass:[NSString class]] ? dictionary[@"questionKey"] : nil;
     return ghost;
 }
 
@@ -66,6 +75,14 @@ NSString *const GHGhostActionUpload = @"upload";
     out[@"source"] = self.source ?: @"offline";
     if (self.pending) out[@"pending"] = @YES;
     if (self.lazy) out[@"lazy"] = @YES;
+    if (self.declineAnswer) out[@"lazyMatch"] = @"decline";
+    else if (self.neutralFallback) out[@"lazyMatch"] = @"neutral";
+    if (self.guess) out[@"guess"] = @YES;
+    if (self.needsReview) out[@"needsReview"] = @YES;
+    if (self.answerSource) out[@"answerSource"] = self.answerSource;
+    if (self.answerClass) out[@"answerClass"] = self.answerClass;
+    if (self.reason) out[@"reason"] = self.reason;
+    if (self.questionKey) out[@"questionKey"] = self.questionKey;
     return out;
 }
 
@@ -85,13 +102,21 @@ NSString *const GHGhostActionUpload = @"upload";
     copy.source = self.source;
     copy.pending = self.pending;
     copy.lazy = self.lazy;
+    copy.declineAnswer = self.declineAnswer;
+    copy.neutralFallback = self.neutralFallback;
+    copy.guess = self.guess;
+    copy.needsReview = self.needsReview;
+    copy.answerSource = self.answerSource;
+    copy.answerClass = self.answerClass;
+    copy.reason = self.reason;
+    copy.questionKey = self.questionKey;
     return copy;
 }
 
 - (NSString *)description {
     // Never the value or the display text.
-    return [NSString stringWithFormat:@"<GHGhost %@ %@%@%@%@>", self.action, self.signature, self.locked ? @" locked" : @"",
-            self.pending ? @" pending" : @"", self.lazy ? @" lazy" : @""];
+    return [NSString stringWithFormat:@"<GHGhost %@ %@%@%@%@%@>", self.action, self.signature, self.locked ? @" locked" : @"",
+            self.pending ? @" pending" : @"", self.lazy ? @" lazy" : @"", self.guess ? @" guess" : @""];
 }
 
 @end
@@ -156,12 +181,14 @@ GHKeyDecision GHDecideEscape(GHWalkSnapshot snapshot, GHKeyModifiers modifiers, 
 @implementation GHWalkState {
     NSMutableArray<GHGhost *> *_ghosts;
     NSMutableSet<NSString *> *_dismissed;
+    NSMutableSet<NSString *> *_acceptedSignatures;
 }
 
 - (instancetype)init {
     if ((self = [super init])) {
         _ghosts = [NSMutableArray array];
         _dismissed = [NSMutableSet set];
+        _acceptedSignatures = [NSMutableSet set];
         _currentIndex = -1;
     }
     return self;
@@ -169,6 +196,7 @@ GHKeyDecision GHDecideEscape(GHWalkSnapshot snapshot, GHKeyModifiers modifiers, 
 
 - (NSArray<GHGhost *> *)ghosts { return [_ghosts copy]; }
 - (NSSet<NSString *> *)dismissed { return [_dismissed copy]; }
+- (NSSet<NSString *> *)acceptedSignatures { return [_acceptedSignatures copy]; }
 
 - (GHGhost *)current {
     return (_currentIndex >= 0 && _currentIndex < (NSInteger)_ghosts.count) ? _ghosts[(NSUInteger)_currentIndex] : nil;
@@ -265,6 +293,7 @@ GHKeyDecision GHDecideEscape(GHWalkSnapshot snapshot, GHKeyModifiers modifiers, 
     GHGhost *ghost = [self ghostWithSignature:signature];
     if (!ghost || ghost.locked) return;   // a lock ghost is never accepted
     _accepted++;
+    [_acceptedSignatures addObject:signature];
     _keystrokesSaved += ghost.keystrokes;
     _error = nil;
     [self remove:signature];
@@ -331,6 +360,7 @@ GHKeyDecision GHDecideEscape(GHWalkSnapshot snapshot, GHKeyModifiers modifiers, 
 - (void)reset {
     [_ghosts removeAllObjects];
     [_dismissed removeAllObjects];
+    [_acceptedSignatures removeAllObjects];
     _currentIndex = -1;
     _accepted = 0;
     _keystrokesSaved = 0;

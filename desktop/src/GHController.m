@@ -5,6 +5,7 @@
 #import "GHKeyPoster.h"
 #import "GHLog.h"
 #import "GHOpenPanelDriver.h"
+#import "GHNextAction.h"
 #import "GHOverlayWindow.h"
 #import "GHPageContext.h"
 #import "GHProfileStore.h"
@@ -103,11 +104,23 @@ static const NSUInteger kUploadVerifyTries = 8;
     NSString *_lastRescanLog;
     CFAbsoluteTime _stepStartedAt;
 
+    // The answer engine and the gate (docs/answers.md, docs/incremental.md).
+    NSString *_gateReason;                     // "2 required fields still empty: Country"; nil when nothing is unmet
+    NSMutableDictionary<NSString *, NSString *> *_seenValues;   // the last capture's values, to spot a user edit
+    NSMutableDictionary<NSString *, NSString *> *_ghostWrote;   // what GHOST put there: never a correction
+    NSUInteger _correctionCount;
+    NSString *_lastCorrectionCounter;           // the value-free telemetry counter of the last correction
+
     // Sequences (uploads, lazy selects) and the jump.
     NSMutableSet<NSString *> *_sequenceDone;   // accepted through a driver on this page: never offered again
     NSString *_jumpFailedSignature;            // AXScrollToVisible could not bring this ghost on screen
     NSDictionary<NSString *, NSString *> *_pageContext;   // company / role / description, once per page
     BOOL _pageContextRead;
+    // docs/anywhere.md: what Ghost offers when the window is not a form. Built on first use, because most
+    // windows never need it and the memory file should not be touched before it is.
+    GHNextAction *_nextAction;
+    GHNextProposal *_proposal;          // the one on offer right now (nil when the walk is a form walk)
+    NSString *_previousRole;            // the role of the last action the user took in this page view
 }
 
 @synthesize eventTap = _eventTap;
@@ -129,6 +142,8 @@ static const NSUInteger kUploadVerifyTries = 8;
         _orderedFields = @[];
         _fields = @{};
         _sequenceDone = [NSMutableSet set];
+        _seenValues = [NSMutableDictionary dictionary];
+        _ghostWrote = [NSMutableDictionary dictionary];
     }
     return self;
 }
@@ -236,6 +251,17 @@ static const NSUInteger kUploadVerifyTries = 8;
     self.overlay.onLayoutChange = ^{ [weakSelf.accessibility setNeedsRescan:GHRescanReasonLayoutChanged]; };
     GHCapture *capture = self.capture;
     if (!self.writer.isNodeSensitive) self.writer.isNodeSensitive = ^BOOL(id<GHAXNode> node) { return [capture isNodeSensitive:node]; };
+    // docs/anywhere.md: icon-only controls are kept for the next-action path, and an UNLOCKED click ghost may be
+    // pressed -- after this check has read the live element one last time. Rule 2 still refuses anything else.
+    capture.capturesUnnamedControls = YES;
+    GHCore *core = _core;
+    if (!self.writer.isNodeLocked) {
+        self.writer.isNodeLocked = ^BOOL(id<GHAXNode> node) {
+            NSString *name = [GHCapture cleanLabel:node.title ?: node.axDescription];
+            if ([GHCapture nativeLooksLocked:name]) return YES;
+            return [core isLockedActionText:name];
+        };
+    }
 
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(storeDidChange:) name:GHProfileStoreDidChangeNotification object:_store];
     self.accessibility.delegate = self;
@@ -328,6 +354,7 @@ static const NSUInteger kUploadVerifyTries = 8;
     }
     if (_walk.error) return _walk.error;
     if (_busy && _hudStatus.length) return _hudStatus;
+    if (!_busy && _gateReason.length && _walk.ghosts.count > 0 && !_walk.error) return _gateReason;
     NSUInteger unlocked = 0;
     for (GHGhost *ghost in _walk.ghosts) if (!ghost.locked) unlocked++;
     if (unlocked > 0) return [NSString stringWithFormat:@"%lu ghost%@ in %@", (unsigned long)unlocked, unlocked == 1 ? @"" : @"s", app];
@@ -354,6 +381,9 @@ static const NSUInteger kUploadVerifyTries = 8;
     [_served removeAllObjects];
     [_pinned removeAllObjects];
     [_sequenceDone removeAllObjects];
+    [_seenValues removeAllObjects];
+    [_ghostWrote removeAllObjects];
+    _gateReason = nil;
     _predictionRequests = 0;
     _provider = kOfflineProvider;
     _cacheState = @"offline";
@@ -361,6 +391,8 @@ static const NSUInteger kUploadVerifyTries = 8;
     _jumpFailedSignature = nil;
     _pageContext = nil;
     _pageContextRead = NO;
+    _proposal = nil;
+    _previousRole = nil;
     _hudStatus = nil;
     _epoch++;   // an answer still in flight belongs to the page we left
     [self endDraftWait:NO];
@@ -482,9 +514,20 @@ static const NSUInteger kUploadVerifyTries = 8;
     NSString *factsId = [[factKeys sortedArrayUsingSelector:@selector(compare:)] componentsJoinedByString:@","];
     if (![factsId isEqualToString:_factsId]) [self forgetPredictions:factsId];
 
+    // What the user answered themselves since the last capture is learned BEFORE the new ghosts are built, so
+    // the correction is already in the store when the engine proposes again.
+    [self learnUserEdits];
+
     NSMutableDictionary *options = [NSMutableDictionary dictionary];
     options[@"keepLock"] = @(_walk.keepLock);
     if (_walk.lockSignature) options[@"lockSignature"] = _walk.lockSignature;
+    // Answers the user gave before (never sent anywhere), and what this walk has already accepted: a required
+    // field the user has taken a ghost for counts as met, so the Submit ghost appears at the right moment.
+    NSString *answersJSON = [_store answersJSON];
+    if (answersJSON.length) options[@"answers"] = answersJSON;
+    NSArray<NSString *> *accepted = [_walk.acceptedSignatures allObjects];
+    if (accepted.count) options[@"accepted"] = accepted;
+    if (_pageContext[@"company"].length) options[@"company"] = _pageContext[@"company"];
 
     NSArray<NSDictionary *> *offline = _orderedFields.count ? [_core mapFields:_orderedFields factKeys:factKeys] : @[];
     NSMutableArray<NSDictionary *> *answers = [NSMutableArray array];
@@ -506,6 +549,9 @@ static const NSUInteger kUploadVerifyTries = 8;
         [ghosts addObject:ghost];
     }
     NSArray<GHGhost *> *withDrafts = [self ghostsByAddingDrafts:ghosts offline:offline answers:answers settings:settings];
+    // Most windows are not forms. With nothing to fill, Ghost offers the one thing this KIND of place is for.
+    withDrafts = [self ghostsByAddingNextAction:withDrafts result:result settings:settings];
+    [self updateGateWithGhosts:withDrafts accepted:accepted];
     if ([_cacheState isEqualToString:@"offline"]) _latencyMs = @(MAX(0.0, (result.elapsed + (CFAbsoluteTimeGetCurrent() - started)) * 1000.0));
 
     // Focus is re-read against the new capture; the walk keeps its current ghost first and follows focus second.
@@ -524,6 +570,107 @@ static const NSUInteger kUploadVerifyTries = 8;
         _lastRescanLog = summary;
         GHLog(@"controller: rescan %@ in %@ (%.0f ms)", summary, self.accessibility.frontmostBundleIdentifier ?: @"?", [_latencyMs doubleValue]);
     }
+}
+
+#pragma mark - Ghost anywhere (docs/anywhere.md)
+
+/// The next-action engine, with its role memory beside the profile. Built on first use.
+- (GHNextAction *)nextAction {
+    if (!_nextAction) {
+        NSString *directory = _store.directory ?: [GHProfileStore defaultDirectory];
+        NSString *path = [directory stringByAppendingPathComponent:@"memory.json"];
+        _nextAction = [[GHNextAction alloc] initWithCore:_core memory:[[GHRoleMemoryStore alloc] initWithPath:path core:_core]];
+    }
+    return _nextAction;
+}
+
+/**
+ * Nothing to fill: propose the one control this KIND of place is for (the video's fullscreen once it plays, the
+ * first item of a grid, the search box of a shop, the cart when it holds something). The proposal is an ordinary
+ * unlocked click ghost, so Tab, Escape, typing, focus following and the lock all behave exactly as they do in a
+ * form walk. A form walk is never disturbed: with even one value ghost on the page, this does nothing at all.
+ */
+- (NSArray<GHGhost *> *)ghostsByAddingNextAction:(NSArray<GHGhost *> *)ghosts result:(GHCaptureResult *)result settings:(NSDictionary *)settings {
+    if (ghosts.count > 0 || result.fields.count == 0) {
+        _proposal = nil;
+        return ghosts;
+    }
+    GHNextAction *engine = [self nextAction];
+    NSNumber *threshold = [settings[@"confidenceThreshold"] isKindOfClass:[NSNumber class]] ? settings[@"confidenceThreshold"] : nil;
+    if (threshold) engine.threshold = threshold.doubleValue;
+    GHPageSignals *signals = [[GHPageSignals alloc] init];
+    signals.appBundleId = _walkBundleId ?: self.accessibility.frontmostBundleIdentifier;
+    signals.previousRole = _previousRole;
+    GHNextProposal *proposal = [engine proposeForResult:result window:result.windowNode signals:signals];
+    _proposal = proposal;
+    if (!proposal) return ghosts;
+    GHField *field = _fields[proposal.signature];
+    if (!field) return ghosts;
+    return [ghosts arrayByAddingObject:[proposal ghostWithDisplayText:field.label ?: @""]];
+}
+
+/// The user took the proposal, refused it, or did something else: remembered under the ROLE, so it transfers to
+/// the next video, the next shop and the next feed. Never under a label, a window or an app.
+- (void)recordProposalOutcome:(NSString *)outcome forSignature:(NSString *)signature {
+    GHNextProposal *proposal = _proposal;
+    if (!proposal || ![proposal.signature isEqualToString:signature ?: @""]) return;
+    [_nextAction recordOutcome:outcome forProposal:proposal];
+    if ([outcome isEqualToString:GHRoleOutcomeAccepted]) _previousRole = proposal.role;
+    _proposal = nil;
+}
+
+#pragma mark - the answer engine and the gate (docs/answers.md, docs/incremental.md)
+
+/// The user answered something themselves since the last capture: learn it, keyed by the question rather than by
+/// the site, so the same question is answered everywhere afterwards. No key logging: the evidence is the value the
+/// page reports now against the one it reported at the last capture, and what Ghost itself wrote is never a
+/// correction. Learned answers never leave the machine, and a value that looks like a secret is refused by the core.
+- (void)learnUserEdits {
+    if (!_core || _orderedFields.count == 0) return;
+    BOOL learning = [_store.settings[@"learningEnabled"] boolValue];
+    NSMutableDictionary<NSString *, NSString *> *now = [NSMutableDictionary dictionary];
+    NSMutableArray<GHField *> *corrected = [NSMutableArray array];
+    for (GHField *field in _orderedFields) {
+        NSString *value = field.value ?: @"";
+        now[field.signature] = value;
+        NSString *before = _seenValues[field.signature];
+        if (!before || [before isEqualToString:value] || value.length == 0) continue;
+        if ([_ghostWrote[field.signature] isEqualToString:value]) continue;   // Ghost put that there
+        [corrected addObject:field];
+    }
+    _seenValues = now;
+    if (!learning || corrected.count == 0) return;
+    NSString *answersJSON = [_store answersJSON];
+    for (GHField *field in corrected) {
+        NSDictionary *result = [_core recordCorrectionForFieldObject:[field toJSONObject] value:field.value ?: @""
+                                                              answers:answersJSON at:nil];
+        NSDictionary *snapshot = result[@"answers"];
+        if (![snapshot isKindOfClass:[NSDictionary class]]) continue;
+        if ([result[@"changed"] isEqualToString:@"refused"]) {
+            // Codes only: never the question, never the value.
+            GHLog(@"controller: correction refused (%@) label=%@", result[@"refusal"] ?: @"?", GHLogLabel(field.label));
+            continue;
+        }
+        [_store saveAnswers:snapshot error:NULL];
+        answersJSON = [_store answersJSON];
+        _correctionCount++;
+        _lastCorrectionCounter = result[@"counter"];
+        GHLog(@"controller: learned a correction (%@) label=%@", result[@"counter"] ?: @"?", GHLogLabel(field.label));
+    }
+}
+
+/// The gate's reason, for the HUD: what the Submit ghost is waiting for. Value-free (a label, a count).
+- (void)updateGateWithGhosts:(NSArray<GHGhost *> *)ghosts accepted:(NSArray<NSString *> *)accepted {
+    _gateReason = nil;
+    if (!_core || _orderedFields.count == 0) return;
+    NSMutableArray<NSDictionary *> *ghostObjects = [NSMutableArray array];
+    for (GHGhost *ghost in ghosts) [ghostObjects addObject:[ghost dictionary]];
+    NSDictionary *gate = [_core gateForFieldObjects:[GHField JSONObjectsForFields:_orderedFields]
+                                              ghosts:ghostObjects accepted:accepted ?: @[]];
+    // Only say it when it actually withheld something: an optional field left empty is nobody's business.
+    if ([gate[@"terminalAllowed"] boolValue] || ![gate[@"reason"] isKindOfClass:[NSString class]]) return;
+    NSString *label = [gate[@"firstUnmetLabel"] isKindOfClass:[NSString class]] ? gate[@"firstUnmetLabel"] : nil;
+    _gateReason = label.length ? [NSString stringWithFormat:@"%@: %@", gate[@"reason"], label] : gate[@"reason"];
 }
 
 /// A current ghost nobody can see is useless (Tab stays native for it, and the desktop has no jump pill): unless
@@ -908,7 +1055,8 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
         input.hud = [GHOverlayHUDInfo infoWithProvider:_provider ?: kOfflineProvider latencyMs:_latencyMs cache:_cacheState keystrokesSaved:_walk.keystrokesSaved];
     }
     input.error = _walk.error;
-    input.status = _walk.error ? nil : _hudStatus;
+    // A withheld Submit always says why, so the walk ending on a field never reads as "the form is done".
+    input.status = _walk.error ? nil : (_hudStatus ?: (entries.count > 0 ? _gateReason : nil));
     return input;
 }
 
@@ -1094,6 +1242,7 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
 - (void)dismissSignature:(NSString *)signature {
     GHDraft *draft = _drafts[signature];
     if (draft && !draft.failed && !draft.finished) [self cancelDraft:draft];
+    [self recordProposalOutcome:GHRoleOutcomeDismissed forSignature:signature];
     [_walk dismiss:signature];
     [self render];
 }
@@ -1208,6 +1357,17 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
         return;
     }
     if (ghost.pending) { [self acceptPending:ghost then:done]; return; }
+    // Rule: hold-Tab never accepts a guess (docs/answers.md section 3). The hold stops ON it, visible, so the
+    // user reads it before Submit; one deliberate press takes it. A held Tab can therefore never fill a
+    // required field with a guess and unlock Submit in the same breath.
+    if (_drainIsRepeat && ghost.needsReview) {
+        [self revealCurrent];
+        [self recordStep:@"needs-press" reason:ghost.guess ? @"guess" : @"check-this" ghost:ghost];
+        [self stopTheHold];
+        [self render];
+        done();
+        return;
+    }
     if (_drainIsRepeat && [GHWriter ghostRunsSequence:ghost field:field]) {
         // Hold-Tab never starts an upload or a combobox sequence: its own repeats (user keys) would abort it. The
         // hold stops here, on screen; one fresh press starts it.
@@ -1430,6 +1590,9 @@ hadRemoveControl:(BOOL)hadRemoveControl mayRetry:(BOOL)mayRetry then:(dispatch_b
     }
     if (result.ok) {
         [self rememberWrittenValueOf:[_walk ghostWithSignature:signature]];
+        // docs/anywhere.md section 6: an accepted proposal is remembered under its ROLE, so "fullscreen after
+        // starting a video" carries to the next video Ghost has never seen.
+        [self recordProposalOutcome:GHRoleOutcomeAccepted forSignature:signature];
         [_walk accept:signature];
         if ([self focusStayedWithWrite:signature]) {
             // A lock only ever gets focus straight from the user's press, never after a draft wait or a sequence.
@@ -1471,6 +1634,10 @@ hadRemoveControl:(BOOL)hadRemoveControl mayRetry:(BOOL)mayRetry then:(dispatch_b
     if ([ghost.action isEqualToString:GHGhostActionCheck]) field.value = @"true";
     else if ([ghost.action isEqualToString:GHGhostActionUpload]) field.value = ghost.displayText;   // the name the page shows
     else field.value = ghost.value.length ? ghost.value : ghost.displayText;
+    // What GHOST wrote is never read back as a correction by the next capture (docs/answers.md section 4);
+    // a lazy select lands as the option's own wording, so both are remembered.
+    _ghostWrote[field.signature] = field.value ?: @"";
+    _seenValues[field.signature] = field.value ?: @"";
 }
 
 #pragma mark - harness

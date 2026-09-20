@@ -295,33 +295,35 @@ Ghost Desktop may send `{ "client": "desktop", "version": "<CFBundleShortVersion
 
 Jev reads text only. When the DOM or the macOS accessibility tree has a control with no text (an icon-only button, a canvas app, an image-only PDF, a custom-drawn widget), a client can ask OpenAI to SEE it. The answer is text that joins the state Jev decides over, or a ghost target. Nothing here clicks or types. Code: `server/src/routes/vision.ts`, `server/src/vision/**`. Why and how it fits: `docs/openai.md`.
 
-Configuration: enabled only when the server's LLM config is OpenAI (`OPENAI_API_KEY`; `OPENAI_BASE_URL` is honored). Every offline switch that drops that config also disables vision: `GHOST_PROVIDER=heuristic` (e2e), `GHOST_DECISION_PROVIDER=heuristic` + `GHOST_TEXT_PROVIDER=template`. An xAI or Baseten key does not enable it. `OPENAI_VISION_MODEL` (default `gpt-5.6-luna`), `GHOST_VISION_BUDGET` (default 200 billed calls per process, retries included; `0` disables).
+Configuration: enabled only when the server's LLM config is OpenAI (`OPENAI_API_KEY`; `OPENAI_BASE_URL` is honored). Every offline switch that drops that config also disables vision: `GHOST_PROVIDER=heuristic` (e2e), `GHOST_DECISION_PROVIDER=heuristic` + `GHOST_TEXT_PROVIDER=template`. An xAI or Baseten key does not enable it. `OPENAI_VISION_MODEL` (default `gpt-5.6-luna`), `GHOST_VISION_BUDGET` (default 200 billed calls per process, retries included; `0` disables), `GHOST_VISION_CACHE` (default 200 remembered pages; `0` disables).
 
 Access: the local-only guard of every route (JSON `Content-Type` or `415`, foreign `Origin` / `Host` `403`), PLUS the loop routes' caller rules (`executors/access.ts`), because vision spends paid quota and carries screen pixels: a web page is refused with `403` even on localhost; a browser extension must be the pinned one (`GHOST_EXTENSION_ID`) or send a valid `X-Ghost-Token` (`GHOST_EXECUTE_TOKEN`), else `403`; a caller without an `Origin` (Ghost Desktop, a script) is admitted; a wrong token is `401`. Checked before availability, so a refused caller never costs a budget unit. `GET /v1/vision` stays open (no call, no pixels). Body limit 2.1 MB (`413`).
 
 ### `GET /v1/vision`
-`{ "available": true, "provider": "openai" | null, "model": "gpt-5.6-luna" | null, "budget": { "limit": 200, "used": 3, "remaining": 197 } }`. No model call.
+`{ "available": true, "provider": "openai" | null, "model": "gpt-5.6-luna" | null, "budget": { "limit": 200, "used": 3, "remaining": 197 }, "cache": { "enabled": true, "entries": 4, "hits": 9, "misses": 4 } }`. No model call.
 
 ### `POST /v1/vision/label`
 ```json
 {
   "image": "data:image/png;base64,...",
   "boxes": [{ "id": "ax-17", "x": 368, "y": 36, "width": 48, "height": 48 }],
-  "context": { "app": "Mail", "nearbyText": ["To: team"] }
+  "context": { "app": "Mail", "nearbyText": ["To: team"] },
+  "page": { "pathPattern": "/inbox/*" }
 }
 ```
 - `image`: a base64 data URL, PNG or JPEG only, at most 1,500,000 decoded bytes (`413`). The magic bytes decide the type and must match the data URL (`400`). Width and height are read from the PNG IHDR / JPEG frame header; an image that would need more than 30,000 patches of 32 x 32 px is refused with `413` (OpenAI rejects those rather than resizing them).
 - `boxes`: 1 to 40, unique `id` (1 to 64 characters, never sent to the model: boxes are renamed `b1..bN`), pixel coordinates in the image. A box overhanging the edge is clipped; one entirely outside is `400`.
-- `context` (optional): `app` (at most 64 characters), `nearbyText` (at most 20 strings of at most 80 characters; lines that look sensitive, contain an email address or 7 or more digits, or carry bidi overrides / isolates are dropped before the prompt). Every text field is NFKC-folded and stripped of invisible characters (format characters such as soft hyphens, zero-width characters and Unicode tags, variation selectors, the combining grapheme joiner) before any check, so `Pass<soft hyphen>word` is read as `Password`. A `context.app` with bidi overrides is `400`. `context.windowTitle` is REFUSED with `400`, whatever its value: window titles can be private.
+- `context` (optional): `app` (at most 64 characters), `mediaControls` (a boolean; the client says these boxes sit in a `<video>`'s controls or an AX group around a media element — used only by the affordance classifier in code, NEVER sent to the model), `nearbyText` (at most 20 strings of at most 80 characters; lines that look sensitive, contain an email address or 7 or more digits, or carry bidi overrides / isolates are dropped before the prompt). Every text field is NFKC-folded and stripped of invisible characters (format characters such as soft hyphens, zero-width characters and Unicode tags, variation selectors, the combining grapheme joiner) before any check, so `Pass<soft hyphen>word` is read as `Password`. A `context.app` with bidi overrides is `400`. `context.windowTitle` is REFUSED with `400`, whatever its value: window titles can be private.
 
 ONE `POST {OPENAI_BASE_URL}/responses` call: `instructions`, one user message with `input_text` (the JSON state: image size, aliased boxes with centers, context) and `input_image` (`detail: "original"` on models that document it, else `"high"`; when that detail level makes OpenAI downscale the image, for example gpt-5.4 / gpt-5.5 above 10,000 patches or 6000 px, or gpt-4o by the tile rules, the state gives the model the size it sees and box coordinates in that grid), `text.format` = `json_schema` with `strict: true` and a FIXED schema (the first request with any new schema is slower), `reasoning: { effort: "none" }` on the gpt-5.6 family (`"low"` on gpt-6-astra, omitted otherwise), `max_output_tokens`, `store: false`.
 
 Response `200`:
 ```json
-{ "labels": [{ "id": "ax-17", "label": "Delete", "role": "button", "irreversible": true, "sensitive": false, "confidence": 0.81 }],
-  "provider": "openai", "model": "gpt-5.6-luna", "calibrated": false, "latencyMs": 740 }
+{ "labels": [{ "id": "ax-17", "label": "Delete", "role": "button", "affordance": "unknown", "irreversible": true, "sensitive": false, "confidence": 0.81 }],
+  "provider": "openai", "model": "gpt-5.6-luna", "calibrated": false, "cached": false, "latencyMs": 740 }
 ```
 - Exactly one entry per request box, in request order, under the client's id. `role` is `button | link | field | checkbox | tab | menu | other`.
+- `affordance` is the role from `docs/anywhere.md` section 2 that the label implies (`play`, `fullscreen`, `captions`, `search`, `cart`, `checkout`, `compose`, `reply`, `send`, `save`, `download`, `share`, `more`, `menu`, `settings`, `close`, `back`, `forward`, `scroll-more`, `field`, `submit`, `unknown`, ...), derived IN CODE by the SHARED classifier (`classifyAffordance` in `shared/src/affordance/roles.ts`, through the adapter `server/src/vision/affordance.ts`): the model is never asked for it and never sees the taxonomy. The whole batch is classified together, so a crop holding a fullscreen control is read as a media-controls cluster and the rest of that player bar resolves to `play` / `next` / `mute` / `captions`; a lone media word outside such a batch stays `unknown` on purpose. `primary-item` is never returned, because which item is first comes from layout, which one crop cannot show. The role is a hint: the client's ranker still decides with the page kind, its priors and its memory.
 - Validated in code: an entry with an unknown or repeated id, a role outside the enum or wrong types is dropped, and that box comes back unanswered (`label: null`, `role: "other"`, `confidence: 0`). Labels are trimmed, invisible characters removed, clipped to 40 characters; a label that contains an email address or 7 or more digits, or a bidi override, becomes `null` with confidence `0` (name the control, not its content).
 - `irreversible` = the model's flag OR the shared `isLockedAction` on the model's FULL label (before clipping and scrubbing): the model can lock a control, never unlock one ("Submit application" is locked even if the model says otherwise; so is "Save your changes to the shared folder and publish", clipped to 40 characters, and "Send to alex@example.com", scrubbed to `null`).
 - `sensitive` = the shared `isSensitive` on the full label (password, card, government ID): never fill that control. A label with a bidi override cannot be read by these rules and comes back locked and sensitive.
@@ -340,7 +342,17 @@ Response `200`: `{ "box": { "x", "y", "width", "height" } | null, "boxId": "<cli
 ### Errors, cost and privacy
 - `503 { "error": "vision unavailable", "reason" }` without an OpenAI key (zero network). `400` / `413` validation (messages name the path, never a value). `429 { "error": "vision budget exhausted", "limit" }` once the process budget is spent (checked before building the request). `504 { "error": "vision timed out" }` after 8 s. `502 { "error": "vision provider failed", "reason": "upstream" | "network" | "malformed" | "refused" | "incomplete", "upstreamStatus"? }`.
 - No retries on 4xx (429 included). A 5xx is retried once, after 200 ms, only if 2.5 s of the 8 s deadline remain and a budget unit can be taken; that unit is taken before the backoff, so a concurrent request cannot spend it meanwhile (it gets `429`), and every billed attempt is logged and measured.
-- Stateless: images are validated, forwarded once and dropped; nothing from the screen is cached, stored or logged. One log line per call, sizes and counts only: `[ghost] openai /v1/vision/label 740ms model=gpt-5.6-luna calibrated=false cache=miss image=png 480x120 bytes=1330 boxes=3 attempts=1 answered=3 locked=2 droppedText=0`. Latency (failures included) is recorded in `/v1/metrics` under provider `openai`.
+- Images are validated, forwarded once and dropped; none is ever stored or logged. One log line per call, sizes, counts and token counts only: `[ghost] openai /v1/vision/label 740ms model=gpt-5.6-luna calibrated=false cache=miss image=png 480x120 bytes=1330 boxes=3 attempts=1 tokens=629/87 answered=3 locked=2 droppedText=0` (`tokens=in/out`, plus `+Nr` when the model billed reasoning tokens; absent if the reply carried no `usage`). Latency (failures included) is recorded in `/v1/metrics` under provider `openai`.
+- The deadline scales with the batch, because ONE call answers every box: 8 s + 400 ms per box, capped at 24 s (9.2 s for 3 boxes, 16 s for 20, 24 s for 40).
+
+### The per-page cache (`page.pathPattern`, label only)
+Opt-in, per `docs/anywhere.md` section 4: a client that sends `page: { pathPattern }` gets the labels for that page remembered, so a second visit costs no call at all. Without it, nothing is cached.
+- Key: `sha256(pathPattern | model | image size | every box rectangle, in order)`. The client's box ids are NOT part of it and are not stored (an AX signature can carry a name); the pattern itself is not stored either, only its hash. Entries hold the VALIDATED labels (already clipped, locked and sensitivity-checked) and nothing else: never an image.
+- A hit returns `cached: true`, `latencyMs` near 0, logs `cache=hit ... attempts=0`, makes no HTTP call and takes no budget unit — and is served even when the budget is spent (that money was already paid). A miss on an unknown page with a spent budget is still `429`.
+- Positional: cached labels come back under the CURRENT request's box ids.
+- Any change to the geometry, the crop size, the box count, the box order or the model is a different key and costs a call: a stale label is a wrong ghost.
+- Bounded: 200 pages (`GHOST_VISION_CACHE`), 30 minutes, oldest evicted first, in memory only, lost on restart.
+- `page.pathPattern` is a PATTERN: 1 to 200 characters, no query string or fragment (`400`, they carry tokens and ids), nothing that looks like personal data (an email address, 7 or more digits: `400`, "replace them with *"), no bidi controls (`400`). It is NFKC-folded and stripped of invisible characters like every other text field, hashed locally, and never sent to the model or written to a log.
 
 ## Terminal (`POST /v1/predict/command`)
 
@@ -369,3 +381,52 @@ Response:
 `command` is `null` when nothing fits (Jev answered `none`, no candidate, secret prefix). `fallbackFrom` is present after a fallback. The client shows the ghost only when `confidence >= GHOST_TERMINAL_MIN_CONFIDENCE` (default 0.7). Log line, numbers only: `[ghost] typesafe /v1/predict/command 488ms questions=1 calibrated=true cache=miss`; latency and cache hits are recorded in `/v1/metrics`.
 
 Measured (2026-09-19, TypeSafe direct, a fictional session with history `pnpm install`, `pnpm build`, `pnpm test`, `git status`, `git add -A`, a dirty tree, four project scripts, no `prefix`, 8 candidates): `git commit -m ""` at confidence 0.89 in 491 ms server-side (560 ms client round trip); the repeat was a 0 ms cache hit. Before options carried their evidence the same session scored 0.69 (502 ms), under the gate.
+
+## Fact sources (`GET /v1/facts`, `POST /v1/facts/scan`)
+
+Builds the open fact graph from what the user already has (`docs/profile-sources.md`). The server reads the sources the request names, returns **proposals**, and forgets them. Code: `server/src/routes/facts.ts`, `server/src/facts/*`; the graph itself, the matcher and `applyProposals` live in `shared/src/facts/**` and run on the client.
+
+**Nothing is persisted.** No document, fetched page, proposal or value is written to disk, cached between requests or logged. The response is the only place a value appears, and it goes back to the caller, which shows each proposal with its source and evidence and accepts them one by one. `/v1/predict/form` keeps receiving fact KEYS only.
+
+**Access**: the loop and vision caller rules minus the pinning requirement — a web page never reaches this route, not even one on `http://localhost` (`403`, the proposals are the user's own details); with `GHOST_EXTENSION_ID` set only that extension's origin is admitted (`403` otherwise); a caller without an `Origin` (Ghost Desktop, a script) is local by the global guard, and a wrong `X-Ghost-Token` is `401`.
+
+### `GET /v1/facts`
+`{ "adapters": ["github","website","text","resume"], "model": { "provider": "xai", "model": "grok-…" } | null, "conflicts": { "provider": "typesafe", "calibrated": true } | null, "limits": { "sources": 5, "textChars": 20000, "proposals": 60 } }`. `model: null` means no text key: the code extractors answer alone. `conflicts: null` means no decision provider: conflicts are settled in code.
+
+### `POST /v1/facts/scan`
+```json
+{ "sources": [
+    { "kind": "github",  "login": "octocat", "etag": "W/\"abc\"" },
+    { "kind": "website", "url": "https://alexchen.dev/about" },
+    { "kind": "text",    "text": "...", "origin": "mail", "name": "gmail" },
+    { "kind": "resume",  "text": "...", "name": "resume.pdf" } ],
+  "hints": { "fullName": "Alex Chen", "workDomain": "northwind.test" }, "model": true }
+```
+1 to 5 sources; `text` at most 20 000 characters; body 256 KB (streamed bytes included, `413`). `origin` is `file` (default) / `mail` / `calendar` / `drive` and `name` is the file or connector name: together they become the fact's provenance (`file:resume.pdf`, `mail:gmail`), which is what a later "forget this source" matches on. `hints` are optional and never required. `model: false` runs the code extractors only, with zero model calls. `400` messages name the offending path and never echo a value.
+
+Adapters:
+- **github** — one unauthenticated `GET https://api.github.com/users/<login>` (5 s, 128 KB cap). **No token is ever sent**: this must work without a GitHub key, and a token would spend the user's rate limit on a scan. Reads `login`, `name`, `email`, `blog`, `company`, `location`, `twitter_username` and nothing else. ETag-friendly: the `etag` from a previous scan comes back as `If-None-Match`, and `304` is reported as `status: "unchanged"` with no proposals. A profile is structured already, so this adapter never costs a model call. `404` / `403` / `5xx` are a failed SOURCE, not a failed scan.
+- **website** — ONE fetch of the URL the user typed. Not a crawler: no link on the page is followed. The address must be public before the socket opens (`400 … must be a public address` for a private or loopback host, credentials in the URL, or a non-http scheme) and again after DNS resolution (`reason: "blocked"`, and no request is made). Redirects are manual: at most 2 hops, only inside the same site (`www.` and an `http` → `https` upgrade allowed, never a downgrade), anything else is `blocked`. Only `text/html`, `text/plain` and `application/xhtml+xml` are read (`not text`), the read stops at 512 KB, and the HTML becomes text with `<script>`, `<style>`, `<noscript>`, `<svg>`, `<iframe>` and comments dropped whole — so nothing a page hid there can reach an extractor or a prompt — with the `<title>` and `<meta name="description">` first. The addresses behind links are kept only when they are a GitHub / LinkedIn / X profile or a `mailto:`; the page itself is proposed as the user's `website` (or `github` / `linkedin` / `links.twitter` when that is what it is).
+- **text / resume** — the document the caller already has. A vCard (`BEGIN:VCARD`) is read exactly by code, which is what makes a shipping form fillable, and never costs a model call. `resume` also runs the résumé regex extractor (`graduationDate` is parsed into `YYYY-MM` in code).
+
+Pipeline, in this order (`docs/profile-sources.md` section 3):
+1. **Redact.** A line a person would read as sensitive (password, SSN / SIN, health or card number, date of birth) is dropped whole, and card-shaped (Luhn), SSN-shaped and IBAN-shaped values are scrubbed wherever they appear. This happens BEFORE any extractor or prompt, so sensitive material is never in the request to a model. Counted as `sensitiveDropped`, never kept.
+2. **Code extractors** (`shared/src/facts/extract.ts`): emails, phone, links, vCard fields, the GitHub profile, the résumé regexes.
+3. **ONE model call per prose document**, never one per fact, with the schema declared in the prompt and enforced in code (the shared OpenAI-compatible client speaks `response_format: json_object`). The model only picks text out of the document; it never decides what is sensitive and never writes a value of its own. The document is labelled untrusted in the prompt.
+4. **Code validation.** Every model value must literally appear in the document or it is dropped and counted as `unverified`; the key must match the fact-key pattern; the label, aliases, category and field kinds are re-derived from the shared fact definitions; the evidence snippet is built in code from the line the value sits on. Anything sensitive is refused again here. Code extractors win a key the model also answered.
+5. **ONE Jev call for genuine conflicts only.** Two sources that agree collapse to the more trusted one and are never asked about. Sources that disagree become one `choice` question each — `c0..cN` plus `none`, all in ONE call — over a state of `{ key, question, candidates: [{ option, value, from, evidence }] }`. Without a decision provider, with the heuristic one, on timeout (4 s), or when the answer is `none` or unusable, code picks the strongest candidate (confidence, then source trust), exactly as the graph would.
+
+Response `200`:
+```json
+{ "proposals": [ { "key": "work.employer.current", "value": "Northwind Robotics", "category": "work", "label": "employer",
+                   "aliases": ["company","current employer"], "confidence": 0.7, "source": { "kind": "github", "login": "octocat" },
+                   "evidence": "company: @Northwind Robotics", "updatedAt": "2026-09-19T…", "kinds": ["text","select"] } ],
+  "sources": [ { "kind": "github", "id": "github:octocat", "status": "ok", "proposals": 7, "sensitive": 0, "unverified": 0,
+                 "modelCalls": 0, "latencyMs": 212, "etag": "W/\"abc\"" } ],
+  "conflicts": [ { "key": "work.employer.current", "candidates": 2, "resolvedBy": "model", "confidence": 0.9 } ],
+  "provider": "typesafe", "modelCalls": 1, "sensitiveDropped": 0, "latencyMs": 640 }
+```
+- A proposal carries everything the review list needs; the client turns an accepted one into a fact with `applyProposals` (`shared/src/facts/graph.ts`), which has the final say on conflicts, caps and sensitivity. At most 60 proposals, one per key.
+- `sources[].status` is `ok` / `unchanged` / `failed`; `reason` is a fixed word (`timeout`, `network`, `not found`, `rate limited`, `blocked`, `too large`, `not text`, `malformed`, `upstream`), never a value. One failed source never fails the scan.
+- Sensitive facts are never proposed, whatever a source or a model says; they are only counted.
+- One log line per scan, counts and source KINDS only — never a login, a URL, a key or a value: `[ghost] facts /v1/facts/scan 640ms sources=2 [github:ok,website:failed(not found)] proposals=11 conflicts=1 sensitiveDropped=2 modelCalls=1`. Each model call is logged and measured on its own (`/v1/metrics`, route `/v1/facts/scan`).

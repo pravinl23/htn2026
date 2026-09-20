@@ -96,6 +96,11 @@ static NSString *GWResumePath(void) {
 @property (nonatomic, strong, nullable) GHFakeAXNode *menu;
 @property (nonatomic, weak, nullable) GHFakeAXNode *menuCombo;
 @property (nonatomic, copy) NSDictionary<NSString *, NSArray<NSString *> *> *optionsByCombo;
+/// Combo boxes whose menu opens on an AXPress alone, with every option, and never needs a keystroke -- what
+/// Greenhouse's react-select does for the EEO selects (GHComboBoxDriver step 3a). The phone-prefix Country
+/// control and the referral type-ahead are NOT in here: they only show options once something is typed, so
+/// both halves of the contract stay covered.
+@property (nonatomic, copy) NSSet<NSString *> *pressOpensMenu;
 
 // What happened. Text is recorded per target so the test can prove where every character went.
 @property (nonatomic, strong) NSMutableArray<NSString *> *typedTargets;          // one entry per text chunk
@@ -116,6 +121,7 @@ static NSString *GWResumePath(void) {
 - (void)replaceFieldNode:(GHFakeAXNode *)node withValue:(NSString *)value;
 - (BOOL)panelOpen;
 - (void)openPanelFrom:(GHFakeAXNode *)button;
+- (void)openMenuFor:(GHFakeAXNode *)combo;
 - (void)choose:(NSString *)option;
 @end
 
@@ -163,6 +169,7 @@ static GHFakeAXNode *GWNode(NSString *role, NSString *title, CGRect frame) {
         return YES;
     }
     if ([GHOpenPanelDriver isUploadButton:node]) [world openPanelFrom:fake];
+    else if ([fake.role isEqualToString:@"AXComboBox"] && [world.pressOpensMenu containsObject:fake.title ?: @""]) [world openMenuFor:fake];
     return YES;
 }
 - (BOOL)selectAllInNode:(id<GHAXNode>)node {
@@ -191,10 +198,20 @@ static GHFakeAXNode *GWNode(NSString *role, NSString *title, CGRect frame) {
     _typedByTarget = [NSMutableDictionary dictionary];
     _chosen = [NSMutableArray array];
     _panelsOpenedBy = [NSMutableArray array];
+    _pressOpensMenu = [NSSet setWithArray:@[ @"Gender", @"Are you Hispanic/Latino?", @"Veteran Status", @"Disability Status" ]];
     _optionsByCombo = @{
         @"Country": @[ @"Canada +1", @"United States +1", @"United Kingdom +44", @"India +91" ],
         kHeard: @[ @"LinkedIn", @"Indeed", @"Hack the North", @"Company website", @"Referral", @"Other" ],
         kAuthorized: @[ @"Yes", @"No" ],
+        // The four EEO lists, worded the way Greenhouse words them: each one offers its own way to decline,
+        // and no two of them word it the same.
+        @"Gender": @[ @"Male", @"Female", @"Decline To Self Identify" ],
+        @"Are you Hispanic/Latino?": @[ @"Yes", @"No", @"Decline To Self Identify" ],
+        @"Veteran Status": @[ @"I identify as one or more of the classifications of a protected veteran",
+                              @"I am not a protected veteran", @"I don't wish to answer" ],
+        @"Disability Status": @[ @"Yes, I have a disability, or have had one in the past",
+                                 @"No, I do not have a disability and have not had one in the past",
+                                 @"I do not want to answer" ],
     };
 
     // The macOS open panel: a sheet with a file list, a search field, Cancel and a (disabled) Upload button.
@@ -586,9 +603,31 @@ GH_TEST(integration_greenhouse_tab_walk_fills_uploads_chooses_and_parks_on_submi
     for (GHField *field in [rig.capture captureWindow:world.window].fields) labels[field.signature] = field.label;
     NSMutableArray<NSString *> *ghosted = [NSMutableArray array];
     for (GHGhost *ghost in walk.ghosts) [ghosted addObject:[NSString stringWithFormat:@"%@ %@", ghost.action, labels[ghost.signature]]];
+    // EVERY question gets a ghost now (docs/answers.md), and NO Submit while a required field is unanswered
+    // (docs/incremental.md): the work-authorization question is AXRequired on this page.
     GH_ASSERT_EQUAL_OBJECTS(ghosted, (@[ @"fill First Name", @"fill Last Name", @"fill Email", @"select Country", @"fill Phone", @"upload Resume/CV",
                                          @"fill LinkedIn Profile", @"fill Github", @"fill Website", [@"select " stringByAppendingString:kHeard],
-                                         @"click Submit application" ]));
+                                         [@"select " stringByAppendingString:kAuthorized],
+                                         @"select Gender", @"select Are you Hispanic/Latino?", @"select Veteran Status", @"select Disability Status" ]));
+    // Every proposal Ghost is not certain of wears the badge and stops a held accept key; what it knows
+    // outright does not (docs/always-propose.md). The US question is guessed (the profile covers Canada
+    // only); the four EEO questions are declines -- sourced as facts, because declining claims nothing about
+    // anybody, but still shown for a look because they come in under the confident tier.
+    for (GHGhost *ghost in walk.ghosts) {
+        NSString *label = labels[ghost.signature];
+        if (ghost.guess) GH_ASSERT_MSG(ghost.needsReview, @"%@ is flagged, so it must ask to be checked", label);
+        if ([@[ @"First Name", @"Last Name", @"Email" ] containsObject:label]) {
+            GH_ASSERT_MSG(!ghost.guess, @"%@ comes straight from the profile", label);
+        }
+        if ([label isEqualToString:kAuthorized]) {
+            GH_ASSERT_MSG(ghost.guess, @"%@ is inferred, not known", label);
+            GH_ASSERT_EQUAL_OBJECTS(ghost.answerSource, @"guess");
+        }
+        if (![@[ @"Gender", @"Are you Hispanic/Latino?", @"Veteran Status", @"Disability Status" ] containsObject:label]) continue;
+        GH_ASSERT_MSG(ghost.declineAnswer, @"%@ must be answered by declining", label);
+        GH_ASSERT_EQUAL_OBJECTS(ghost.answerSource, @"fact"); // a decline is never sourced as a guess
+        GH_ASSERT_EQUAL_OBJECTS(ghost.answerClass, @"protected");
+    }
     for (GHGhost *ghost in walk.ghosts) {
         if ([ghost.action isEqualToString:GHGhostActionSelect]) GH_ASSERT(ghost.lazy);
         if ([ghost.action isEqualToString:GHGhostActionUpload]) GH_ASSERT_EQUAL_OBJECTS(ghost.displayText, @"resume-alex-chen.pdf");
@@ -608,6 +647,8 @@ GH_TEST(integration_greenhouse_tab_walk_fills_uploads_chooses_and_parks_on_submi
         @"jumped: First Name",
         @"accepted: First Name", @"accepted: Last Name", @"accepted: Email", @"accepted: Country", @"accepted: Phone",
         @"accepted: Resume/CV", @"accepted: LinkedIn Profile", @"accepted: Github", @"accepted: Website", [@"accepted: " stringByAppendingString:kHeard],
+        [@"accepted: " stringByAppendingString:kAuthorized],
+        @"accepted: Gender", @"accepted: Are you Hispanic/Latino?", @"accepted: Veteran Status", @"accepted: Disability Status",
         @"parked: Submit application",
     ];
     GH_ASSERT_EQUAL_OBJECTS([rig stepSummaries], expected);
@@ -621,14 +662,24 @@ GH_TEST(integration_greenhouse_tab_walk_fills_uploads_chooses_and_parks_on_submi
     GH_ASSERT_EQUAL_OBJECTS([rig textFieldTitled:@"LinkedIn Profile"].value, facts[@"linkedin"]);
     GH_ASSERT_EQUAL_OBJECTS([rig textFieldTitled:@"Github"].value, facts[@"github"]);
     GH_ASSERT_EQUAL_OBJECTS([rig textFieldTitled:@"Website"].value, facts[@"website"]);
-    GH_ASSERT_EQUAL_OBJECTS(world.chosen, (@[ @"Country=Canada +1", [kHeard stringByAppendingString:@"=Hack the North"] ]));
+    // Every question is answered, each in the page's own words: the two type-ahead lists from the profile, the
+    // US work-authorization question with the conservative "No", and each EEO question with ITS way of declining.
+    GH_ASSERT_EQUAL_OBJECTS(world.chosen, (@[ @"Country=Canada +1", [kHeard stringByAppendingString:@"=Hack the North"],
+                                              [kAuthorized stringByAppendingString:@"=No"],
+                                              @"Gender=Decline To Self Identify",
+                                              @"Are you Hispanic/Latino?=Decline To Self Identify",
+                                              @"Veteran Status=I don't wish to answer",
+                                              @"Disability Status=I do not want to answer" ]));
 
     // The upload drove the panel with the right path, exactly once, and nothing else.
     GH_ASSERT_EQUAL_OBJECTS(world.panelsOpenedBy, (@[ @"Attach" ]));
     GH_ASSERT_EQUAL_OBJECTS(world.typedByTarget[@"go-to field"], GWResumePath());
     GH_ASSERT_EQUAL_OBJECTS(world.typedByTarget[@"Country"], @"Canada");
     GH_ASSERT_EQUAL_OBJECTS(world.typedByTarget[kHeard], @"Hack the North");
-    GH_ASSERT_EQUAL_OBJECTS([NSSet setWithArray:world.typedTargets], ([NSSet setWithArray:@[ @"go-to field", @"Country", kHeard ]]));
+    // The work-authorization question is a type-ahead like the other two: "No" is typed, then the real option
+    // is pressed. The four EEO questions are not in this set: a decline is never typed anywhere.
+    GH_ASSERT_EQUAL_OBJECTS(world.typedByTarget[kAuthorized], @"No");
+    GH_ASSERT_EQUAL_OBJECTS([NSSet setWithArray:world.typedTargets], ([NSSet setWithArray:@[ @"go-to field", @"Country", kHeard, kAuthorized ]]));
     GH_ASSERT_EQUAL_INT(world.returnsInGoTo, 1);
     GH_ASSERT_EQUAL_INT(world.returnsOnOpen, 1);
     GH_ASSERT_EQUAL_INT(world.returnsElsewhere, 0);
@@ -641,22 +692,24 @@ GH_TEST(integration_greenhouse_tab_walk_fills_uploads_chooses_and_parks_on_submi
 
     // Presses: each combo box is pressed ONCE to try to open it without a keystroke (what the real Greenhouse
     // react-select needs), then its chosen option; the Attach button once; never Submit (or Apply, Autofill,
-    // Dropbox...), and never anything belonging to an EEO or work-authorization question.
+    // Dropbox...).
     GHFakeAXNode *submit = [rig buttonTitled:@"Submit application"];
     NSMutableArray<NSString *> *pressed = [NSMutableArray array];
     for (id<GHAXNode> node in world.actuator.pressedNodes) [pressed addObject:node.title ?: node.value ?: node.role];
-    GH_ASSERT_EQUAL_OBJECTS(pressed, (@[ @"Country", @"Canada +1", @"Attach", kHeard, @"Hack the North" ]));
+    GH_ASSERT_EQUAL_OBJECTS(pressed, (@[ @"Country", @"Canada +1", @"Attach", kHeard, @"Hack the North",
+                                         kAuthorized, @"No",
+                                         @"Gender", @"Decline To Self Identify",
+                                         @"Are you Hispanic/Latino?", @"Decline To Self Identify",
+                                         @"Veteran Status", @"I don't wish to answer",
+                                         @"Disability Status", @"I do not want to answer" ]));
 
-    // EEO and the US work-authorization question were never focused, typed into or opened.
-    for (NSString *title in @[ kAuthorized, @"Gender", @"Are you Hispanic/Latino?", @"Veteran Status", @"Disability Status" ]) {
+    // Nothing is ever TYPED into an EEO question: a decline is matched by meaning among the options the page
+    // itself offers, so no wording of Ghost's ever lands in a demographic field (docs/answers.md section 7).
+    for (NSString *title in @[ @"Gender", @"Are you Hispanic/Latino?", @"Veteran Status", @"Disability Status" ]) {
         GHFakeAXNode *combo = [rig comboTitled:title];
         GH_ASSERT_MSG(combo != nil, @"%@ is in the fixture", title);
-        GH_ASSERT_MSG(combo.value.length == 0, @"%@ must stay empty", title);
-        GH_ASSERT_MSG(![world.actuator.focusRequests containsObject:combo], @"%@ must never get focus", title);
         GH_ASSERT_MSG(world.typedByTarget[title] == nil, @"nothing may be typed into %@", title);
-        GH_ASSERT_MSG(![ghosted containsObject:[@"select " stringByAppendingString:title]], @"%@ has no ghost", title);
     }
-    for (NSString *chosen in world.chosen) GH_ASSERT([chosen hasPrefix:@"Country="] || [chosen hasPrefix:kHeard]);
 
     // The walk ends parked on the locked Submit: current, focused, on screen, never pressed.
     GH_ASSERT(walk.current.locked);
@@ -664,7 +717,7 @@ GH_TEST(integration_greenhouse_tab_walk_fills_uploads_chooses_and_parks_on_submi
     GH_ASSERT(submit.isFocused);
     GH_ASSERT(controller.currentVisible);
     GH_ASSERT(walk.finished);
-    GH_ASSERT_EQUAL_INT(walk.accepted, 10);
+    GH_ASSERT_EQUAL_INT(walk.accepted, 15);
     GH_ASSERT([controller.eventTap publishedSnapshot].currentLocked);
     // Over-pressing and holding Tab on the lock is harmless: still no press, no key.
     NSUInteger posts = world.poster.posted.count;

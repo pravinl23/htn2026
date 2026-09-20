@@ -14,6 +14,7 @@ export const VISION_LIMITS = {
   nearbyTextChars: 80,
   instructionChars: 200,
   labelChars: 40,
+  pathPatternChars: 200,
 } as const;
 
 /** A box in image pixels, clipped to the image. `alias` (b1, b2...) is the only id the model ever sees. */
@@ -29,6 +30,12 @@ export interface VisionBox {
 export interface VisionContext {
   app?: string;
   nearbyText?: string[];
+  /**
+   * The client says these boxes sit in a media-controls cluster (a `<video>`'s controls, or an AX group whose
+   * descendants include a media element). Never sent to the model: it only tells the affordance classifier that
+   * player vocabulary means what it says here. Optional; a batch that holds a fullscreen control works it out anyway.
+   */
+  mediaControls?: boolean;
 }
 
 export interface LabelRequest {
@@ -37,6 +44,8 @@ export interface LabelRequest {
   context: VisionContext;
   /** nearbyText lines dropped because they looked sensitive. A count only. */
   droppedText: number;
+  /** `page.pathPattern`, when the client opted into the per-page cache. Hashed locally; never sent, never logged. */
+  pathPattern?: string;
 }
 
 export interface LocateRequest {
@@ -115,6 +124,10 @@ function parseContext(value: unknown): { context: VisionContext; droppedText: nu
     if (app.length > VISION_LIMITS.appChars) throw new BadRequest(`context.app must be at most ${VISION_LIMITS.appChars} characters`);
     if (app) context.app = app;
   }
+  if (value.mediaControls !== undefined && value.mediaControls !== null) {
+    if (typeof value.mediaControls !== "boolean") throw new BadRequest("context.mediaControls must be a boolean");
+    if (value.mediaControls) context.mediaControls = true;
+  }
   let droppedText = 0;
   if (value.nearbyText !== undefined && value.nearbyText !== null) {
     if (!Array.isArray(value.nearbyText)) throw new BadRequest("context.nearbyText must be an array");
@@ -135,11 +148,31 @@ function parseContext(value: unknown): { context: VisionContext; droppedText: nu
   return { context, droppedText };
 }
 
+/**
+ * `page.pathPattern`: the cache key's other half. A PATTERN, so it is bounded, carries no query string or fragment
+ * (those hold tokens and ids) and nothing that looks like personal data. It is hashed in cache.ts and never sent to the
+ * model or written to a log, but a client that sends a raw URL is told, not quietly accepted.
+ */
+function parsePage(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) throw new BadRequest("page must be an object");
+  const raw = value.pathPattern;
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "string") throw new BadRequest("page.pathPattern must be a string");
+  if (reordersText(raw)) throw new BadRequest("page.pathPattern must not contain bidirectional control characters");
+  const pattern = cleanText(raw);
+  if (!pattern || pattern.length > VISION_LIMITS.pathPatternChars) throw new BadRequest(`page.pathPattern must be 1 to ${VISION_LIMITS.pathPatternChars} characters`);
+  if (/[?#]/.test(pattern)) throw new BadRequest("page.pathPattern must be a path pattern without a query string or fragment (for example /dp/*)");
+  if (looksLikePersonalData(pattern)) throw new BadRequest("page.pathPattern must not contain identifiers: replace them with * (for example /orders/*)");
+  return pattern;
+}
+
 export function parseLabelRequest(body: unknown): LabelRequest {
   if (!isRecord(body)) throw new BadRequest("body must be an object");
   const image = parseImage(body.image);
   const boxes = parseBoxes(body.boxes, image, true);
-  return { image, boxes, ...parseContext(body.context) };
+  const pathPattern = parsePage(body.page);
+  return { image, boxes, ...parseContext(body.context), ...(pathPattern ? { pathPattern } : {}) };
 }
 
 export function parseLocateRequest(body: unknown): LocateRequest {

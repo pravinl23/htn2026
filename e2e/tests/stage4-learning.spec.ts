@@ -161,7 +161,7 @@ test.describe("stage 7: metrics", () => {
     const serverBefore = (await serverMetrics()).counters;
     await openForm(page, "/apply", SERVER_GHOSTS);
     const accepted = await walk(page);
-    expect(accepted).toBe(SERVER_GHOSTS - 1);
+    expect(accepted).toBe(SERVER_GHOSTS); // every value ghost; the Submit is still gated behind the privacy box
     await expectNotSubmitted(page);
 
     // The reporter batches every 5 s (and on pagehide); the worker is the one writer of ghost.metrics.

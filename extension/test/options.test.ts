@@ -203,7 +203,7 @@ describe("options page", () => {
     $<HTMLInputElement>("setting-learning").click();
     type($<HTMLInputElement>("setting-server-url"), "http://localhost:9000/", "change");
     await settle();
-    expect(await getSettings()).toEqual({ enabled: false, confidenceThreshold: 0.85, serverUrl: "http://localhost:9000", showHud: false, learningEnabled: true });
+    expect(await getSettings()).toEqual({ answerProtectedWithDecline: true, enabled: false, confidenceThreshold: 0.85, serverUrl: "http://localhost:9000", showHud: false, learningEnabled: true });
     expect($("settings-status").textContent).toBe("Saved");
   });
 

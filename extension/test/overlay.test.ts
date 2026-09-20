@@ -523,3 +523,46 @@ describe("Overlay multi-line drafts (Stage 3)", () => {
     expect(part(".hud-text").hidden).toBe(true);
   });
 });
+
+describe("tiers: how sure a proposal is, drawn (docs/always-propose.md)", () => {
+  const HUD = { provider: "offline-heuristic", latencyMs: null, cache: "offline" as const, keystrokesSaved: 0 };
+
+  it("marks the confident, the guess and the long shot on the node and on the host", () => {
+    const cases: Array<[Partial<Ghost>, string | null, string]> = [
+      [{ tier: "confident" }, "confident", ""],
+      [{ tier: "guess", guess: true }, "guess", "guess"],
+      [{ tier: "long-shot", guess: true }, "long-shot", "guess"],
+    ];
+    for (const [partial, tier, chip] of cases) {
+      overlay.render({ ghosts: [entry("first", "current", partial)] });
+      expect(nodeFor("sig-first")?.getAttribute("data-tier")).toBe(tier);
+      expect(hostEl().getAttribute("data-ghost-tier")).toBe(tier);
+      expect(nodeFor("sig-first")?.querySelector(".chip")?.textContent).toBe(chip);
+    }
+  });
+
+  it("says 'check this' rather than 'guess' for an answer it did not guess, and for a declaration", () => {
+    overlay.render({ ghosts: [entry("first", "current", { tier: "guess", guess: true, answerSource: "fact" })] });
+    expect(nodeFor("sig-first")?.querySelector(".chip")?.textContent).toBe("check this");
+    overlay.render({ ghosts: [entry("first", "current", { tier: "guess", guess: true, answerClass: "declaration", answerSource: "guess" })] });
+    expect(nodeFor("sig-first")?.querySelector(".chip")?.textContent).toBe("check this");
+  });
+
+  it("puts a long shot's reason in the HUD, and nothing else's", () => {
+    const why = "no profile fact: the option that claims the least";
+    overlay.render({ ghosts: [entry("first", "current", { tier: "long-shot", guess: true, reason: why })], hud: HUD });
+    expect(part(".hud-why").hidden).toBe(false);
+    expect(part(".hud-why").textContent).toBe(why);
+    // An ordinary guess speaks for itself: the chip is enough.
+    overlay.render({ ghosts: [entry("first", "current", { tier: "guess", guess: true, reason: why })], hud: HUD });
+    expect(part(".hud-why").hidden).toBe(true);
+    // And with the HUD switched off nothing about it is drawn.
+    overlay.render({ ghosts: [entry("first", "current", { tier: "long-shot", guess: true, reason: why })] });
+    expect(part(".hud-why").hidden).toBe(true);
+  });
+
+  it("dims a long shot in the stylesheet rather than hiding it", () => {
+    expect(OVERLAY_CSS).toContain('.ghost[data-tier="long-shot"]');
+    expect(OVERLAY_CSS).not.toContain('.ghost[data-tier="long-shot"] { display: none');
+  });
+});
