@@ -37,6 +37,11 @@ extern NSNotificationName const GHControllerStateDidChangeNotification;
 extern const NSTimeInterval GHDraftWaitSeconds;       // 4 s: how long a Tab waits for a draft that is still streaming
 extern const NSUInteger GHMaxConcurrentDrafts;        // 3
 
+/// What a next-action proposal shows: the control's own name, but only where that name is an ACTION
+/// ("Play", "Cart"). A box you interact with by value gets nothing -- its name is its placeholder, and
+/// echoing it back reads as "type this". Pure; exposed for tests.
+NSString *GHProposalDisplayText(GHField *field);
+
 @interface GHController : NSObject <GHDesktopPipeline, GHAccessibilityDelegate, GHEventTapDelegate, GHGhostTextStreamDelegate>
 
 - (instancetype)init NS_UNAVAILABLE;

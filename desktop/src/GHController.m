@@ -98,6 +98,7 @@ static const NSUInteger kUploadVerifyTries = 8;
     BOOL _stepDirect;        // the step in flight follows the user's press at once (no draft wait, no sequence)
     BOOL _stepFromGhostKey;  // the accept came from the Ghost key, which no app binds and nothing can take back
     NSString *_previousRoleBundleId;   // which app the last accepted role was in; another app forgets it
+    NSString *_proposalBundleId;       // which app the live proposal belongs to (it is read after the app may have changed)
     NSString *_stickySignature;    // the proposal currently on screen: it wins near-ties so the ghost stops moving
     NSString *_cooldownSignature;  // just taken or just turned down: not offered again until _cooldownUntil
     CFAbsoluteTime _cooldownUntil;
@@ -419,12 +420,29 @@ static const NSUInteger kUploadVerifyTries = 8;
     _pageContextRead = NO;
     _conversation = nil;
     _conversationRead = NO;
-    _proposal = nil;
-    // What the user did last SURVIVES the page it opened, as long as they are still in the same app: pressing
-    // New Message is the reason the compose window is there, and forgetting it the instant it appears is how
-    // Ghost ended up proposing the search box on a screen the user had just created to type a name into.
-    // A different app is a different train of thought, and forgets.
-    if (![_walkBundleId isEqualToString:_previousRoleBundleId ?: @""]) _previousRole = nil;
+    /*
+     * What the user did last.
+     *
+     * It SURVIVES the page it opened, as long as they are still in the same app: pressing New Message is the
+     * reason the compose window is there, and forgetting it the instant it appears is how Ghost ended up
+     * proposing the search box on a screen somebody had just created to type a name into. A different app is
+     * a different train of thought, and forgets.
+     *
+     * And a proposal that was on screen when the view changed under it counts too. Ghost only ever recorded
+     * its OWN accepted ghosts, so doing the same thing with the mouse -- which is what people actually do --
+     * left it with no idea where in a flow it was, and the transitions never fired in real use.
+     *
+     * This is an inference, not an observation: Ghost cannot see a click. So it is kept deliberately cheap.
+     * It feeds the transition priors, which are weak by construction, and it is NEVER written to role memory
+     * and NEVER reported as an accept -- learning from something nobody watched would poison both.
+     */
+    BOOL proposalWasHere = _proposal && _proposalBundleId.length && [_proposalBundleId isEqualToString:_walkBundleId ?: @""];
+    if (proposalWasHere) {
+        _previousRole = _proposal.role;
+        _previousRoleBundleId = [_proposalBundleId copy];
+    } else if (![_walkBundleId isEqualToString:_previousRoleBundleId ?: @""]) {
+        _previousRole = nil;
+    }
     _stickySignature = nil;
     _cooldownSignature = nil;
     _hudStatus = nil;
@@ -640,15 +658,11 @@ static const NSUInteger kUploadVerifyTries = 8;
     GHNextProposal *top = [engine proposeForResult:result window:result.windowNode signals:signals];
     GHNextProposal *proposal = [self steadyProposalFrom:engine.ranked top:top];
     _proposal = proposal;
+    _proposalBundleId = [_walkBundleId copy];   // which app it belonged to, for the inference in -forgetPage
     if (!proposal) return ghosts;
     GHField *field = _fields[proposal.signature];
     if (!field) return ghosts;
-    // A proposal's display text names the control, which is right for a button ("Play") and nonsense for a
-    // box you type in: a search field's name IS its placeholder, so the ghost read as "type Go to file" into
-    // a box that already said "Go to file". Ghost has no value for that field, so it says nothing. The ring
-    // and the cursor carry the whole message, which is "go here" -- and going here is the entire proposal.
-    BOOL typeable = [field.kind isEqualToString:GHKindText] || [field.kind isEqualToString:GHKindTextArea];
-    return [ghosts arrayByAddingObject:[proposal ghostWithDisplayText:typeable ? @"" : (field.label ?: @"")]];
+    return [ghosts arrayByAddingObject:[proposal ghostWithDisplayText:GHProposalDisplayText(field)]];
 }
 
 /**
@@ -904,6 +918,25 @@ static BOOL GHLabelLooksLikeSearch(NSString *label) {
     });
     NSString *text = label ?: @"";
     return text.length > 0 && [regex firstMatchInString:text options:0 range:NSMakeRange(0, text.length)] != nil;
+}
+
+/**
+ * What a next-action proposal shows: the control's own name, but only where that name is an ACTION.
+ *
+ * On a button it is "Play" or "Cart", and worth showing. On anything you interact with by value it is the
+ * control's label, which for a search box IS its placeholder -- so the ghost read "Search" beside a box
+ * already saying "Search", and looked like a suggestion to type the word "Search".
+ *
+ * The first attempt at this excluded text and textarea only. A search box with a dropdown is a COMBOBOX, so
+ * it fell straight through and the bug survived. The rule is not about which kinds you can type into; it is
+ * about which names are worth repeating. A proposal carries no value, so unless its label names an action
+ * there is nothing to say, and the ring and the cursor carry the whole message: go here.
+ */
+NSString *GHProposalDisplayText(GHField *field) {
+    NSString *kind = field.kind ?: @"";
+    BOOL namesAnAction = [kind isEqualToString:GHKindButton] || [kind isEqualToString:GHKindLink] ||
+                         [kind isEqualToString:GHKindItem];
+    return namesAnAction ? (field.label ?: @"") : @"";
 }
 
 /**

@@ -84,9 +84,15 @@ describe("reader, mail and form priors", () => {
     expect(priorWeight(both, "primary-item")).toBeGreaterThanOrEqual(priorWeight(both, "field"));
   });
 
-  it("never chains out of compose, because Ghost cannot know the recipient", () => {
-    const after = priorsFor("app", { previousRole: "compose" });
-    expect(priorWeight(after, "field")).toBe(0);
+  it("follows somebody who started a new message, without ever starting one itself", () => {
+    // Two separate rules, and conflating them was the bug. Ghost must not PROPOSE compose: it does not know
+    // who you are writing to, so it cannot help with the step after. But once you start a new message
+    // yourself, the recipient field is exactly what comes next, so the transition stays.
+    expect(priorWeight(priorsFor("mail"), "compose")).toBe(PRIOR_MIN);
+    expect(priorWeight(priorsFor("app", { previousRole: "compose" }), "field")).toBeGreaterThan(0);
+    // And it leads to the recipient, never to the body: `field` is the only thing compose chains to.
+    const chained = priorsFor("app", { previousRole: "compose" }).map((p) => p.role);
+    expect(chained).toContain("field");
   });
 
   it("keeps the terminal action of a form below the fields", () => {

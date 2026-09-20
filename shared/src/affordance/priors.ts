@@ -73,9 +73,12 @@ export function priorsFor(kind: PageKind, state: PriorState = {}): RolePrior[] {
  * them. Where a place and a transition disagree, the stronger of the two wins.
  */
 const AFTER: Partial<Record<AffordanceRole, RolePrior[]>> = {
-  // `compose` is deliberately absent. "You made a new message, now fill in the recipient" reads well and is
-  // useless: Ghost has no idea who you are writing to, so the step after it is one it cannot help with. A
-  // chain that ends in a shrug should not start.
+  // You made a new, empty thing: the next step is saying who it is for, never writing the body. What was
+  // wrong here was never the transition, it was PROPOSING compose in the first place -- Ghost does not know
+  // who you are writing to, so it must not start that flow. Once somebody starts it themselves, following
+  // them to the recipient is exactly right. `compose` therefore sits at the prior floor (see `mail`) while
+  // this transition stays.
+  compose: [{ role: "field", weight: 0.66 }],
   reply: [{ role: "field", weight: 0.7 }],
   // One field leads to the next, and a filled-in thing leads to the control that sends it.
   field: [{ role: "field", weight: 0.66 }, { role: "send", weight: 0.62 }, { role: "submit", weight: 0.6 }],

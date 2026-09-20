@@ -10,6 +10,7 @@
 #import "GHCapture.h"
 #import "GHCore.h"
 #import "GHField.h"
+#import "GHController.h"
 #import "GHNextAction.h"
 #import "GHWalkState.h"
 #import "GHVision.h"
@@ -714,6 +715,22 @@ GH_TEST(anywhere_an_unlocked_proposal_is_pressed_exactly_once_and_only_with_a_li
     field.locked = YES;
     GH_ASSERT_EQUAL_OBJECTS(WriteClick(writer, ghost, field, node).reason, GHWriteReasonLocked);
     GH_ASSERT_EQUAL_INT(actuator.presses, 1);
+}
+
+/// A proposal carries no value, so its display text is the control's own name. That names an ACTION on a
+/// button ("Play") and is the placeholder on anything you interact with by value, which is how a search box
+/// saying "Search" got a ghost saying "Search" beside it. Shown here for the kind that survived the first
+/// attempt at this: a search box WITH A DROPDOWN is a combobox, not a text field.
+GH_TEST(anywhere_only_a_control_whose_name_is_an_action_shows_it) {
+    NSArray<NSString *> *silent = @[ GHKindText, GHKindTextArea, GHKindSelect, GHKindCheckbox, GHKindRadio ];
+    for (NSString *kind in silent) {
+        GHField *field = [GHField fieldWithSignature:@"s|0" label:@"Search" kind:kind];
+        GH_ASSERT_MSG(GHProposalDisplayText(field).length == 0, @"%@ must say nothing", kind);
+    }
+    for (NSString *kind in @[ GHKindButton, GHKindLink, GHKindItem ]) {
+        GHField *field = [GHField fieldWithSignature:@"a|0" label:@"Play" kind:kind];
+        GH_ASSERT_EQUAL_OBJECTS(GHProposalDisplayText(field), @"Play");
+    }
 }
 
 /// A chat app opening a new message puts the cursor in `To`, and Ghost used to offer that box back: press to
