@@ -8,6 +8,8 @@ The quick start below is sufficient for a development checkout. [SETUP.md](SETUP
 
 This is a Hack the North 2026 prototype, not a signed or notarized production release. It currently requires macOS 13 or later, Accessibility permission, and a Mac with the Command Line Tools installed.
 
+On a new Mac, `./install.sh` does the whole setup: it checks the toolchain, builds, installs the app to `~/Applications`, walks the Accessibility grant, and verifies the result. `./install.sh --check` reports problems without changing anything, and `./install.sh --update` rebuilds after a code change while keeping the permission.
+
 ## What it does today
 
 - Uses local heuristics to suggest form values and next actions immediately.

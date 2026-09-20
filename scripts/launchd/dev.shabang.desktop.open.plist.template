@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Ghost Desktop through LaunchServices. The fallback variant: scripts/install-background.sh renders it instead of
-  dev.ghost.desktop.plist.template when it is given the launch-via-open flag. Placeholders: APP_PATH, LOG_DIR.
+  Shabang Desktop through LaunchServices. The fallback variant: scripts/install-background.sh renders it instead of
+  dev.shabang.desktop.plist.template when it is given the launch-via-open flag. Placeholders: APP_PATH, LOG_DIR.
 
   `open -W -n` asks LaunchServices to start the app (exactly what a double click does) and blocks until it quits, so launchd
-  sees a job that is "running". The price: launchd owns `open`, not Ghost. A bootout ends `open` only, which is why
-  scripts/uninstall-background.sh also sends SIGTERM to the installed Ghost binary. No KeepAlive here: if a Ghost is already
+  sees a job that is "running". The price: launchd owns `open`, not Shabang. A bootout ends `open` only, which is why
+  scripts/uninstall-background.sh also sends SIGTERM to the installed Shabang binary. No KeepAlive here: if a Shabang is already
   running, the new copy exits at once (second-copy guard) and a KeepAlive would relaunch it forever.
 -->
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>dev.ghost.desktop</string>
+	<string>dev.shabang.desktop</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/usr/bin/open</string>
@@ -27,7 +27,7 @@
 	<key>LimitLoadToSessionType</key>
 	<string>Aqua</string>
 	<key>AssociatedBundleIdentifiers</key>
-	<string>dev.ghost.desktop</string>
+	<string>dev.shabang.desktop</string>
 	<key>StandardOutPath</key>
 	<string>@LOG_DIR@/desktop.launchd.log</string>
 	<key>StandardErrorPath</key>

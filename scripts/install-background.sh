@@ -1,10 +1,10 @@
 #!/bin/bash
-# Ghost in the background at login (macOS): the prediction server and the menu-bar agent as two LaunchAgents.
-# Docs: README.md "Run Ghost in the background (macOS)", docs/desktop.md "Running in the background at login".
+# Shabang in the background at login (macOS): the prediction server and the menu-bar agent as two LaunchAgents.
+# Docs: README.md "Run Shabang in the background (macOS)", docs/desktop.md "Running in the background at login".
 #
 #   scripts/install-background.sh                  build, install, start
 #   scripts/install-background.sh --dry-run        print every action, change nothing (no build, no copy, no launchctl)
-#   scripts/install-background.sh --server-only    only dev.ghost.server
+#   scripts/install-background.sh --server-only    only dev.shabang.server
 #   scripts/install-background.sh --desktop-only   only dev.shabang.desktop
 #   scripts/install-background.sh --launch-via-open   start Shabang.app with `open -W -n` instead of its binary (see the templates)
 #   scripts/install-background.sh --render-to DIR  render the plists and the server wrapper into DIR, lint them, touch nothing else
@@ -14,7 +14,7 @@
 # /bin/bash on purpose (3.2 on every Mac): no associative arrays, no mapfile, no ${var,,}.
 set -euo pipefail
 
-LABEL_SERVER="dev.ghost.server"
+LABEL_SERVER="dev.shabang.server"
 LABEL_DESKTOP="dev.shabang.desktop"
 # The ONLY lines ever copied out of the repo's .env. Keep in step with README.md and .env.example.
 ENV_KEYS_RE='^(XAI_API_KEY|OPENAI_API_KEY|AI_GATEWAY_API_KEY|TYPESAFE_API_KEY|BASETEN_API_KEY|BASETEN_[A-Z_]+|BROWSERBASE_API_KEY|BROWSERBASE_PROJECT_ID|COMPOSIO_API_KEY|SHABANG_PUBLIC_DEMO_URL)='
@@ -58,7 +58,7 @@ SUPPORT_DIR="$HOME/Library/Application Support/Shabang"
 SERVER_DIR="$SUPPORT_DIR/server"
 LOG_DIR="$HOME/Library/Logs/Shabang"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
-ENV_DIR="$HOME/.config/ghost"
+ENV_DIR="$HOME/.config/shabang"
 ENV_FILE="$ENV_DIR/env"
 APP_SRC="$REPO/desktop/build/Shabang.app"
 APP_PATH="$HOME/Applications/Shabang.app"
@@ -97,7 +97,7 @@ install_plist() { # install_plist <template> <destination>
     render "$1" | plutil -lint - >/dev/null || die "plutil rejects the rendered $1"
     return
   fi
-  tmp="$(mktemp "${TMPDIR:-/tmp}/ghost-plist.XXXXXX")"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/shabang-plist.XXXXXX")"
   render "$1" > "$tmp"
   check_plist "$tmp"
   install -m 0644 "$tmp" "$2"
@@ -109,16 +109,16 @@ desktop_template() {
   if [ "$LAUNCH_VIA_OPEN" = 1 ]; then printf '%s' "$TEMPLATES/$LABEL_DESKTOP.open.plist.template"; else printf '%s' "$TEMPLATES/$LABEL_DESKTOP.plist.template"; fi
 }
 
-# The program of dev.ghost.server. Static on purpose (the node path arrives as $1 from the plist), so it can be reviewed here.
+# The program of dev.shabang.server. Static on purpose (the node path arrives as $1 from the plist), so it can be reviewed here.
 wrapper_script() {
   cat <<'WRAPPER'
 #!/bin/bash
-# Started by the dev.ghost.server LaunchAgent. Written by scripts/install-background.sh: re-run it instead of editing this.
-# Exports ~/.config/ghost/env, then execs node on the server bundle. The env file is DATA: KEY=value lines are split by
+# Started by the dev.shabang.server LaunchAgent. Written by scripts/install-background.sh: re-run it instead of editing this.
+# Exports ~/.config/shabang/env, then execs node on the server bundle. The env file is DATA: KEY=value lines are split by
 # hand and exported, nothing in it is ever evaluated as shell, and neither names nor values are printed.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-env_file="${GHOST_ENV_FILE:-$HOME/.config/ghost/env}"
+env_file="${SHABANG_ENV_FILE:-$HOME/.config/shabang/env}"
 node_bin="${1:-}"
 
 # launchd keeps these files open in append mode, so they are trimmed in place rather than renamed.
@@ -171,9 +171,9 @@ WRAPPER
 
 env_file_template() {
   cat <<'ENVFILE'
-# Keys for the Ghost background server (dev.ghost.server). Mode 0600. Read by ghost-server.sh, never by the repo.
-# KEY=value, one per line, no inline comments. Empty means "not set". With no keys Ghost uses the offline heuristic.
-# After editing: launchctl kickstart -k gui/$(id -u)/dev.ghost.server
+# Keys for the Shabang background server (dev.shabang.server). Mode 0600. Read by ghost-server.sh, never by the repo.
+# KEY=value, one per line, no inline comments. Empty means "not set". With no keys Shabang uses the offline heuristic.
+# After editing: launchctl kickstart -k gui/$(id -u)/dev.shabang.server
 #AI_GATEWAY_API_KEY=
 #TYPESAFE_API_KEY=
 #OPENAI_API_KEY=
@@ -190,8 +190,8 @@ ENVFILE
 }
 
 find_node() {
-  NODE_BIN="${GHOST_NODE:-$(command -v node || true)}"
-  case "$NODE_BIN" in /*) ;; *) die "node not found. Install Node 22+ (or set GHOST_NODE=/absolute/path/to/node)." ;; esac
+  NODE_BIN="${SHABANG_NODE:-$(command -v node || true)}"
+  case "$NODE_BIN" in /*) ;; *) die "node not found. Install Node 22+ (or set SHABANG_NODE=/absolute/path/to/node)." ;; esac
   [ -x "$NODE_BIN" ] || die "not executable: $NODE_BIN"
   local major
   major="$("$NODE_BIN" -p 'process.versions.node.split(".")[0]')"
@@ -310,7 +310,7 @@ install_env_file() {
   else
     ( umask 077; env_file_template > "$ENV_FILE" )
     chmod 600 "$ENV_FILE"
-    say "created $ENV_FILE with no keys (the repo has no .env): Ghost uses the offline heuristic until you add one"
+    say "created $ENV_FILE with no keys (the repo has no .env): Shabang uses the offline heuristic until you add one"
   fi
 }
 
@@ -347,11 +347,11 @@ preflight_conflicts() { # after the bootout: whatever still holds these is not o
   local pids
   if [ "$WANT_SERVER" = 1 ]; then
     pids="$(lsof -nP -iTCP:8787 -sTCP:LISTEN -t 2>/dev/null | tr '\n' ' ' || true)"
-    [ -z "$pids" ] || warn "port 8787 is taken by pid $pids(a \`pnpm dev\` server?). dev.ghost.server will retry every 10 s until the port is free."
+    [ -z "$pids" ] || warn "port 8787 is taken by pid $pids(a \`pnpm dev\` server?). dev.shabang.server will retry every 10 s until the port is free."
   fi
   if [ "$WANT_DESKTOP" = 1 ]; then
-    pids="$(pgrep -f 'Ghost\.app/Contents/MacOS/Ghost' 2>/dev/null | tr '\n' ' ' || true)"
-    [ -z "$pids" ] || warn "another Ghost is running (pid $pids): the background copy will exit at once. Quit that one, then: launchctl kickstart $DOMAIN/$LABEL_DESKTOP"
+    pids="$(pgrep -f 'Shabang\.app/Contents/MacOS/Shabang' 2>/dev/null | tr '\n' ' ' || true)"
+    [ -z "$pids" ] || warn "another Shabang is running (pid $pids): the background copy will exit at once. Quit that one, then: launchctl kickstart $DOMAIN/$LABEL_DESKTOP"
   fi
 }
 
@@ -371,8 +371,8 @@ start_all() {
 next_steps() {
   step "Next steps"
   if [ "$WANT_DESKTOP" = 1 ]; then
-    say "1. Grant Accessibility ONCE: System Settings -> Privacy & Security -> Accessibility -> switch on Ghost"
-    say "   ($APP_PATH; use + and Cmd+Shift+G to add it if it is not listed). Ghost notices within 2 s, no restart."
+    say "1. Grant Accessibility ONCE: System Settings -> Privacy & Security -> Accessibility -> switch on Shabang"
+    say "   ($APP_PATH; use + and Cmd+Shift+G to add it if it is not listed). Shabang notices within 2 s, no restart."
     say "   Only you can do this. The grant survives updates because this script never replaces that app:"
     say "   update with   make -C desktop install-lib && launchctl kickstart -k $DOMAIN/$LABEL_DESKTOP"
   fi

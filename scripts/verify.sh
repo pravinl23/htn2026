@@ -2,7 +2,7 @@
 # Full gate before pushing: build, typecheck, unit tests, e2e. Usage: scripts/verify.sh [--no-e2e]
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export GHOST_DECISION_PROVIDER=heuristic GHOST_TEXT_PROVIDER=template
+export SHABANG_DECISION_PROVIDER=heuristic SHABANG_TEXT_PROVIDER=template
 step() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 step build;     pnpm build
 step typecheck; pnpm typecheck

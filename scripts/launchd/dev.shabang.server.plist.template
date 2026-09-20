@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Ghost prediction server (http://127.0.0.1:8787). Rendered by scripts/install-background.sh: edit the template, not the copy in
+  Shabang prediction server (http://127.0.0.1:8787). Rendered by scripts/install-background.sh: edit the template, not the copy in
   ~/Library/LaunchAgents. Placeholders: SERVER_DIR, NODE_BIN, LOG_DIR (each wrapped in @ signs).
 
-  The program is a small wrapper, not node itself: it exports ~/.config/ghost/env (mode 0600, never the repo's .env) and then
+  The program is a small wrapper, not node itself: it exports ~/.config/shabang/env (mode 0600, never the repo's .env) and then
   execs node on the bundle, so no key ever appears in this world-readable plist or in `launchctl print`.
 -->
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>dev.ghost.server</string>
+	<string>dev.shabang.server</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>@SERVER_DIR@/ghost-server.sh</string>

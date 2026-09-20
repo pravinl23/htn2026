@@ -1,10 +1,37 @@
 # Setting Shabang up on a new Mac
 
-Start to finish, roughly 10 minutes. Every trap in here is one somebody actually hit, not a
-precaution — if a step looks paranoid, it is because skipping it cost an hour.
+## The short version
 
-Read this top to bottom the first time. The **Troubleshooting** table at the end is what to come
-back to.
+```bash
+git clone https://github.com/pravinl23/htn2026.git
+cd htn2026
+cp /path/from/a/teammate/.env .env     # keys, never committed — ask someone for it
+./install.sh
+```
+
+`./install.sh` checks your Mac, installs dependencies, builds, puts the app in `~/Applications`,
+walks you through the one permission macOS requires, and verifies the whole thing. It prints what is
+wrong rather than failing silently.
+
+```bash
+./install.sh --check     # change nothing, just tell me what is wrong
+./install.sh --update    # after changing code: rebuilds the library, keeps the permission
+```
+
+One thing it does that matters more than it looks: **it installs the app to `~/Applications` and
+never rebuilds it there again.** macOS ties the Accessibility permission to the app's *code
+signature*, so an app that gets rebuilt in place loses the permission every time — the toggle stays
+on and the agent silently goes blind. Built once, copied once, and every later change ships as the
+library beside it. Grant it once and it stays granted; `--update` is safe forever.
+
+The server runs separately, in its own terminal, and stays running:
+
+```bash
+pnpm --filter @shabang/server dev
+```
+
+The rest of this document is what the installer is doing and what to do when something is off. Read
+it if you are curious or if you are stuck; you do not need it to get started.
 
 ---
 
@@ -286,6 +313,8 @@ Settings live in `settings.json`; `acceptKey` chooses between `right-command` (d
 
 ## Troubleshooting
 
+**Most of these are fixed by `./install.sh --check`, which tells you which one you have.**
+
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `Error: esbuild not found` | no `node_modules` in this checkout/worktree | `pnpm install` at the repo root |
@@ -299,7 +328,7 @@ Settings live in `settings.json`; `acceptKey` chooses between `right-command` (d
 | `shabangctl` answers, but with behaviour you did not build | **another agent holds the machine-wide lock** | `ps -p "$(cat ~/Library/Application\ Support/Shabang/harness/agent.lock)" -o command=` — if the path is not your checkout, `shabangctl quit` and start yours |
 | `EADDRINUSE` on 8787 | a server is already running | use it, or kill it first. Never run two |
 | Proposals are strange / it keeps suggesting the same kind of thing | role memory has over-learned | `rm ~/Library/Application\ Support/Shabang/memory.json` |
-| Agent silently sees nothing after a rebuild | `make host-force` was run, invalidating the signature | re-grant (step 7); do not run `host-force` |
+| Agent silently sees nothing after a rebuild | the app was rebuilt in place, changing its signature | this is what installing to `~/Applications` prevents: use `./install.sh --update`, which never touches the app |
 
 ### Reset everything and start clean
 

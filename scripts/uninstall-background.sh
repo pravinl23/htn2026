@@ -1,21 +1,21 @@
 #!/bin/bash
 # Undo scripts/install-background.sh: stop and remove the two LaunchAgents and the installed server bundle.
-# Docs: README.md "Run Ghost in the background (macOS)".
+# Docs: README.md "Run Shabang in the background (macOS)".
 #
-#   scripts/uninstall-background.sh               stop + remove dev.ghost.server and dev.shabang.desktop, remove the server bundle
+#   scripts/uninstall-background.sh               stop + remove dev.shabang.server and dev.shabang.desktop, remove the server bundle
 #   scripts/uninstall-background.sh --dry-run     print every action, change nothing
 #   scripts/uninstall-background.sh --remove-app  also remove ~/Applications/Shabang.app and the installed libshabang.dylib
 #   scripts/uninstall-background.sh --purge       --remove-app plus profile.json, settings.json, the form cache,
-#                                                 ~/.config/ghost/env and ~/Library/Logs/Shabang
+#                                                 ~/.config/shabang/env and ~/Library/Logs/Shabang
 #
 # Kept unless you ask: your profile and settings, your keys, the logs, and Shabang.app itself (the Accessibility grant is
 # tied to that exact copy; keeping it means a later install needs no new grant).
-# Never touches privacy permissions (no tccutil, no sudo): remove Ghost from System Settings -> Privacy & Security ->
+# Never touches privacy permissions (no tccutil, no sudo): remove Shabang from System Settings -> Privacy & Security ->
 # Accessibility by hand if you want the entry gone.
 # /bin/bash on purpose (3.2 on every Mac).
 set -euo pipefail
 
-LABEL_SERVER="dev.ghost.server"
+LABEL_SERVER="dev.shabang.server"
 LABEL_DESKTOP="dev.shabang.desktop"
 
 DRY_RUN=0
@@ -48,7 +48,7 @@ SUPPORT_DIR="$HOME/Library/Application Support/Shabang"
 SERVER_DIR="$SUPPORT_DIR/server"
 LOG_DIR="$HOME/Library/Logs/Shabang"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
-ENV_DIR="$HOME/.config/ghost"
+ENV_DIR="$HOME/.config/shabang"
 ENV_FILE="$ENV_DIR/env"
 APP_PATH="$HOME/Applications/Shabang.app"
 
@@ -91,11 +91,11 @@ stop_agent() { # bootout, errors ignored (not loaded is fine), then wait until l
   warn "$label is still loaded after 5 s. Inspect with: launchctl print $DOMAIN/$label"
 }
 
-# With the `open -W -n` variant launchd owns `open`, not Ghost, so a bootout leaves the app running. SIGTERM makes Ghost quit
+# With the `open -W -n` variant launchd owns `open`, not Shabang, so a bootout leaves the app running. SIGTERM makes Shabang quit
 # through AppKit. Only the INSTALLED copy is matched (full path, anchored), never a build you started from the repo.
 stop_installed_app() {
   local pattern pids pid i
-  pattern="^$(printf '%s' "$APP_PATH/Contents/MacOS/Ghost" | sed -e 's/[][\\.*^$+?(){}|]/\\&/g')"
+  pattern="^$(printf '%s' "$APP_PATH/Contents/MacOS/Shabang" | sed -e 's/[][\\.*^$+?(){}|]/\\&/g')"
   if [ "$DRY_RUN" = 1 ]; then say "  + pkill -TERM -f '$pattern'   (only if it still runs after the bootout)"; return 0; fi
   pids="$(pgrep -f "$pattern" 2>/dev/null || true)"
   [ -n "$pids" ] || return 0
@@ -124,12 +124,12 @@ if [ "$REMOVE_APP" = 1 ]; then
   remove "$APP_PATH"
   remove "$SUPPORT_DIR/libshabang.dylib"
   remove "$SUPPORT_DIR/lib-path.txt"
-  say "The Accessibility entry for Ghost stays in System Settings (this script never touches privacy permissions)."
+  say "The Accessibility entry for Shabang stays in System Settings (this script never touches privacy permissions)."
   say "Remove it by hand with the - button if you want it gone. A newly built host needs a new grant."
 elif [ -e "$APP_PATH" ]; then
   step "Kept"
   say "kept: $APP_PATH and libshabang.dylib. The Accessibility grant belongs to that exact copy, so a later"
-  say "      install-background.sh needs no new grant. Ghost no longer starts at login. Delete with --remove-app."
+  say "      install-background.sh needs no new grant. Shabang no longer starts at login. Delete with --remove-app."
 fi
 
 if [ "$PURGE" = 1 ]; then
@@ -145,5 +145,5 @@ else
 fi
 
 step "Done"
-say "Ghost no longer runs in the background. The extension and \`pnpm dev\` are unaffected."
+say "Shabang no longer runs in the background. The extension and \`pnpm dev\` are unaffected."
 [ "$DRY_RUN" = 0 ] || say "(dry run: nothing was stopped or removed)"
