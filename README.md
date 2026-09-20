@@ -1,146 +1,93 @@
 # Shabang
 
-**Cursor Tab for your whole computer.** Shabang is a native macOS agent: it reads the accessibility tree of whatever app is frontmost — a web page, Spotify, Messages, Finder, a terminal — and proposes the single thing you are most likely to do next. It shows as a translucent ghost: a purple ring on the control, a ghost cursor pointing at it, and gray ghost text inside the field you are about to fill. **Right ⌘** accepts.
+> A native macOS assistant that suggests the next safe action in the app you are using.
 
-Open a job application and it fills the form, drafts the long answers and attaches your resume, stopping at Submit. Open a conversation and it drafts the reply. Open a video and it plays it, then offers fullscreen.
+Shabang is a menu-bar app for macOS. It reads the accessibility tree of the frontmost app, draws a translucent ghost over a likely next field or labelled control, and lets you accept a suggestion deliberately. It is designed to work across accessible native and web apps—not through a browser extension. The default general accept key is right Command; Tab accepts only a value suggestion on the focused form field.
 
-**Every outcome is recorded — taken or refused.** Locally, so it learns you, and to Sentry, so the stream of rejected proposals can improve the model for everyone. A ghost you turn down is a labelled training example, and it is the only thing the product learns from.
+The quick start below is sufficient for a development checkout. [SETUP.md](SETUP.md) is a maintainer-oriented clean-machine and troubleshooting guide; read its reset/recovery commands carefully before running them.
 
-**New here? Read [SETUP.md](SETUP.md)** — getting it running on a fresh Mac, start to finish, including the
-Accessibility grant (the step that fights back) and every trap worth knowing.
+This is a Hack the North 2026 prototype, not a signed or notarized production release. It currently requires macOS 13 or later, Accessibility permission, and a Mac with the Command Line Tools installed.
 
-Built at Hack the North 2026. Instructions for the autonomous builder live in `CLAUDE.md`, the roadmap in `PLAN.md`, the run log in `PROGRESS.md`, and the morning handoff in `MORNING.md`.
+## What it does today
 
-## Current status
+- Uses local heuristics to suggest form values and next actions immediately.
+- Can use the loopback-only companion server to improve a form mapping or stream a text draft when an optional provider is configured.
+- Learns local, bounded preferences from accepted and rejected suggestions.
+- Treats submit, send, pay, delete, confirm, and similar actions as locked: Shabang parks on them but does not activate them.
+- Lets you accept a focused form value with Tab. For non-form actions, it uses a configurable lone right-Command tap by default; Escape dismisses and typing wins.
+- Includes an optional zsh companion that suggests a shell command but never executes it.
 
-The browser form-filling path is complete and verified: Shabang can walk the React and plain-HTML job applications with Tab, preserve native keyboard behavior outside the walk, refuse sensitive fields, verify writes, and stop on the locked Submit action. The extension now upgrades its instant local predictions from the server, caches per form, streams free-text drafts, imports resumes, learns opt-in facts, reports metrics, records safe action traces, detects repeated loops, previews them and runs confirmed visible/background/Browserbase/Composio modes.
+There is **no Chrome extension**. The former browser-extension experiment is isolated in [`attic/`](attic/README.md), outside the workspace, builds, and supported product surface.
 
-Every Tab walk feeds a privacy-safe learning loop. The user's own accept, escape or type-over is the ground truth: the extension emits one value-free outcome per walk, the server can send it to Sentry, walks that went wrong become versioned replay fixtures, and `pnpm eval:walk-replays` checks reviewed expectations. Labels, values, signatures and page identity never cross the wire, and there is no automatic self-modification. Live Sentry delivery is opt-in through `SENTRY_DSN` and is not configured in the current `.env`; see [`docs/learning-loop.md`](docs/learning-loop.md).
+## Known limits
 
-The canonical invoice loop is heavily unit-tested, including preview, explicit confirmation, verified background execution and failure handling, but still needs one loaded-extension Playwright run covering the full “do two, preview 48, complete 47, hold one” judging path and its fallback video. The separate atomic workflow lab demonstrates two Jev-selected stories—meeting coordination and Slack → GitHub issue—with simulated Composio execution. Real Composio accounts are not configured, and the native workflow coordinator is a tested seam rather than part of the desktop app’s live pipeline. See `PLAN.md` for the exact boundary.
+Accessibility support differs by application and control. Shabang skips controls it cannot identify, locate, or verify safely. It has not been productized for distribution, and it should not be used to submit a real form or take another irreversible action unattended. Vision-assisted labels are an opt-in experimental desktop capability that needs Screen Recording permission and an OpenAI provider; batch/workflow endpoints are historical server code, not the desktop product.
 
-## Run it
+The product, native bundle, and desktop support directory are named **Shabang**. A few internal server/terminal identifiers still use the historical “ghost” name; they are implementation details, not a second client or browser extension.
 
-Requires Node 22+ and pnpm 10+.
+## Quick start (development)
+
+Prerequisites: macOS 13+, Node.js 22+, pnpm 10+, and the Xcode Command Line Tools.
 
 ```bash
 pnpm install
-pnpm build        # builds the extension into extension/dist (and the demo sites)
-pnpm dev          # prediction server on :8787, demo sites on :5173, extension rebuild on change
+pnpm --filter @shabang/server dev
 ```
 
-Then load the extension in Chrome:
-
-1. Open `chrome://extensions`.
-2. Turn on **Developer mode** (top right).
-3. Click **Load unpacked** and select the `extension/dist` folder.
-4. Open http://localhost:5173/apply and press **Tab**.
-
-Toggle Shabang with **Alt+Shift+G** or the toolbar button.
-
-
-For the atomic macOS/Composio workflow demo, keep the server and demo running and open
-`http://localhost:5173/workflow/index.html`. It is side-effect-free and simulated until
-`COMPOSIO_API_KEY` is configured, with meeting coordination and Slack → GitHub issue
-stories ready for the hackathon demo. See [`docs/workflows.md`](docs/workflows.md).
-
-## Test it
+In a second terminal:
 
 ```bash
-pnpm test         # all pnpm-workspace unit tests (no keys needed; excludes desktop/)
-pnpm e2e          # Playwright: loads the built extension into Chromium and drives the demo sites
-pnpm test:live    # only runs when real provider keys are present; prints real latency
-pnpm eval:walk-replays  # validate every reviewed redacted walk outcome fixture
-make -C desktop test  # native macOS agent unit tests (not included in pnpm test)
+make -C desktop run
 ```
 
-The first Playwright run also needs `pnpm --filter @shabang/e2e exec playwright install chromium`. The standalone demo smoke test expects the preview server to already be running, then runs with `node e2e/scripts/smoke-demo.mjs`.
+At first launch, grant **Accessibility** to the generated `Shabang.app` in System Settings → Privacy & Security → Accessibility. The menu-bar item reports whether permission is available and whether the local server is online. `pnpm dev` also starts the local demo site on `http://localhost:5173`, which is the safe place to rehearse form behavior.
 
-## Keys
-
-The implemented offline form path and server endpoints have deterministic fallbacks when keys are missing. Copy `.env.example` to `.env` to enable live model providers. On the audited developer machine, direct TypeSafe/Jev, Baseten, xAI, Browserbase and Composio keys are present; no Sentry DSN is present yet. A live 12-field Jev decision and the complete three-action atomic workflow passed with calibrated TypeSafe/Jev choices. The extension and desktop both use the local server while retaining local fallback. Never commit `.env`.
-
-### Sentry on the demo site
-
-The demo site reports to the Sentry project `ghost-web`: errors, tracing, logs and Session Replay. It reads one build-time variable, `VITE_SENTRY_DSN` (see `demo/.env.example`); a local build also accepts `SENTRY_WEB_DSN` from the repo-root `.env`, which is the name the server already uses. With no DSN the demo initialises no SDK at all - no replay, no spans, no network - so tests and a plain `pnpm dev` stay offline.
-
-What it sends, and only this: a replay with **every input masked** and every password, card and `data-ghost-sensitive` element blocked; two custom spans, `ghost.demo.form-ready` and `ghost.demo.first-ghost`, carrying field counts and durations; and log lines that say a form was ready, a ghost appeared, or that none did. Query strings, request bodies, console breadcrumbs, user identity and any attribute outside the allowlist in `demo/src/observability.ts` are stripped before an event leaves the browser (`pnpm --filter @shabang/demo test`). One gap the SDK does not let us close: rrweb records `location.href` into the replay's meta frame before any callback runs, so a query string typed into the address bar reaches that single field. Do not put a value in a demo URL; the site itself only ever uses `?reset=1`.
-
-## Run Shabang in the background (macOS)
-
-Shabang can start at login and stay out of the way: no terminal, no `pnpm dev`. Two per-user LaunchAgents do it.
-
-| LaunchAgent | What runs | Restart policy |
-| --- | --- | --- |
-| `dev.ghost.server` | The prediction server on `http://127.0.0.1:8787` (loopback only), as one bundled file: `~/Library/Application Support/Shabang/server/server.mjs`, started by `ghost-server.sh` with an absolute `node` path. No pnpm, tsx or repo needed at run time. | `KeepAlive`, at most one restart every 10 s |
-| `dev.shabang.desktop` | Shabang Desktop, the native menu-bar agent (`~/Applications/Shabang.app`) that draws ghosts in Safari, Chrome, Arc, Firefox, Electron and native apps. See `desktop/README.md`. | `RunAtLoad`; restarted after a crash only, so **Quit** in the menu stays quit |
-
-**Install.** Run it yourself (it adds login items, so no agent or CI ever runs it). Never with `sudo`: the script refuses to run as root.
+For a background installation that starts at login, inspect the exact changes first:
 
 ```bash
-scripts/install-background.sh --dry-run   # prints every action and the rendered plists, changes nothing
-scripts/install-background.sh             # build, install, start
+scripts/install-background.sh --dry-run
+scripts/install-background.sh
 ```
 
-It builds the server bundle (`pnpm --filter @shabang/server bundle`, i.e. `node server/build.mjs` -> `server/dist/server.mjs`) and `make -C desktop app`, copies the bundle to `~/Library/Application Support/Shabang/server/`, copies `Shabang.app` to `~/Applications/` **only if it is not there yet**, runs `make -C desktop install-lib`, writes the two plists to `~/Library/LaunchAgents/`, and loads them with `launchctl bootout` (errors ignored) followed by `launchctl bootstrap gui/$UID`. Options: `--server-only`, `--desktop-only`, `--launch-via-open`, `--render-to DIR` (render and lint the plists into a directory, touch nothing else).
+The installer is per-user, never requires `sudo`, installs a loopback server and `Shabang.app`, and keeps secrets in `~/.config/ghost/env` rather than in the repository. See [`desktop/README.md`](desktop/README.md) for installation, permissions, data locations, and removal.
 
-**Permission (once, by hand).** System Settings -> Privacy & Security -> Accessibility -> switch **Shabang** on (`~/Applications/Shabang.app`). Shabang notices within two seconds; nothing to restart. No script here grants, resets or edits privacy permissions. macOS ties the grant of an ad-hoc signed app to its exact code, which is why the installer **never overwrites an existing `~/Applications/Shabang.app`**: the app is a tiny stable host, and updates arrive through `libshabang.dylib` next to your profile (`docs/desktop-realworld.md`, section 1):
+## Development checks
 
 ```bash
-make -C desktop install-lib && launchctl kickstart -k gui/$(id -u)/dev.shabang.desktop
+pnpm typecheck
+pnpm test
+pnpm desktop:test
+pnpm test:terminal
 ```
 
-The agent starts the binary inside `Shabang.app` directly. A launchd job is its own "responsible process" for macOS privacy checks (unlike a binary started from a terminal, which is attributed to the terminal), and macOS identifies it by the enclosing bundle, so the grant you give `Shabang.app` applies; launchd also owns the real process, so stopping and crash restarts work. If a future macOS still reports "Needs Accessibility permission" after the grant, reinstall with `--launch-via-open`, which starts the app through LaunchServices (`/usr/bin/open -W -n`) exactly like a double click.
+`pnpm test:live` is opt-in: it runs only when a supported provider credential is present. It may call a paid external service; do not run it with credentials you do not intend to use.
 
-**Keys.** The background server never reads the repo's `.env`. On the first install, `~/.config/ghost/env` (mode 0600, directory 0700) is created from the lines of `.env` whose names are on a fixed allowlist (`XAI_API_KEY`, `OPENAI_API_KEY`, `AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, `BASETEN_*`, `BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID`, `COMPOSIO_API_KEY`, `SHABANG_PUBLIC_DEMO_URL`); nothing is echoed and an existing file is never overwritten. The wrapper exports it as data (it is never evaluated as shell), so no key appears in a plist or in `launchctl print`. With no keys Shabang runs on the offline heuristic. After editing the file: `launchctl kickstart -k gui/$(id -u)/dev.ghost.server`.
+## Privacy and safety
 
-**Logs and status.** Everything is in `~/Library/Logs/Shabang/` (mode 0600): `server.log`, `server.err.log` (trimmed at 5 MB on each start), `desktop.log` (the agent's own log: labels truncated, never values), `desktop.launchd.log`.
+The desktop app stores its profile, settings, answer memory, and local form cache in `~/Library/Application Support/Shabang/` with private file permissions. Password, payment-card, government-ID, and sensitivity-labelled controls are excluded before prediction, storage, or logging. The companion server listens on `127.0.0.1` by default.
 
-```bash
-launchctl print gui/$(id -u)/dev.ghost.server | head -20
-curl -s http://127.0.0.1:8787/v1/health
-tail -f ~/Library/Logs/Shabang/server.err.log
+Without a provider key, the app remains on its offline heuristic. With a key, the server may send only the bounded context required by the relevant route to the configured provider. See [`docs/architecture.md`](docs/architecture.md), [`docs/storage.md`](docs/storage.md), [`docs/learning-loop.md`](docs/learning-loop.md), and [`.env.example`](.env.example) before configuring one.
+
+## Repository map
+
+```text
+desktop/   Native macOS menu-bar app (Objective-C, clang, JavaScriptCore)
+shared/    Pure TypeScript safety, form, knowledge, and affordance logic
+server/    Loopback Node.js service for optional predictions, drafts, telemetry, and terminal support
+demo/      Local, fictional demo surfaces used for development and tests
+terminal/  Optional zsh command-ghost companion
+docs/      Current architecture and implementation notes
+attic/     Deliberately unsupported historical code, including the former extension
 ```
 
-**Uninstall.**
+## More documentation
 
-```bash
-scripts/uninstall-background.sh               # stop and remove both LaunchAgents and the installed server bundle
-scripts/uninstall-background.sh --remove-app  # ... and ~/Applications/Shabang.app plus libshabang.dylib
-scripts/uninstall-background.sh --purge       # ... and profile.json, settings.json, ~/.config/ghost/env, the logs
-```
+- [`desktop/README.md`](desktop/README.md) — build, run, install, permissions, and troubleshooting.
+- [`docs/architecture.md`](docs/architecture.md) — current product architecture and data flow.
+- [`docs/desktop.md`](docs/desktop.md) — native pipeline and safety boundary.
+- [`docs/server-api.md`](docs/server-api.md) — loopback service contract; not a public hosted API.
+- [`terminal/README.md`](terminal/README.md) — optional zsh integration.
 
-`--dry-run` works here too. By default your profile, your keys, the logs and `Shabang.app` (with its Accessibility grant) are kept. The Accessibility entry itself is yours to remove in System Settings.
+## Before publishing
 
-**Coexistence with the extension.** The extension and Shabang Desktop share the one server on `:8787`. The extension sends a presence heartbeat every 30 s; Shabang Desktop skips any browser whose heartbeat is fresher than 90 s and says so in its menu ("Chrome: handled by the extension"), so you never get two ghosts on one field. Browsers without the extension (Safari, Firefox) and native apps are handled by Shabang Desktop. While the background server is loaded it owns port 8787: `pnpm dev` cannot start a second one, and `pnpm e2e` would reuse it (with your real keys) instead of the offline heuristic. For development, unload it first:
-
-```bash
-launchctl bootout gui/$(id -u)/dev.ghost.server
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.ghost.server.plist   # back on
-```
-
-**Privacy.** Everything runs on your Mac and the server listens on loopback only. What leaves the machine is what the configured model provider needs: field labels and the *names* of your profile facts for mapping (never their values), and for free-text answers only the relevant non-sensitive facts. Password, card, government ID and sensitive-labelled fields are never captured, predicted, filled, cached or logged. Locked actions (submit, send, pay, delete) are never pressed by Shabang. Your profile lives in `~/Library/Application Support/Shabang/profile.json` (mode 0600) and nothing is written to the repo. Pause Shabang for any app from the menu-bar icon, or toggle it with Alt+Shift+G.
-
-## Terminal ghost
-
-Shabang also predicts your next shell command in zsh and shows it as gray text after the cursor: after `git add -A` the line already says `git commit -m ""`, Tab puts it on the line with the cursor inside the quotes, and Enter stays yours (Shabang never runs anything). Tab keeps completing as before whenever no ghost is visible; Right arrow at the end of the line also accepts; Esc dismisses.
-
-```bash
-pnpm --filter @shabang/server start                          # the server on :8787 (or the background LaunchAgent above)
-echo 'source /path/to/htn2026/terminal/ghost.zsh' >> ~/.zshrc  # add it yourself, after plugins that bind Tab
-```
-
-The server builds candidates in code (what followed your last command before, git-aware next steps like `git push` when the branch is ahead, a rerun after a failed test, `package.json` scripts and `Makefile` targets) and asks Jev to pick one in a single call (measured 491 ms, confidence 0.89 for `git commit -m ""` after `git add -A`); without a key a local heuristic answers. Only the directory's basename is sent, secret-looking history lines are dropped in the shell and again on the server, destructive commands (`rm -rf`, force pushes, `sudo`, `DROP TABLE`, ...) are never suggested, and a server that is down is a silent no-op. Works in iTerm2 and Terminal.app; Warp replaces zsh's line editor, so ZLE plugins (this one and zsh-autosuggestions alike) do not render there. Details, privacy and compatibility: [`terminal/README.md`](terminal/README.md). Test it with `pnpm test:terminal`.
-
-## Layout
-
-```
-shared/      types and pure logic shared by the extension and the server (field mapping, value resolution, safety rules)
-extension/   Chrome MV3 extension (content script, background worker, options page)
-server/      Hono prediction service on http://localhost:8787
-demo/        local demo sites on http://localhost:5173
-e2e/         Playwright tests that load the built extension
-desktop/     native macOS menu-bar form agent (separate Makefile build and tests)
-terminal/    zsh plugin that ghosts your next shell command (ghost.zsh) and its pty tests
-docs/        media and diagrams
-```
+This repository has no license, contribution policy, security-reporting channel, code of conduct, or release workflow yet. Those are intentional hold points rather than implied permissions: choose a license and maintainers/security contact before asking others to use, redistribute, or contribute to the code. The release audit notes the remaining actions in [`docs/release-readiness.md`](docs/release-readiness.md).

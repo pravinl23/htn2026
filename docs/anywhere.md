@@ -1,61 +1,26 @@
-# Shabang anywhere: predicting the next action on any page or app
+# Next-action suggestions
 
-Binding design. Shabang must feel the same on YouTube, Amazon, Gmail, Figma, Finder or a job form. Nothing in this document names a website. Everything is derived from what a page or window *offers*.
+Shabang’s native next-action path is designed for accessible macOS windows, not for a list of named websites. When there is no active form walk, the app ranks the labelled controls it can safely see and shows at most one suggestion.
 
-## 1. The problem with label ranking
+## Signals used today
 
-Today a candidate is `{ id, kind, label, locked, context }` and a model ranks labels. That fails exactly where "anywhere" starts:
+The shared affordance module classifies accessible controls into generic roles such as search, play, fullscreen, reply, send, save, download, cart, menu, settings, field, and submit. It also infers broad screen kinds from structure: form, feed/list, media, commerce, reader, mail, app, or unknown.
 
-- **Icon-only controls.** A video player's fullscreen button, a cart glyph, a kebab menu: no text in the DOM, no `AXTitle` in the accessibility tree. A label ranker has nothing to rank.
-- **Per-item signatures.** Every video, product and message has its own signature, so "after opening a video I go fullscreen" never transfers to the next video.
-- **No sense of place.** A feed, a player, a cart and a document want completely different defaults, and a flat candidate list hides that.
+The native app combines:
 
-## 2. Affordances, not labels
+1. explicit safety rules, including locked irreversible actions;
+2. the accessibility role, label, position, list/media hints, and screen structure;
+3. generic role priors; and
+4. local role-memory from earlier accepted or rejected suggestions.
 
-`shared/src/affordance/**` (pure, no DOM, no AX) turns raw candidates into typed affordances.
+This path is local and deterministic. A server model is not the decision maker for the current desktop next-action flow.
 
-```ts
-export type AffordanceRole =
-  | "primary-item"   // the first/next item of a feed, grid, list or search result
-  | "search"         // a search input or the control that opens one
-  | "play" | "pause" | "fullscreen" | "next" | "previous" | "skip" | "mute" | "captions" | "speed"
-  | "cart" | "checkout" | "buy" | "quantity" | "wishlist"
-  | "compose" | "reply" | "send" | "save" | "download" | "share"
-  | "more" | "menu" | "settings" | "close" | "back" | "forward" | "scroll-more"
-  | "field" | "submit" | "unknown";
+## Interaction and safety
 
-export type PageKind = "feed" | "media" | "commerce" | "reader" | "mail" | "form" | "app" | "unknown";
-```
+The current suggestion is a ghost cursor/ring over a visible accessible control. A lone right-Command tap accepts it by default; Tab remains reserved for focused form-value ghosts. Escape dismisses it. Submit, send, pay, delete, confirm, and similar controls remain locked and are never activated by Shabang.
 
-Evidence used (all generic): the accessible name, the icon's `aria-label`/`AXDescription`, the control's position inside a `<video>`'s controls container or an `AXGroup` whose descendants include a media element, a `role=search`/`type=search`/placeholder that says search, a grid or list of repeated items (the list detector we already have for loops), a URL path pattern, the presence of a price-shaped string near a control, a badge count on an icon, and the window/app identity on the native side. Each mapping returns a confidence, never a hard rule.
+The app does not pretend an inaccessible or unlabelled control has a reliable meaning. It skips candidates it cannot locate safely. The server-side vision API and native vision helper are experimental and are not a completed way to support icon-only controls.
 
-`inferPageKind(candidates, signals)` is the same idea one level up: a page with a media element and a controls cluster is `media`; a page whose main region is a repeated grid is `feed`; price strings plus a cart affordance is `commerce`; a long text region with few controls is `reader`.
+## Local learning
 
-## 3. Priors by place, memory by role
-
-Two prediction sources, combined in code before anything is asked of a model:
-
-1. **Priors.** Per `PageKind`, an ordered list of roles people usually want next: `media` → `play`, then `fullscreen`, then `next`; `feed` → `primary-item`, then `search`, then `scroll-more`; `commerce` with a non-empty cart → `cart`, then `checkout` (locked); `reader` → `scroll-more`, then `back`. Priors are weak (0.55 to 0.7) and never beat memory.
-2. **Role-keyed memory.** The episodic store gains a second key: `(pageKind, previous role, affordance role)` alongside the existing signature key. This is what makes "I always go fullscreen after starting a video" transfer to a video it has never seen, and "I always click the cart after adding" transfer between shops. Signature memory stays for exact repeats on one page.
-
-The model (Jev) still makes the final choice over the filtered candidates, now labelled with their role and the page kind in the state, plus `none`. Code decides what is even offered; the model picks; code verifies and executes. Shabang ALWAYS proposes the top candidate; the threshold only decides how it is drawn (`docs/always-propose.md`). A prior alone is enough on a page it has never seen.
-
-## 4. Naming what has no name (OpenAI vision)
-
-When a candidate has no accessible name and its role is still `unknown` after the heuristics, Shabang crops that control from a screenshot and asks `POST /v1/vision/label` (already built: OpenAI Responses API, strict JSON, code re-derives locks and sensitivity). The returned label feeds the same affordance mapping, so one vision call can turn a row of icon buttons into `play`, `fullscreen`, `captions`.
-
-Rules: at most one vision call per page view, batched over up to 40 boxes, cached by a hash of the box geometry plus the page's path pattern, never for a page with a sensitive field on screen, and never blocking: the ghost appears from heuristics first and upgrades when the labels arrive. No key, no vision: everything still works, just blind to icons.
-
-## 5. What the user sees
-
-Same Tab. On YouTube the ghost cursor sits on the video you would click; once it is playing, the next Tab is fullscreen. On a shop, after adding an item, it waits on the cart; checkout gets the lock and needs a real click. In a document it offers the next natural step rather than a random button. Anything irreversible keeps its lock, Escape dismisses, typing wins, and a wrong guess costs one Tab.
-
-## 6. Learning
-
-Every accept and every ignore updates the role-keyed memory (accepted raises, dismissed lowers, a different control clicked instead records that role). This is the same correction loop as `docs/answers.md`, so both feed the one telemetry shape in section 6 of that document.
-
-## 7. Where it runs
-
-- `shared/src/affordance/**`: taxonomy, page-kind inference, priors, role-keyed memory helpers. Pure and unit-tested. The extension ranker (owned by Codex-Universal) and the native agent both import it.
-- Native (`desktop/`): capture maps AX roles and descriptions into affordances, drives the vision fallback, and renders the same ghosts.
-- Extension: consumes the shared module through its existing candidate builder.
+The app records role-level outcomes locally, so repeated acceptance can reorder a future suggestion for a similar screen. This is bounded local memory, not automatic code or model retraining. See [local data](storage.md) and [learning telemetry](learning-loop.md).
