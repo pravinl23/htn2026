@@ -147,6 +147,21 @@ extern const NSTimeInterval GHPresenceFreshSeconds;      // 90 s
 - (void)checkHealthWithCompletion:(void (^)(GHServerHealth *_Nullable health, NSString *_Nullable errorCode))completion;
 - (void)fetchPresenceWithCompletion:(void (^)(GHPresence *_Nullable presence, NSString *_Nullable errorCode))completion;
 
+/// One ghost outcome to POST /v1/walk/outcomes, which is the Sentry rejection stream (docs/sentry-demo.md).
+///
+/// Fire and forget on purpose: it never blocks a walk, never retries and never surfaces an error, because
+/// losing one telemetry post must never change what the user sees. Every argument is a count, a bucket or a
+/// closed-vocabulary name; no label, value, URL or window title can reach it.
+///
+/// `action`  fill | select | check | click   (upload is reported as click)
+/// `source`  offline | server | cache | llm | loop
+/// `outcome` accepted | escaped | typed-over | refused | unresolved
+- (void)reportGhostOutcomeWithAction:(NSString *)action
+                              source:(NSString *)source
+                          confidence:(double)confidence
+                              locked:(BOOL)locked
+                             outcome:(NSString *)outcome;
+
 /// Streams one free-text draft. `profile` is the full profile; only GhostCore.textFacts of it and at most
 /// three past answers leave the process. Returns nil (after telling the delegate why) when the label is
 /// sensitive or there is no server URL.

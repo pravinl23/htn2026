@@ -573,6 +573,71 @@ static NSString *GHErrorCode(NSError *error) {
     }];
 }
 
+#pragma mark outcome telemetry
+
+/// The wire schema's confidence buckets (shared/src/walkTelemetry.ts). A number never leaves as a number:
+/// a confidence attached to one field is a fingerprint of what Ghost saw on screen.
+static NSString *GHConfidenceBucket(double confidence) {
+    if (confidence >= 0.95) return @"95-plus";
+    if (confidence >= 0.85) return @"85-94";
+    if (confidence >= 0.70) return @"70-84";
+    if (confidence >= 0.55) return @"55-69";
+    return @"under-55";
+}
+
+/// WALK_ACTIONS has no "upload": an upload is a click that opens a panel, so it is reported as one.
+static NSString *GHWireAction(NSString *action) {
+    if ([action isEqualToString:@"fill"] || [action isEqualToString:@"select"] ||
+        [action isEqualToString:@"check"] || [action isEqualToString:@"click"]) return action;
+    return @"click";
+}
+
+static NSString *GHWireSource(NSString *source) {
+    if ([source isEqualToString:@"offline"] || [source isEqualToString:@"server"] || [source isEqualToString:@"cache"] ||
+        [source isEqualToString:@"llm"] || [source isEqualToString:@"loop"]) return source;
+    return @"offline";
+}
+
+- (void)reportGhostOutcomeWithAction:(NSString *)action
+                              source:(NSString *)source
+                          confidence:(double)confidence
+                              locked:(BOOL)locked
+                             outcome:(NSString *)outcome {
+    if (outcome.length == 0 || !self.baseURLString) return;
+    BOOL accepted = [outcome isEqualToString:@"accepted"];
+    BOOL dismissed = [outcome isEqualToString:@"escaped"] || [outcome isEqualToString:@"refused"];
+
+    NSDictionary *proposal = @{
+        @"index": @1,
+        @"action": GHWireAction(action ?: @"click"),
+        @"source": GHWireSource(source ?: @"offline"),
+        // The desktop ranker is local, so nothing here carries a calibrated probability.
+        @"calibrated": @NO,
+        @"confidence": GHConfidenceBucket(confidence),
+        @"locked": locked ? @YES : @NO,
+        @"outcome": outcome,
+    };
+    NSDictionary *payload = @{
+        @"schemaVersion": @"ghost.walk-outcome.v1",
+        @"runId": [[NSUUID UUID] UUIDString].lowercaseString,
+        // One press is its own walk: the user answered, so it is parked rather than abandoned.
+        @"state": accepted ? @"parked" : @"abandoned",
+        @"reason": accepted ? @"locked-action" : @"other",
+        @"duration": @"under-250ms",
+        @"provider": @"none",
+        @"latency": @"none",
+        @"proposals": @[proposal],
+        @"summary": @{ @"shown": @1, @"accepted": accepted ? @1 : @0, @"dismissed": dismissed ? @1 : @0, @"locked": locked ? @1 : @0 },
+    };
+
+    NSData *body = [NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];
+    NSMutableURLRequest *request = body ? [self requestForPath:@"/v1/walk/outcomes" body:body accept:@"application/json"] : nil;
+    if (!request) return;
+    // The surface tag the server reads; without it every desktop ghost would be counted as the browser's.
+    [request setValue:@"desktop" forHTTPHeaderField:@"x-ghost-surface"];
+    [[_session dataTaskWithRequest:request] resume];
+}
+
 #pragma mark streaming
 
 - (NSData *)ghostTextBodyForLabel:(NSString *)label signature:(NSString *)signature pageContext:(NSDictionary *)pageContext

@@ -611,6 +611,26 @@ static const NSUInteger kUploadVerifyTries = 8;
 
 /// The user took the proposal, refused it, or did something else: remembered under the ROLE, so it transfers to
 /// the next video, the next shop and the next feed. Never under a label, a window or an app.
+/**
+ * Every ghost outcome, to the server and on to Sentry (docs/sentry-demo.md).
+ *
+ * This is deliberately separate from `recordProposalOutcome:`, which only fires for NEXT-ACTION proposals
+ * and so never saw a form fill at all. The learning loop is judged on the rejection stream, and a stream
+ * that silently omits two thirds of the ghosts is worse than none.
+ *
+ * Reads the ghost for its action, source, confidence and lock, so nothing about the page is passed in.
+ * Fire and forget: a failed post must never change a walk.
+ */
+- (void)reportGhostOutcome:(NSString *)outcome forSignature:(NSString *)signature {
+    GHGhost *ghost = [_walk ghostWithSignature:signature];
+    if (!ghost) return;
+    [_client reportGhostOutcomeWithAction:ghost.action
+                                   source:ghost.source
+                               confidence:ghost.confidence
+                                   locked:ghost.locked
+                                  outcome:outcome];
+}
+
 - (void)recordProposalOutcome:(NSString *)outcome forSignature:(NSString *)signature {
     GHNextProposal *proposal = _proposal;
     if (!proposal || ![proposal.signature isEqualToString:signature ?: @""]) return;
@@ -1220,6 +1240,8 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
     if ([_walk ghostWithSignature:signature]) GHLog(@"controller: dismissed (typed) label=%@", GHLogLabel(_fields[signature].label));
     GHDraft *draft = _drafts[signature];
     if (draft && !draft.failed) [self cancelDraft:draft];
+    // The strongest signal there is: Ghost proposed something and the user wrote their own answer instead.
+    [self reportGhostOutcome:@"typed-over" forSignature:signature];
     [_walk typedOver:signature];
     [self render];
 }
@@ -1243,6 +1265,7 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
     GHDraft *draft = _drafts[signature];
     if (draft && !draft.failed && !draft.finished) [self cancelDraft:draft];
     [self recordProposalOutcome:GHRoleOutcomeDismissed forSignature:signature];
+    [self reportGhostOutcome:@"escaped" forSignature:signature];
     [_walk dismiss:signature];
     [self render];
 }
@@ -1593,6 +1616,7 @@ hadRemoveControl:(BOOL)hadRemoveControl mayRetry:(BOOL)mayRetry then:(dispatch_b
         // docs/anywhere.md section 6: an accepted proposal is remembered under its ROLE, so "fullscreen after
         // starting a video" carries to the next video Ghost has never seen.
         [self recordProposalOutcome:GHRoleOutcomeAccepted forSignature:signature];
+        [self reportGhostOutcome:@"accepted" forSignature:signature];
         [_walk accept:signature];
         if ([self focusStayedWithWrite:signature]) {
             // A lock only ever gets focus straight from the user's press, never after a draft wait or a sequence.
