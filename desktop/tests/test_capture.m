@@ -409,6 +409,39 @@ GH_TEST(capture_reads_the_rows_of_a_native_list) {
     GH_ASSERT_EQUAL_INT(rows, 3);
 }
 
+/// Measured before this existed: one open Messages conversation came back as twenty-one text areas, so Ghost
+/// saw a twenty-one field form and offered to fill the other person's messages.
+GH_TEST(capture_read_only_text_is_content_not_a_field) {
+    GHFakeAXNode *window = Node(@"AXWindow", @"Messages", 0, 0, 900, 600);
+    GHFakeAXNode *transcript = [window addChild:Node(@"AXGroup", nil, 0, 52, 900, 700)];
+    for (NSUInteger i = 0; i < 4; i++) {
+        // Nameless, exactly as Messages publishes them: the words are on an ancestor group, not on the box.
+        GHFakeAXNode *bubble = [transcript addChild:Node(@"AXTextArea", nil, 60, (CGFloat)(60 + i * 40), 300, 33)];
+        bubble.value = @"a message somebody already sent";
+    }
+    // And one that IS named but cannot be written to: a reading pane.
+    GHFakeAXNode *reading = [window addChild:Node(@"AXTextArea", @"Message body", 400, 60, 400, 300)];
+    reading.value = @"something already received";
+    reading.valueIsSettable = NO;
+    GHFakeAXNode *compose = [window addChild:Node(@"AXTextField", @"Message", 60, 560, 700, 33)];
+    compose.valueIsSettable = YES;
+
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:window];
+    GH_ASSERT_EQUAL_INT(result.fields.count, 1);
+    GH_ASSERT_EQUAL_OBJECTS(result.fields[0].label, @"Message");
+
+    // Inside a web area neither test is applied: forms there do omit labels, a web input often refuses
+    // AXValue and is filled by typing instead, and no form may lose a field to this.
+    GHFakeAXNode *web = Node(@"AXWebArea", nil, 0, 0, 900, 600);
+    GHFakeAXNode *input = [web addChild:Node(@"AXTextField", @"First name", 10, 10, 300, 30)];
+    input.valueIsSettable = NO;
+    GHFakeAXNode *bare = [web addChild:Node(@"AXTextField", nil, 10, 60, 300, 30)];
+    bare.valueIsSettable = NO;
+    GHCaptureResult *page = [Capture([[GHFakeSafety alloc] init]) captureWindow:web];
+    GH_ASSERT(FieldLabelled(page, @"First name") != nil);
+    GH_ASSERT_EQUAL_INT(page.fields.count, 2);   // the unnamed one survives too
+}
+
 /// A playlist or a folder has thousands of rows; nobody is about to click the 900th, and walking them all
 /// spends the entire time budget before the walk ever reaches the part of the window that matters.
 GH_TEST(capture_keeps_only_the_first_rows_of_a_long_list) {

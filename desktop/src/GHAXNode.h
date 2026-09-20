@@ -33,6 +33,15 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly, nullable) id<GHAXNode> titleUIElement;
 @property (nonatomic, readonly, nullable) id<GHAXNode> parent;
 @property (nonatomic, readonly) BOOL isFocused;
+/**
+ * Can this element's AXValue be written at all? Costs one extra round trip, so it is asked only where the
+ * answer decides something.
+ *
+ * It is what tells a box you type in apart from a box that merely holds text. Messages, Mail, Slack and
+ * Discord all publish every message on screen as an AXTextArea: without this, one open conversation looked
+ * like a twenty-one field form and Ghost offered to fill the other person's messages.
+ */
+@property (nonatomic, readonly) BOOL valueIsSettable;
 /// The live element behind this node. NULL for fakes.
 @property (nonatomic, readonly, nullable) AXUIElementRef axElement;
 
@@ -96,6 +105,8 @@ BOOL GHAXNodeLooksHung(id<GHAXNode> _Nullable node);
 @property (nonatomic, readwrite, copy, nullable) NSArray<NSString *> *domClassList;
 @property (nonatomic, readwrite) BOOL enabled;
 @property (nonatomic, readwrite) BOOL required;
+/// Fakes are editable unless a test says otherwise; a dump node takes it from `settable` (default: editable).
+@property (nonatomic, readwrite) BOOL valueIsSettable;
 @property (nonatomic, readwrite) CGRect frame;
 @property (nonatomic, readwrite, strong, nullable) id<GHAXNode> titleUIElement;
 @property (nonatomic, readwrite, weak, nullable) id<GHAXNode> parent;

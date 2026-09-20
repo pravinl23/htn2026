@@ -121,6 +121,8 @@ static BOOL GHAXIsElement(id object) {
     __weak GHAXElementNode *_knownParent;
     BOOL _parentFetched;
     id<GHAXNode> _fetchedParent;
+    BOOL _settableKnown;
+    BOOL _settable;
 }
 
 @synthesize lastError = _lastError;
@@ -219,6 +221,18 @@ static BOOL GHAXIsElement(id object) {
     return [flag isKindOfClass:[NSNumber class]] && [flag boolValue];
 }
 
+/// Not part of the batch fetch: one call, made only when a caller actually needs the answer, and cached
+/// because a node is a snapshot anyway.
+- (BOOL)valueIsSettable {
+    if (_settableKnown) return _settable;
+    _settableKnown = YES;
+    _settable = NO;
+    AXUIElementRef element = self.axElement;
+    Boolean settable = false;
+    if (element && AXUIElementIsAttributeSettable(element, kAXValueAttribute, &settable) == kAXErrorSuccess) _settable = settable ? YES : NO;
+    return _settable;
+}
+
 - (CGRect)frame {
     id position = [self slot:GHAXSlotPosition];
     id size = [self slot:GHAXSlotSize];
@@ -305,6 +319,7 @@ static BOOL GHAXIsElement(id object) {
     if ((self = [super init])) {
         _children = [NSMutableArray array];
         _enabled = YES;
+        _valueIsSettable = YES;
         _frame = CGRectZero;
     }
     return self;
@@ -431,6 +446,7 @@ static const NSUInteger GHDumpMaxValueLength = 8192;
     node.enabled = GHDumpFlag(raw[@"enabled"], YES);
     node.required = GHDumpFlag(raw[@"required"], NO);
     node.isFocused = GHDumpFlag(raw[@"focused"], NO);
+    node.valueIsSettable = GHDumpFlag(raw[@"settable"], YES);
 
     NSString *labelledBy = GHDumpString(raw[@"labelledBy"]);
     if (labelledBy) node.titleUIElement = [self staticText:labelledBy frame:CGRectZero];

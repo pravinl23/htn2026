@@ -319,6 +319,12 @@ static NSString *GHFNV1a(NSString *text) {
     return [NSString stringWithFormat:@"%016llx", hash];
 }
 
+/// Kinds whose whole purpose is that you type into them (a select or a checkbox is a value too, but nobody
+/// types into one, and their AXValue settability says nothing useful).
+static BOOL GHIsTypeableKind(NSString *kind) {
+    return [kind isEqualToString:GHKindText] || [kind isEqualToString:GHKindTextArea];
+}
+
 static BOOL GHIsValueKind(NSString *kind) {
     return ![kind isEqualToString:GHKindButton] && ![kind isEqualToString:GHKindLink] &&
            ![kind isEqualToString:GHKindItem] && ![kind isEqualToString:GHKindOther];
@@ -1091,6 +1097,18 @@ static NSString *GHUploadKindForText(NSString *text) {
     // `unnamed`, and only ever reaches the next-action path: it can never carry a value ghost.
     // A list entry with nothing readable in it is not worth naming later either: it is an empty row.
     if (isItem && label.length == 0) return nil;
+    // Outside a web area, a box you can type into but that nothing anywhere names is not a field: it is text
+    // that happens to live in a text role. Messages, Mail, Slack and Discord all publish every message on
+    // screen as a bare AXTextArea, so one open conversation looked like a twenty-one field form and Ghost
+    // offered to fill in the other person's messages. This is the rule buttons and links already live by --
+    // nothing can be mapped to a control with no name -- and the same read-only check the writer would apply.
+    //
+    // Never inside a web area: forms there do omit labels, a web input often refuses AXValue and is filled by
+    // typing instead (which is what the writer's fallback chain is for), and no form may lose a field to this.
+    if (!isAction && !entry.insideWebArea && GHIsTypeableKind(kind)) {
+        if (label.length == 0 && GHSquash(node.placeholder).length == 0) return nil;
+        if (!node.valueIsSettable) return nil;
+    }
     if ((isButton || isLink) && label.length == 0 && !(self.capturesUnnamedControls && [self isWorthNamingLater:node])) return nil;
 
     NSString *legend = @"", *heading = @"";
