@@ -71,3 +71,10 @@ Format:
 - The 3 failures are `tab-surface.spec.ts` (71, 102, 113) and are NOT mine: they fail identically when that file is run completely alone with fresh servers. The workflow page never leaves its "Start the local server" state, so every assertion that waits for it times out and the Tab-ownership behaviour underneath is never exercised. Reported to its owner in the war room; deliberately not fixed here.
 - Correction to the previous run's note: `stage5-next.spec.ts:187` (presence heartbeat) PASSED in both full runs today. It is flaky, not consistently failing as Run 5 and MORNING.md recorded.
 - Next: `tab-surface` needs fixing or quarantining before main can go green on e2e, then `DEMO.md` around the invoice-loop and desktop Greenhouse proofs.
+
+## Run 7: 2026-09-20 08:40 (UTC) [IN PROGRESS]
+- Worked on: the handoff's top remaining item — classifier vocabulary in `shared/src/affordance/roles.ts`. Native
+  controls like "add", "Record audio", "Emoji picker" classify `unknown`; this is pure local code with no key and no
+  latency, and it lifts every native app at once.
+- Next: measure the live `unknown` set across Spotify / Messages / Finder / Chrome, extend the vocabulary from the
+  measurement, verify all four apps together (never one at a time).
