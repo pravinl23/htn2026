@@ -9,7 +9,7 @@ import {
   type FormPredictResponse,
 } from "@ghost/shared";
 import { LruCache } from "../lib/cache";
-import { buildFormDecision, cleanFactKeys, factCriteria, isModelCandidate, readFormAnswer } from "./formQuestions";
+import { buildFormDecision, cleanFactKeys, factCriteria, isModelCandidate, readFormAnswer, wordingFor } from "./formQuestions";
 import { DECISION_TIMEOUT_MS, withDeadline } from "./timeout";
 
 export const FAST_PATH_CONFIDENCE = 0.9;
@@ -98,11 +98,12 @@ export function createFormPredictor(options: FormPredictorOptions): (req: FormPr
 
   async function askModel(req: FormPredictRequest, heuristic: SourcedAssignment[], asked: number[]): Promise<Computed> {
     const fields = asked.map((i) => req.fields[i]).filter((f): f is CapturedField => f !== undefined);
-    const { state, questions } = buildFormDecision(req.origin, fields, req.factKeys);
+    const wording = wordingFor(provider.name);
+    const { state, questions } = buildFormDecision(req.origin, fields, req.factKeys, wording);
     if (Buffer.byteLength(JSON.stringify({ state, questions })) > MAX_DECISION_BYTES) {
       return { outcome: heuristicOnly(heuristic, { fallbackFrom: provider.name }), cacheable: false };
     }
-    const allowed = factCriteria(req.factKeys);
+    const allowed = factCriteria(req.factKeys, wording);
     const started = performance.now();
     const report = (ok: boolean) =>
       onModelCall?.({ provider: provider.name, latencyMs: Math.round(performance.now() - started), questions: asked.length, calibrated: provider.calibrated, ok });

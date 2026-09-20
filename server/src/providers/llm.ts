@@ -1,4 +1,4 @@
-import type { Answer, Answers, DecisionProvider, DecisionState, Question, Questions } from "@ghost/shared";
+import { criterionText, instructionsText, type Answer, type Answers, type ChoiceQuestion, type DecisionProvider, type DecisionState, type Question, type Questions } from "@ghost/shared";
 import type { LlmConfig } from "../config";
 import { DecisionProviderError, isRecord } from "./errors";
 import { clamp01, spreadProbabilities } from "./probabilities";
@@ -59,6 +59,25 @@ export function shareCriteria(questions: Questions): { questions: Record<string,
   return names.size === 0 ? { questions } : { criteriaSets, questions: compact };
 }
 
+/**
+ * This transport is a text prompt whose contract says `instructions` is a string and each criterion is a
+ * description. Jev's structured form has to be flattened before it goes out, or a weaker model answers
+ * `none` at confidence 0 for every field. The ownership wording is preserved, not dropped.
+ */
+export function toTextQuestions(questions: Questions): Questions {
+  const out: Questions = {};
+  for (const [name, q] of Object.entries(questions)) {
+    if (q.type !== "choice") {
+      out[name] = q;
+      continue;
+    }
+    const criteria: ChoiceQuestion["criteria"] = {};
+    for (const [option, criterion] of Object.entries(q.criteria)) criteria[option] = criterionText(criterion);
+    out[name] = { ...q, instructions: instructionsText(q.instructions), criteria };
+  }
+  return out;
+}
+
 export function buildChatBody(model: string, state: DecisionState, questions: Questions): Record<string, unknown> {
   return {
     model,
@@ -68,7 +87,7 @@ export function buildChatBody(model: string, state: DecisionState, questions: Qu
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: JSON.stringify({ state, ...shareCriteria(questions) }) },
+      { role: "user", content: JSON.stringify({ state, ...shareCriteria(toTextQuestions(questions)) }) },
     ],
   };
 }

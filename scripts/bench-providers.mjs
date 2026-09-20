@@ -71,7 +71,7 @@ const src = (path) => import(join(SERVER, "src", path));
 const { loadConfig } = await src("config.ts");
 const { createDecisionProvider } = await src("providers/index.ts");
 const { thinkingControl } = await src("providers/baseten.ts");
-const { buildFormDecision } = await src("providers/formQuestions.ts");
+const { buildFormDecision, wordingFor } = await src("providers/formQuestions.ts");
 const { SAMPLE_FACT_KEYS, sampleFormFields } = await src("providers/sampleForm.ts");
 const { createApp } = await src("app.ts");
 
@@ -142,7 +142,8 @@ function percentile(xs, p) {
 
 async function benchDecisions(target) {
   const provider = createDecisionProvider(target.config, { warmUp: false, log: () => undefined });
-  const { state, questions } = buildFormDecision("http://localhost:5173", FORM.fields, SAMPLE_FACT_KEYS);
+  // Mirror production: formPredict picks the wording from the provider, so the benchmark must too.
+  const { state, questions } = buildFormDecision("http://localhost:5173", FORM.fields, SAMPLE_FACT_KEYS, wordingFor(provider.name));
   const gapMs = target.paceRpm ? Math.ceil((target.callsPerDecision / target.paceRpm) * 60_000) : 0;
   const runs = [];
   for (let i = 0; i < N; i += 1) {

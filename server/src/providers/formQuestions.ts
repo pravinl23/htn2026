@@ -101,8 +101,28 @@ const NOT_FOR: Record<string, string> = {
   github: "not another person's GitHub profile",
 };
 
-export function factCriteria(factKeys: string[]): ChoiceQuestion["criteria"] {
+/**
+ * `structured` states ownership and is what Jev and Baseten get: measured 53% -> 90% on the ambiguous form.
+ * `plain` is the older, looser wording, kept for the small-chat-model fallback. Measured on gpt-4o-mini, EITHER
+ * half of the structured form (the `not_for` criteria alone, or the `whose` instruction alone, or even the
+ * ownership-prefixed `what` alone) makes it answer `none` for every field of a perfectly ordinary form. That is
+ * a property of the model, not of the wording: the same text is what takes Jev from 53% to 90%.
+ */
+export type Wording = "structured" | "plain";
+
+/** Providers whose transport is a small chat model, which the structured wording destabilises. */
+export function wordingFor(providerName: string): Wording {
+  return providerName === "llm" ? "plain" : "structured";
+}
+
+export function factCriteria(factKeys: string[], wording: Wording = "structured"): ChoiceQuestion["criteria"] {
   const criteria: ChoiceQuestion["criteria"] = {};
+  if (wording === "plain") {
+    for (const key of cleanFactKeys(factKeys)) criteria[key] = FACT_DESCRIPTIONS[key] ?? null;
+    criteria[NEEDS_TEXT] = "free-text answer the applicant must write";
+    criteria[NONE] = "no profile fact fits";
+    return criteria;
+  }
   for (const key of cleanFactKeys(factKeys)) {
     const base = FACT_DESCRIPTIONS[key];
     if (!base) {
@@ -129,23 +149,30 @@ export function formQuestionName(index: number): string {
 }
 
 /** Builds the ONE batched decision for a form: a choice question per field, all sharing the same criteria. */
-export function buildFormDecision(origin: string, fields: CapturedField[], factKeys: string[]): FormDecision {
-  const criteria = factCriteria(factKeys);
+export function buildFormDecision(origin: string, fields: CapturedField[], factKeys: string[], wording: Wording = "structured"): FormDecision {
+  const criteria = factCriteria(factKeys, wording);
   const questions: Questions = {};
   fields.forEach((_, i) => {
-    questions[formQuestionName(i)] = {
-      type: "choice",
-      criteria,
-      instructions: {
-        task: `The form field \`fields[${i}]\` is being filled in by the applicant. Which stored fact about the applicant belongs in it?`,
-        whose:
-          "Every option describes a fact about the applicant themselves. Read the field's label to see whose detail it asks for. " +
-          "A label naming another person (an emergency contact, a referrer, a manager, a reference) or an organisation (an employer, a company) " +
-          `asks for that party's detail, so the applicant's own matching fact is the wrong value: answer ${NONE}.`,
-        free_text: `Answer ${NEEDS_TEXT} when the field asks the applicant to write prose in their own words.`,
-        no_fit: `Answer ${NONE} when no stored fact about the applicant is the value this field asks for.`,
-      },
-    };
+    questions[formQuestionName(i)] =
+      wording === "plain"
+        ? {
+            type: "choice",
+            criteria,
+            instructions: `Which profile fact should fill the form field \`fields[${i}]\`? Answer ${NEEDS_TEXT} if the applicant must write a free-text answer, or ${NONE} if no profile fact fits.`,
+          }
+        : {
+            type: "choice",
+            criteria,
+            instructions: {
+              task: `The form field \`fields[${i}]\` is being filled in by the applicant. Which stored fact about the applicant belongs in it?`,
+              whose:
+                "Every option describes a fact about the applicant themselves. Read the field's label to see whose detail it asks for. " +
+                "A label naming another person (an emergency contact, a referrer, a manager, a reference) or an organisation (an employer, a company) " +
+                `asks for that party's detail, so the applicant's own matching fact is the wrong value: answer ${NONE}.`,
+              free_text: `Answer ${NEEDS_TEXT} when the field asks the applicant to write prose in their own words.`,
+              no_fit: `Answer ${NONE} when no stored fact about the applicant is the value this field asks for.`,
+            },
+          };
   });
   return { state: { page: { origin }, fields: fields.map(toStateField) }, questions };
 }

@@ -33,6 +33,17 @@ export interface ChoiceQuestion {
   criteria: Record<string, string | null | CriterionDetail>;
 }
 
+/**
+ * Flattens structured instructions into one string. Jev takes the object; the LLM adapters describe a
+ * contract in which `instructions` is a string, and a weaker model handed an object silently answers
+ * `none` at confidence 0 for every question rather than failing loudly.
+ */
+export function instructionsText(instructions: string | ChoiceInstructions): string {
+  if (typeof instructions === "string") return instructions;
+  const { task, ...clauses } = instructions;
+  return [task, ...Object.values(clauses)].join(" ");
+}
+
 /** Flattens a criterion for providers whose transport is a text prompt rather than Jev's typed criteria. */
 export function criterionText(criterion: string | null | CriterionDetail): string | null {
   if (criterion === null || typeof criterion === "string") return criterion;
