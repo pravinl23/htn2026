@@ -32,6 +32,56 @@ static GHFakeAXNode *CVMessagesWindow(void) {
     return window;
 }
 
+/// The real shape of a chat window: a sidebar of OTHER conversations beside the open thread. Each sidebar
+/// row publishes exactly the same "<who>, <what>, <when>" description a message does, because it IS one --
+/// the last message of that conversation. Captured live from Messages, where seven of these drowned the
+/// real thread and every draft came out the same whatever was open.
+static GHFakeAXNode *CVMessagesWindowWithSidebar(void) {
+    GHFakeAXNode *window = CVNode(@"AXWindow", CGRectMake(0, 0, 1470, 806));
+    GHFakeAXNode *sidebar = [window addChild:CVNode(@"AXGroup", CGRectMake(0, 33, 340, 806))];
+    // The sidebar is shallower than the thread, so a breadth-first walk reaches it FIRST.
+    CVAddMessage(sidebar, @"Yasen Behiri, Flip, 2:16 AM", 8, 100, 320);
+    CVAddMessage(sidebar, @"Yuvraj Dwivedi, HOLY, 1:21 AM", 8, 140, 320);
+    CVAddMessage(sidebar, @"Krish Garg, How is tmp going, Yesterday", 8, 180, 320);
+    GHFakeAXNode *pane = [window addChild:CVNode(@"AXGroup", CGRectMake(356, 33, 1114, 806))];
+    GHFakeAXNode *thread = [pane addChild:CVNode(@"AXGroup", CGRectMake(356, 33, 1114, 700))];
+    CVAddMessage(thread, @"Tahseen Rayhan, are you coming to the thing tonight, 7:04 PM", 356, 100, 300);
+    CVAddMessage(thread, @"Alex Chen, yes, 7:05 PM", 1300, 140, 144);
+    CVAddMessage(thread, @"Tahseen Rayhan, bring the adapter, and the cable, 7:06 PM", 356, 180, 340);
+    return window;
+}
+
+GH_TEST(conversation_ignores_the_sidebar_and_reads_only_the_open_thread) {
+    // The compose box spans the thread pane and shares no x at all with the sidebar.
+    CGRect compose = CGRectMake(370, 750, 1080, 40);
+    GHConversation *conversation = [GHConversation conversationFromNode:CVMessagesWindowWithSidebar()
+                                                               maxNodes:GHConversationMaxNodes column:compose];
+    GH_ASSERT_EQUAL_INT(conversation.messages.count, 3);
+    GH_ASSERT_EQUAL_OBJECTS(conversation.messages[0].from, @"Tahseen Rayhan");
+    GH_ASSERT_EQUAL_OBJECTS(conversation.messages[2].text, @"bring the adapter, and the cable");
+    // Nobody from the sidebar reached the thread.
+    for (GHMessage *message in conversation.messages) {
+        GH_ASSERT_MSG(![message.from isEqualToString:@"Yasen Behiri"], @"a sidebar row is another conversation");
+        GH_ASSERT_MSG(![message.from isEqualToString:@"Krish Garg"], @"a sidebar row is another conversation");
+    }
+    // And the left/right test still works, because the thread box is now the thread and not the whole window.
+    GH_ASSERT_FALSE(conversation.messages[0].fromMe);
+    GH_ASSERT(conversation.messages[1].fromMe);
+    GH_ASSERT_EQUAL_OBJECTS(conversation.correspondent, @"Tahseen Rayhan");
+}
+
+GH_TEST(conversation_without_a_column_still_reads_the_whole_window) {
+    // No compose box to go by: read everything rather than nothing. This is the BEFORE picture, kept as the
+    // contrast -- the sidebar's rows are in the thread, which is exactly the bug the column rule fixes.
+    GHConversation *conversation = [GHConversation conversationFromNode:CVMessagesWindowWithSidebar()];
+    GH_ASSERT(conversation.messages.count > 3);
+    BOOL sawSidebar = NO;
+    for (GHMessage *message in conversation.messages) {
+        if ([message.from isEqualToString:@"Yasen Behiri"] || [message.from isEqualToString:@"Krish Garg"]) sawSidebar = YES;
+    }
+    GH_ASSERT_MSG(sawSidebar, @"without a column the sidebar is read as part of the thread");
+}
+
 GH_TEST(conversation_reads_a_thread_and_knows_who_said_what) {
     GHConversation *conversation = [GHConversation conversationFromNode:CVMessagesWindow()];
     GH_ASSERT_EQUAL_INT(conversation.messages.count, 3);   // three, not six: the repeat is folded away

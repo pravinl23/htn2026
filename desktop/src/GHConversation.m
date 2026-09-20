@@ -70,6 +70,18 @@ static BOOL GHLooksLikeATime(NSString *text) {
 }
 
 + (instancetype)conversationFromNode:(id<GHAXNode>)root maxNodes:(NSUInteger)maxNodes {
+    return [self conversationFromNode:root maxNodes:maxNodes column:CGRectNull];
+}
+
+/// A frame shares a column with `column` when they overlap horizontally at all. Generous on purpose: a bubble
+/// is narrower than the compose box and sits anywhere across the thread, while another COLUMN shares no x at all.
++ (BOOL)frame:(CGRect)frame sharesColumnWith:(CGRect)column {
+    if (CGRectIsNull(column) || CGRectIsEmpty(column)) return YES;
+    if (CGRectIsEmpty(frame)) return YES;   // no box to judge by: keep it rather than lose a real message
+    return CGRectGetMinX(frame) < CGRectGetMaxX(column) && CGRectGetMaxX(frame) > CGRectGetMinX(column);
+}
+
++ (instancetype)conversationFromNode:(id<GHAXNode>)root maxNodes:(NSUInteger)maxNodes column:(CGRect)column {
     GHConversation *conversation = [[self alloc] init];
     conversation.messages = @[];
     conversation.correspondent = @"";
@@ -79,7 +91,7 @@ static BOOL GHLooksLikeATime(NSString *text) {
     NSMutableArray<GHMessage *> *found = [NSMutableArray array];
     NSMutableArray<NSValue *> *frames = [NSMutableArray array];
     NSMutableArray<NSString *> *rawDescriptions = [NSMutableArray array];
-    [self collect:root budget:&budget into:found frames:frames raw:rawDescriptions];
+    [self collect:root budget:&budget into:found frames:frames raw:rawDescriptions column:column];
     conversation.visitedNodes = maxNodes - budget.nodes;
     conversation.truncated = budget.exhausted || budget.hung;
     if (found.count == 0) return conversation;
@@ -125,7 +137,8 @@ static BOOL GHLooksLikeATime(NSString *text) {
          budget:(GHAXWalkBudget *)budget
            into:(NSMutableArray<GHMessage *> *)found
          frames:(NSMutableArray<NSValue *> *)frames
-            raw:(NSMutableArray<NSString *> *)raw {
+            raw:(NSMutableArray<NSString *> *)raw
+         column:(CGRect)column {
     NSMutableArray<id<GHAXNode>> *queue = [NSMutableArray arrayWithObject:node];
     NSUInteger head = 0;
     while (head < queue.count) {
@@ -136,10 +149,14 @@ static BOOL GHLooksLikeATime(NSString *text) {
             // macOS repeats a message's description on the group inside it. The outer one is seen first, so
             // an identical description in a row is the same message being reported twice.
             NSString *key = [GHPageContext normalizedText:current.axDescription];
+            CGRect bubble = [self bubbleFrameOf:current];
+            // Another column's "message" is another conversation's last line. Skipped, and NOT descended into:
+            // whatever is inside a sidebar row is still the sidebar.
+            if (![self frame:bubble sharesColumnWith:column]) continue;
             if (raw.count == 0 || ![raw.lastObject isEqualToString:key]) {
                 [raw addObject:key];
                 [found addObject:message];
-                [frames addObject:[NSValue valueWithRect:[self bubbleFrameOf:current]]];
+                [frames addObject:[NSValue valueWithRect:bubble]];
             }
             continue;   // never descend into a message
         }

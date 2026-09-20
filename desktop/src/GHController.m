@@ -1122,9 +1122,11 @@ NSString *GHProposalDisplayText(GHField *field) {
  */
 - (NSArray<GHGhost *> *)ghostsByAddingReply:(NSArray<GHGhost *> *)ghosts result:(GHCaptureResult *)result {
     if (ghosts.count > 0 || !_client || result.fields.count == 0) return ghosts;
-    if (![self conversationContext]) return ghosts;
+    // The box FIRST, because it is what says which column the thread is in. Read the other way round, the
+    // walk starts at the window root and a sidebar of other conversations answers before the real one does.
     GHField *box = [self replyBoxIn:result];
     if (!box) return ghosts;
+    if (![self conversationContextForColumn:box.rect]) return ghosts;
     if ([_walk.dismissed containsObject:box.signature]) return ghosts;
     GHDraft *draft = _drafts[box.signature];
     if (!draft) {
@@ -1201,16 +1203,22 @@ NSString *GHProposalDisplayText(GHField *field) {
 
 /// The thread on screen, read once per page. nil in every window that is not a conversation, which is almost
 /// all of them: the reader needs messages that carry a name and a time, and finds none anywhere else.
-- (NSDictionary<NSString *, id> *)conversationContext {
+- (NSDictionary<NSString *, id> *)conversationContextForColumn:(CGRect)column {
     if (_conversationRead) return _conversation;
     _conversationRead = YES;
     id<GHAXNode> root = _result.windowNode;
     if (!root) return nil;
-    GHConversation *conversation = [GHConversation conversationFromNode:root];
+    GHConversation *conversation = [GHConversation conversationFromNode:root maxNodes:GHConversationMaxNodes column:column];
     _conversation = [conversation dictionary];
-    if (_conversation) GHLog(@"controller: conversation of %lu messages (%lu nodes)",
-                             (unsigned long)conversation.messages.count, (unsigned long)conversation.visitedNodes);
+    if (_conversation) GHLog(@"controller: conversation of %lu messages (%lu nodes)%@",
+                             (unsigned long)conversation.messages.count, (unsigned long)conversation.visitedNodes,
+                             CGRectIsNull(column) ? @" whole window" : @" in the compose column");
     return _conversation;
+}
+
+/// The whole window, for callers that have no compose box to go by.
+- (NSDictionary<NSString *, id> *)conversationContext {
+    return [self conversationContextForColumn:CGRectNull];
 }
 
 /// What the posting is about, read once per page from the web area (never an input's value).

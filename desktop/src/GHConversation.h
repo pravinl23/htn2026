@@ -55,6 +55,20 @@ extern const NSTimeInterval GHConversationMaxSeconds;   // 0.20
 /// which is where the apps that follow the convention put the words.
 + (instancetype)conversationFromNode:(id<GHAXNode>)root;
 + (instancetype)conversationFromNode:(id<GHAXNode>)root maxNodes:(NSUInteger)maxNodes;
+/**
+ * The thread in ONE column of the window, which is the only way to read a chat app that shows a list of
+ * conversations beside the open one.
+ *
+ * A sidebar row publishes the same "<who>, <what>, <when>" description a message does -- it IS a message,
+ * the last one of some other conversation -- so a walk from the window root finds the sidebar first and
+ * fills the thread with seven other people's previews. Measured in Messages: 8 "messages", 7 of which were
+ * sidebar rows, which is why every draft came out the same whatever conversation was open.
+ *
+ * `column` is the compose box's frame. Every chat app in existence puts its compose box under the thread and
+ * beside nothing else, so a message that shares no x with it belongs to some other column. CGRectNull reads
+ * the whole window, as before.
+ */
++ (instancetype)conversationFromNode:(id<GHAXNode>)root maxNodes:(NSUInteger)maxNodes column:(CGRect)column;
 - (instancetype)init NS_UNAVAILABLE;
 
 /// `{ messages: [{ from, text, fromMe }], correspondent }` for `/v1/ghost-text`. nil when there is no thread.
