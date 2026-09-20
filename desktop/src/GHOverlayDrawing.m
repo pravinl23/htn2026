@@ -2,7 +2,6 @@
 
 const CFTimeInterval GHGlideDuration = 0.18;
 const CGSize GHKeycapSize = {32, 18};
-const CGSize GHGuessChipSize = {38, 14};
 
 CGColorRef GHColor(CGFloat r, CGFloat g, CGFloat b, CGFloat alpha) {
     // The palette is tiny, and a cached NSColor keeps its CGColor alive for callers that do not retain it.
@@ -167,9 +166,9 @@ CALayer *GHMakeKeycap(NSString *label, CGSize size, CGFloat scale) {
 
 #pragma mark - the guess marker
 
-static CGFloat GHSnapTo(CGFloat value, CGFloat scale) { return round(value * scale) / MAX(scale, 1); }
-
-CGColorRef GHGuessColor(CGFloat alpha) { return GHAccent(YES, alpha); }
+/// One accent. A guess is told apart by the DOTTED rule under the words, never by a second colour: two
+/// palettes on screen at once was most of what made the overlay look busy.
+CGColorRef GHGuessColor(CGFloat alpha) { return GHAccent(NO, alpha); }
 
 CALayer *GHMakeGuessUnderline(CGFloat width, CGFloat scale) {
     CAShapeLayer *rule = [CAShapeLayer layer];
@@ -187,25 +186,4 @@ CALayer *GHMakeGuessUnderline(CGFloat width, CGFloat scale) {
     rule.lineCap = kCALineCapRound;
     rule.lineDashPattern = @[ @1.5, @2.5 ];
     return rule;
-}
-
-CALayer *GHMakeGuessChip(CGFloat scale) {
-    CALayer *chip = [CALayer layer];
-    chip.bounds = CGRectMake(0, 0, GHGuessChipSize.width, GHGuessChipSize.height);
-    chip.anchorPoint = CGPointZero;
-    chip.cornerRadius = GHGuessChipSize.height / 2;
-    chip.backgroundColor = GHGuessColor(0.16);
-    chip.borderWidth = 1;
-    chip.borderColor = GHGuessColor(0.55);
-
-    NSFont *font = [NSFont systemFontOfSize:9 weight:NSFontWeightSemibold];
-    NSAttributedString *text = GHAttributed(@"guess", font, GHColor(140, 92, 10, 1), 0.2);
-    CGSize size = GHTextSize(text);
-    CATextLayer *label = GHMakeTextLayer(scale);
-    label.string = text;
-    CGFloat line = GHLineHeight(font);
-    label.frame = CGRectMake(GHSnapTo((GHGuessChipSize.width - size.width) / 2, scale),
-                             GHSnapTo((GHGuessChipSize.height - line) / 2, scale), size.width + 1, line);
-    [chip addSublayer:label];
-    return chip;
 }

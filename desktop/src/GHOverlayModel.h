@@ -72,7 +72,6 @@ typedef NS_ENUM(NSInteger, GHDrawKind) {
     GHDrawKindRing,
     GHDrawKindCursor,
     GHDrawKindKeycap,
-    GHDrawKindLockBadge,
     GHDrawKindHUD,
     GHDrawKindHUDError,
     GHDrawKindHUDStatus,

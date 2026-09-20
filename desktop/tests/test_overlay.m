@@ -252,32 +252,20 @@ GH_TEST(overlay_model_cursor_tip_points_into_the_field) {
     GH_ASSERT_NEAR([shortText itemWithKey:@"cursor" screen:0].tip.x, 140 + 300 * 0.62, 0.001);
 }
 
-GH_TEST(overlay_model_locked_target_gets_badge_and_never_a_keycap) {
+/// A locked target gets the ring and nothing else: no keycap, no badge, and NO GHOST CURSOR. Ghost is never
+/// going to press it, so a cursor that means "take this" is the wrong thing to draw there, and its absence
+/// beside the same purple ring everything else gets is the whole signal. The badge that used to spell out
+/// "Enter to confirm" is gone: a ghost's vocabulary is a ring and a cursor, and a pill of instructions is
+/// not part of it.
+GH_TEST(overlay_model_locked_target_gets_the_ring_alone) {
     GHOverlayModel *model = [GHOverlayModel modelWithInput:FormInput(3) layout:OneDisplay()];
-    GH_ASSERT_EQUAL_OBJECTS(Keys(model.items), (@[ @"text:first", @"text:email", @"text:why", @"ring", @"lock", @"cursor" ]));
-    GHDrawItem *ring = [model itemWithKey:@"ring" screen:0], *lock = [model itemWithKey:@"lock" screen:0];
-    GHDrawItem *cursor = [model itemWithKey:@"cursor" screen:0];
-    GH_ASSERT(ring.locked);
-    GH_ASSERT(cursor.locked);
-    GH_ASSERT(lock.locked);
-    GH_ASSERT_EQUAL_INT(lock.anchor, GHDrawAnchorTopLeft);
-    // Below and to the right of the pointer's tip (bottom-left coordinates: lower y).
-    GH_ASSERT(CGRectGetMaxY(lock.frame) < cursor.tip.y);
-    GH_ASSERT(CGRectGetMinX(lock.frame) > cursor.tip.x);
-    // Dead center on the button horizontally.
-    GH_ASSERT_NEAR(cursor.tip.x, 140 + 80, 0.001);
-}
-
-GH_TEST(overlay_model_lock_badge_stays_on_the_display) {
-    GHOverlayInput *input = [[GHOverlayInput alloc] init];
-    GHOverlayEntry *submit = Entry(@"submit", @"button", @"Send", CGRectMake(1340, 850, 90, 40));  // bottom-right corner
-    submit.locked = YES;
-    input.entries = @[ submit ];
-    input.currentIndex = 0;
-    GHOverlayModel *model = [GHOverlayModel modelWithInput:input layout:OneDisplay()];
-    GHDrawItem *lock = [model itemWithKey:@"lock" screen:0], *cursor = [model itemWithKey:@"cursor" screen:0];
-    GH_ASSERT(CGRectContainsRect(CGRectMake(0, 0, 1440, 900), lock.frame));
-    GH_ASSERT(CGRectGetMinY(lock.frame) > cursor.tip.y);  // flipped above the pointer: no room below
+    GH_ASSERT_EQUAL_OBJECTS(Keys(model.items), (@[ @"text:first", @"text:email", @"text:why", @"ring" ]));
+    GH_ASSERT([model itemWithKey:@"lock" screen:0] == nil);
+    GH_ASSERT([model itemWithKey:@"cursor" screen:0] == nil);
+    GH_ASSERT([model itemWithKey:@"keycap" screen:0] == nil);
+    GH_ASSERT([model itemWithKey:@"ring" screen:0].locked);
+    // The ring is still drawn, and still where the button is.
+    GH_ASSERT(model.currentVisible);
 }
 
 GH_TEST(overlay_model_draws_nothing_for_fields_the_user_cannot_see) {
@@ -438,11 +426,12 @@ GH_TEST(overlay_diff_accepting_a_ghost_removes_only_its_text) {
                                                toItems:[GHOverlayModel modelWithInput:after layout:layout].items];
     GH_ASSERT_EQUAL_OBJECTS(diff.removedKeys, (@[ @"text:first" ]));
     GH_ASSERT_EQUAL_INT(diff.added.count, 0);
-    // Walking onto the lock swaps the keycap for the badge.
+    // Walking onto the lock takes the keycap AND the ghost cursor away, and adds nothing: the ring is all
+    // that is left, because Ghost is not going to press it.
     GHOverlayDiff *toLock = [GHOverlayDiff diffFromItems:[GHOverlayModel modelWithInput:FormInput(2) layout:layout].items
                                                  toItems:[GHOverlayModel modelWithInput:FormInput(3) layout:layout].items];
-    GH_ASSERT_EQUAL_OBJECTS(toLock.removedKeys, (@[ @"keycap" ]));
-    GH_ASSERT_EQUAL_OBJECTS(Keys(toLock.added), (@[ @"lock" ]));
+    GH_ASSERT_EQUAL_OBJECTS(toLock.removedKeys, (@[ @"keycap", @"cursor" ]));
+    GH_ASSERT_EQUAL_INT(toLock.added.count, 0);
 }
 
 GH_TEST(overlay_diff_tracks_text_changes_without_keeping_the_text) {
@@ -504,11 +493,12 @@ GH_TEST(overlay_window_reuses_layers_between_renders) {
     GH_ASSERT_RECT(ring.frame, 137, 597, 306, 46);
     GH_ASSERT_EQUAL_INT([overlay rootLayerAtIndex:0].sublayers.count, 6);
 
-    // The lock: badge in, keycap out, and its layer really leaves the tree.
+    // The lock: keycap and cursor both out, no badge in, and their layers really leave the tree.
     [overlay render:[GHOverlayModel modelWithInput:FormInput(3) layout:layout]];
     GH_ASSERT([overlay layerForKey:@"keycap" atIndex:0] == nil);
-    GH_ASSERT([[overlay layerForKey:@"lock" atIndex:0] isKindOfClass:GHLockBadgeLayer.class]);
-    GH_ASSERT_EQUAL_INT([overlay rootLayerAtIndex:0].sublayers.count, 6);
+    GH_ASSERT([overlay layerForKey:@"cursor" atIndex:0] == nil);
+    GH_ASSERT([overlay layerForKey:@"lock" atIndex:0] == nil);
+    GH_ASSERT_EQUAL_INT([overlay rootLayerAtIndex:0].sublayers.count, 4);
 
     [overlay hideImmediately];
     GH_ASSERT([overlay rootLayerAtIndex:0].hidden);

@@ -45,7 +45,5 @@ CGColorRef GHGuessColor(CGFloat alpha) CF_RETURNS_NOT_RETAINED;
 /// A dotted amber rule under ghost text, `width` points wide, sitting at y = 0 of its parent.
 CALayer *GHMakeGuessUnderline(CGFloat width, CGFloat scale);
 /// The little "guess" chip that follows a pill's label.
-CALayer *GHMakeGuessChip(CGFloat scale);
-extern const CGSize GHGuessChipSize;
 
 NS_ASSUME_NONNULL_END

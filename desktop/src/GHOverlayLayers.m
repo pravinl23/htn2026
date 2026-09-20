@@ -26,7 +26,6 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
         case GHDrawKindRing: cls = GHRingLayer.class; break;
         case GHDrawKindCursor: cls = GHCursorLayer.class; break;
         case GHDrawKindKeycap: cls = GHKeycapLayer.class; break;
-        case GHDrawKindLockBadge: cls = GHLockBadgeLayer.class; break;
         case GHDrawKindHUD:
         case GHDrawKindHUDError:
         case GHDrawKindHUDStatus: cls = GHHudLayer.class; break;
@@ -44,7 +43,6 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
         case GHDrawKindGhostText:
         case GHDrawKindPill: return 1;
         case GHDrawKindRing: return 2;
-        case GHDrawKindLockBadge: return 3;
         case GHDrawKindKeycap: return 4;
         case GHDrawKindCursor: return 5;
     }
@@ -175,9 +173,8 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
     // The ring says everything the chips used to: purple means take it, amber means Ghost is guessing
     // (docs/answers.md section 3 -- a guess is still always visibly a guess, with nothing added to the
     // screen to say so).
-    self.borderColor = item.current ? (item.guess ? GHGuessColor(0.75) : GHAccent(NO, 0.45))
-                                    : GHColor(120, 120, 135, 0.3);
-    self.shadowColor = item.current ? (item.guess ? GHGuessColor(1) : GHAccent(NO, 1)) : GHColor(24, 16, 64, 1);
+    self.borderColor = item.current ? GHAccent(NO, 0.45) : GHColor(120, 120, 135, 0.3);
+    self.shadowColor = item.current ? GHAccent(NO, 1) : GHColor(24, 16, 64, 1);
     self.shadowOpacity = item.current ? 0.45f : 0.08f;
     self.shadowRadius = item.current ? 6 : 1;
     self.shadowOffset = CGSizeMake(0, item.current ? -3 : -1);
@@ -245,18 +242,18 @@ static const CGFloat kGlowMargin = 44;
     GHSetLayerFrame(_line, CGRectInset(box, -1.5, -1.5), glide);
     _line.borderWidth = 1.5;
     _line.cornerRadius = radius + 1.5;
-    _line.borderColor = GHAccent(item.locked, 0.72);
+    _line.borderColor = GHAccent(NO, 0.72);
 
     GHSetLayerFrame(_halo, CGRectInset(box, -5, -5), glide);
     _halo.borderWidth = 5;
     _halo.cornerRadius = radius + 5;
-    _halo.borderColor = GHAccent(item.locked, 0.16);
+    _halo.borderColor = GHAccent(NO, 0.16);
 
     GHSetLayerFrame(_glow, CGRectInset(box, -kGlowMargin, -kGlowMargin), glide);
-    NSString *key = [NSString stringWithFormat:@"%.1fx%.1f r%.1f l%d s%.1f", box.size.width, box.size.height, radius, item.locked, item.scale];
+    NSString *key = [NSString stringWithFormat:@"%.1fx%.1f r%.1f s%.1f", box.size.width, box.size.height, radius, item.scale];
     if (![key isEqualToString:_glowKey]) {
         _glowKey = key;
-        _glow.contents = [self glowImageForSize:box.size radius:radius locked:item.locked scale:item.scale];
+        _glow.contents = [self glowImageForSize:box.size radius:radius locked:NO scale:item.scale];
         _glow.contentsScale = item.scale;
     }
 }

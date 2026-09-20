@@ -6,7 +6,6 @@ static const CGFloat kRingPad = 3, kGroupRingPad = 4, kFieldRadiusGuess = 6;
 static const CGFloat kCursorBox = 28, kCursorTipX = 5, kCursorTipY = 3.5;
 static const CGFloat kKeycapWidth = 32, kKeycapHeight = 18, kKeycapGap = 8, kKeycapMinField = 96;
 static const CGFloat kPillHeight = 22, kPillMaxWidth = 260, kPillRoom = 140, kSelectArrowRoom = 30;
-static const CGFloat kLockWidth = 168, kLockHeight = 26;
 static const CGFloat kHudMargin = 14, kHudHeight = 28, kHudGap = 6, kHudErrorMaxWidth = 320;
 
 GHOverlayMode GHOverlayModeForKind(NSString *kind) {
@@ -295,18 +294,6 @@ static GHDrawItem *GHKeycapItem(GHMeasured m, GHOverlayMode mode, GHScreenLayout
                               frame:[layout localRectFromAXRect:cap screen:m.screen]];
 }
 
-/// Below and to the right of the pointer; above it when the display ends first. Never off the display's sides.
-static GHDrawItem *GHLockItem(GHMeasured m, CGPoint tip, GHScreenLayout *layout) {
-    CGRect screen = [layout axFrameAtIndex:m.screen];
-    BOOL below = tip.y + 56 <= CGRectGetMaxY(screen) || tip.y - screen.origin.y < 48;
-    CGFloat x = MAX(screen.origin.x + 8, MIN(tip.x + 14, CGRectGetMaxX(screen) - kLockWidth - 8));
-    CGRect badge = CGRectMake(x, below ? tip.y + 22 : tip.y - 40, kLockWidth, kLockHeight);
-    GHDrawItem *item = [GHDrawItem itemWithKind:GHDrawKindLockBadge key:@"lock" screen:m.screen
-                                          frame:[layout localRectFromAXRect:badge screen:m.screen]];
-    item.anchor = GHDrawAnchorTopLeft;
-    return item;
-}
-
 /// Bottom-right of the main display, above the Dock. The frame is the room; the layer hugs its content inside it.
 static NSArray<GHDrawItem *> *GHHudItems(GHOverlayInput *input, GHScreenLayout *layout) {
     BOOL hasError = input.error.length > 0, hasStatus = input.status.length > 0;
@@ -394,9 +381,12 @@ static NSArray<GHDrawItem *> *GHHudItems(GHOverlayInput *input, GHScreenLayout *
         model.currentVisible = YES;
         model.currentTipAX = tip;
         [chrome addObject:GHRingItem(entry, m, mode, layout)];
-        if (entry.locked) [chrome addObject:GHLockItem(m, tip, layout)];
         if (keycap) [chrome addObject:keycap];
-        [chrome addObject:GHCursorItem(m, tip, layout)];
+        // No ghost cursor on a locked action. Ghost is never going to press it, so a cursor that means
+        // "take this" is the wrong thing to draw there -- and its absence, beside the same purple ring
+        // everything else gets, is the whole signal. The badge that used to say "Enter to confirm" is gone
+        // with it: a ghost's vocabulary is a ring and a cursor, and a pill of instructions is not part of it.
+        if (!entry.locked) [chrome addObject:GHCursorItem(m, tip, layout)];
         for (GHDrawItem *item in chrome) {
             item.locked = entry.locked;
             item.targetSignature = entry.signature;
