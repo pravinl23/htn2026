@@ -110,7 +110,7 @@ describe("applyUserPress: three consistent presses flip a place permanently", ()
     expect(record.run).toEqual({ key: "tab", count: 2 });
   });
 
-  it("flips a free place to taken after three Ghost-key presses", () => {
+  it("flips a free place to taken after three Shabang-key presses", () => {
     let record: KeyObservation = { ...unknownObservation(KEY), tab: "free" };
     for (let i = 0; i < FLIP_PRESSES; i++) record = applyUserPress(record, { key: "ghost-key" });
     expect(record.tab).toBe("taken");
@@ -362,7 +362,7 @@ describe("observe and policy together", () => {
     expect(ask(memory).key).toBe("tab");
   });
 
-  it("a click ghost stays on the Ghost key however free Tab is here", () => {
+  it("a click ghost stays on the Shabang key however free Tab is here", () => {
     const memory = new KeyMemory();
     memory.recordTabProbe({ ...SITE, focusMoved: true });
     memory.recordTabProbe({ ...SITE, focusMoved: true });

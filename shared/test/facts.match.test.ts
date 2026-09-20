@@ -1,5 +1,5 @@
 // The point of the fact graph, as five forms no job board would ever show: a shipping checkout, a support
-// ticket, a conference signup, an address book entry and a doctor's intake form. Ghost used to go blank on
+// ticket, a conference signup, an address book entry and a doctor's intake form. Shabang used to go blank on
 // every one of them. Not one line of form-specific code exists; the facts describe themselves and the
 // mapper compares names.
 import { describe, expect, it } from "vitest";

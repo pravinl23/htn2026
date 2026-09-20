@@ -1,4 +1,4 @@
-import { DEMO_PROFILE } from "@ghost/shared";
+import { DEMO_PROFILE } from "@shabang/shared";
 import { describe, expect, it } from "vitest";
 import { clipToSentences, formatYearMonth, templateDraft, wordCount, type DraftInput } from "../src/lib/template";
 

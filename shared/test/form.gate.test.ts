@@ -1,4 +1,4 @@
-// The gate (docs/incremental.md): Ghost never proposes a step the page would reject.
+// The gate (docs/incremental.md): Shabang never proposes a step the page would reject.
 // Every case here is a way the first implementation let Submit through while the form was still incomplete.
 import { describe, expect, it } from "vitest";
 import {
@@ -11,7 +11,7 @@ import {
   reconcileAccepted,
   type CapturedField,
   type FieldKind,
-  type Ghost,
+  type Shabang,
 } from "../src";
 
 const RECT = { x: 0, y: 0, width: 100, height: 20 };
@@ -24,8 +24,8 @@ function submit(extra: Partial<CapturedField> = {}): CapturedField {
   return f("submit", "Submit application", "button", { locked: true, ...extra });
 }
 
-function ghost(signature: string, extra: Partial<Ghost> = {}): Ghost {
-  return { signature, action: "fill", value: "x", confidence: 0.9, rect: RECT, ...extra } as Ghost;
+function ghost(signature: string, extra: Partial<Shabang> = {}): Shabang {
+  return { signature, action: "fill", value: "x", confidence: 0.9, rect: RECT, ...extra } as Shabang;
 }
 
 describe("gateWalk: a terminal action is withheld by every required field it could submit", () => {

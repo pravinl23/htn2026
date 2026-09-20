@@ -9,7 +9,7 @@
  * Nothing in this file can carry a label, a value, a URL, an origin or a page title: both vocabularies
  * are closed sets of string literals, so a leak would not compile.
  */
-import { WALK_OUTCOMES, type GhostWalkOutcome, type WalkAction, type WalkOutcome as WireOutcome, type WalkSource, type WalkConfidenceBucket } from "@ghost/shared";
+import { WALK_OUTCOMES, type GhostWalkOutcome, type WalkAction, type WalkOutcome as WireOutcome, type WalkSource, type WalkConfidenceBucket } from "@shabang/shared";
 import type { ConfidenceBucket } from "../observability/names";
 import { recordWalk } from "../observability/walkSink";
 import type { GhostClass, GhostOutcome, GhostSource, WalkOutcome } from "../observability/walkSink";

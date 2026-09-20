@@ -1,4 +1,4 @@
-import type { Questions } from "@ghost/shared";
+import type { Questions } from "@shabang/shared";
 import { describe, expect, it } from "vitest";
 import { choiceConsensus, consensus, noulConsensus, scoreConsensus, smoothedFractions } from "../src/providers/consensus";
 

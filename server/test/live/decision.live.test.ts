@@ -1,4 +1,4 @@
-import type { DecisionProvider } from "@ghost/shared";
+import type { DecisionProvider } from "@shabang/shared";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config";
 import { buildFormDecision } from "../../src/providers/formQuestions";
@@ -10,7 +10,7 @@ import { createTypesafeProvider } from "../../src/providers/typesafe";
 // Live only (pnpm test:live). At most THREE real calls per run: one 12-field form per provider that has a key.
 // The generous timeout is for measuring: the server itself gives a provider 2.5 s before it falls back.
 const LIVE_TIMEOUT_MS = 20_000;
-const config = loadConfig({ ...process.env, GHOST_DECISION_PROVIDER: undefined, GHOST_TEXT_PROVIDER: undefined });
+const config = loadConfig({ ...process.env, SHABANG_DECISION_PROVIDER: undefined, SHABANG_TEXT_PROVIDER: undefined });
 
 /** Rethrows with name, message and status only, so a failing run can never print request details. */
 async function decideOnce(provider: DecisionProvider) {

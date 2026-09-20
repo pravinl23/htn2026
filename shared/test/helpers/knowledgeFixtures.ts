@@ -482,7 +482,7 @@ export function fileBrowser(): SurfaceFixture {
   };
 }
 
-/** A column of labelled fields and one button: the oldest shape Ghost knew, now just one kind among ten. */
+/** A column of labelled fields and one button: the oldest shape Shabang knew, now just one kind among ten. */
 export function signupForm(): SurfaceFixture {
   const fields = repeat(7, (i) =>
     node("group", box(200, 80 + i * 76, 400, 64), {
@@ -515,7 +515,7 @@ export function signupForm(): SurfaceFixture {
   };
 }
 
-/** A window Ghost cannot read: two nameless controls and nothing else. It still has to propose something. */
+/** A window Shabang cannot read: two nameless controls and nothing else. It still has to propose something. */
 export function unreadableWindow(): SurfaceFixture {
   return {
     surface: "s16",

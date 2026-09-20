@@ -1,4 +1,4 @@
-import { NONE, isSensitive, normalize, type Answers, type ChoiceQuestion, type Questions } from "@ghost/shared";
+import { NONE, isSensitive, normalize, type Answers, type ChoiceQuestion, type Questions } from "@shabang/shared";
 
 /** One normalized user action. The server never forwards typed values, only what was acted on. */
 export interface TraceEvent {

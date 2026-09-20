@@ -4,7 +4,7 @@
     "lib": ["ES2022"],
     "types": [],
     "baseUrl": ".",
-    "paths": { "@ghost/shared": ["../../shared/src/index.ts"] }
+    "paths": { "@shabang/shared": ["../../shared/src/index.ts"] }
   },
   "include": ["entry.ts", "predict.ts", "anywhere.ts", "globals.d.ts"]
 }

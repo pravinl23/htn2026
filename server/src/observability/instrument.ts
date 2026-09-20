@@ -24,7 +24,7 @@ const SENTRY_PROFILING = ["@sentry", "profiling-node"].join("/");
  * Default integrations that would carry data we promised never to send.
  * - LocalVariables attaches the local variables of every stack frame to an error: one crash inside the form predictor
  *   would ship the captured fields, labels and all.
- * - Console turns every `console.log` into a breadcrumb. Ghost's own log lines are counts only, but a dependency's
+ * - Console turns every `console.log` into a breadcrumb. Shabang's own log lines are counts only, but a dependency's
  *   are not, and a breadcrumb is not covered by the log scrubber.
  * - RequestData attaches the incoming URL, headers and body. The route name is already on the transaction.
  * - Hono is the auto-instrumentation for this framework. It opens a SECOND transaction per request (named after the
@@ -135,7 +135,7 @@ async function loadProfiling(): Promise<Profiling | undefined> {
  * Never throws: an observability problem must not stop the prediction server from answering.
  */
 export async function initObservability(env: Env = process.env): Promise<InstrumentResult> {
-  const environment = env.GHOST_ENV || "dev";
+  const environment = env.SHABANG_ENV || "dev";
   const dsn = env.SENTRY_DSN?.trim();
   if (!dsn) return { enabled: false, environment, profiling: false, reason: "SENTRY_DSN is not set" };
   try {
@@ -163,7 +163,7 @@ export async function initObservability(env: Env = process.env): Promise<Instrum
       serverName: "ghost-server",
       integrations: (defaults) => [
         ...defaults.filter((integration) => !DROP_INTEGRATIONS.has(integration.name)),
-        // Every span in a Ghost trace is one we started on purpose; the automatic HTTP spans would only add noise,
+        // Every span in a Shabang trace is one we started on purpose; the automatic HTTP spans would only add noise,
         // and their breadcrumbs carry full URLs with query strings.
         Sentry.httpIntegration({ spans: false, breadcrumbs: false }),
         Sentry.nativeNodeFetchIntegration({ spans: false, breadcrumbs: false }),

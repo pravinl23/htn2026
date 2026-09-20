@@ -113,7 +113,7 @@ neutral option. A list that opens and says "No options" is recognised as an open
   smoothly is read again before Shabang gives up; a page that refuses gets the Tab back, and Tab stays native afterwards.
   (Live: it works in Safari and is exactly the branch Chrome falls into, because Chrome reports a zero-height frame for
   everything below the fold - see "Current status".)
-- `GHPageContext` (company, role, posting text) feeds `/v1/ghost-text` for text areas and long questions (stub server).
+- `GHPageContext` (company, role, posting text) feeds `/v1/shabang-text` for text areas and long questions (stub server).
 - Profile file facts (`resumePath`, `coverLetterPath`) are validated on load; `profile.example.json` loads through the store.
 - Review fixes (fakes only): every step of a walk re-reads live focus (a queued Tab, a held Tab, the end of a draft wait),
   and only the first step of a fresh press hands its Tab back; focus is moved on after a write only while it is still where
@@ -247,7 +247,7 @@ Only requests to the local prediction server (`settings.serverUrl`, default `htt
   question (by label, section or answer options) and never a demographic fact key (`gender`, `veteranStatus`,
   `dateOfBirth`...). The `origin` is `app://<bundle id>/<page host>`, or `app://<bundle id>` alone: never anything from a
   window title.
-- `POST /v1/ghost-text`: the question's label and an allowlist of facts (name, school, degree, major, graduation date,
+- `POST /v1/shabang-text`: the question's label and an allowlist of facts (name, school, degree, major, graduation date,
   location, GitHub, website). Email, phone, LinkedIn, work authorization and sponsorship are never sent. Up to three past
   answers, only to questions similar to this one (the extension's rule), never one to a sensitive, EEO or
   work-authorization question and never one containing an e-mail address or a phone number. For text areas and long
@@ -405,7 +405,7 @@ GH_TEST(thing_does_what_it_says) {
 | `"error": "agent-not-responding"` | A Shabang that predates the harness is running. `tools/shabangctl quit`, then `tools/shabangctl run`. |
 | No ghosts in Chrome/Arc/Electron | Those apps build their web accessibility tree on demand. Shabang asks for it (`AXEnhancedUserInterface`, `AXManualAccessibility`); give the page a second, or check `tools/shabangctl dump`. |
 | No ghosts in a browser that has the extension | Intended: the menu shows "<Browser>: handled by the extension". Disable the extension there to let Desktop take over. |
-| "Server: offline (unreachable)" | Start it: `pnpm --filter @ghost/server dev`. Shabang keeps working with the in-process heuristic. |
+| "Server: offline (unreachable)" | Start it: `pnpm --filter @shabang/server dev`. Shabang keeps working with the in-process heuristic. |
 | Menu says "Keyboard tap unavailable" | The system refused the event tap: same permission problem as above. Shabang retries every 5 s; Tab stays native meanwhile. |
 | Ghosts show but Tab does nothing | Tab is only Shabang's while focus is in the walk (the ghosted field, the field just left, or the page itself) and the current ghost is on screen. Click the ghosted field. The log (`controller:` / `writer:` lines, never values) says what happened. |
 | "Shabang could not fill this field (did-not-hold)" | The app reverted AXValue, AXSelectedText and typed input. The walk stops there by design; the next ghost still works. |

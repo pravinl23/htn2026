@@ -22,7 +22,7 @@ export interface FactDef {
 }
 
 /**
- * The résumé keys Ghost shipped with, now just one corner of the graph. Their KEYS are unchanged on
+ * The résumé keys Shabang shipped with, now just one corner of the graph. Their KEYS are unchanged on
  * purpose: stored profiles, per-site caches and learned answers all speak them, and renaming them would
  * throw that away for nothing. New facts use dotted keys.
  */

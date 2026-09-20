@@ -9,9 +9,9 @@
 # Self-contained on purpose (own variable names, no dependency on the main Makefile's object rules).
 
 OVERLAY_DEMO_BIN   := build/overlay-demo
-OVERLAY_DEMO_SRC   := tools/overlay-demo.m src/GHGeometry.m src/GHOverlayModel.m src/GHOverlayDrawing.m \
-                      src/GHOverlayLayers.m src/GHOverlayBadges.m src/GHOverlayWindow.m src/GHField.m
-OVERLAY_DEMO_HDR   := $(wildcard src/GHOverlay*.h) src/GHGeometry.h src/GHField.h
+OVERLAY_DEMO_SRC   := tools/overlay-demo.m src/SBGeometry.m src/SBOverlayModel.m src/SBOverlayDrawing.m \
+                      src/SBOverlayLayers.m src/SBOverlayBadges.m src/SBOverlayWindow.m src/SBField.m
+OVERLAY_DEMO_HDR   := $(wildcard src/SBOverlay*.h) src/SBGeometry.h src/SBField.h
 OVERLAY_DEMO_FLAGS := -fobjc-arc -Wall -Wextra -Wno-unused-parameter -O2 -mmacosx-version-min=13.0 -Isrc \
                       -framework AppKit -framework ApplicationServices -framework QuartzCore
 

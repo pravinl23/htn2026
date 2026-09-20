@@ -1,4 +1,4 @@
-import { synthesizeProgram, type LoopCandidate, type UnresolvedStep } from "@ghost/shared";
+import { synthesizeProgram, type LoopCandidate, type UnresolvedStep } from "@shabang/shared";
 import { describe, expect, it } from "vitest";
 import { parseModelPicks, MalformedAnswer } from "../src/loop/answers";
 import { applyMappings } from "../src/loop/apply";

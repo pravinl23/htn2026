@@ -1,4 +1,4 @@
-import type { GhostWalkOutcome } from "@ghost/shared";
+import type { GhostWalkOutcome } from "@shabang/shared";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../src/config";
@@ -10,7 +10,7 @@ const JSON_HEADERS = { "Content-Type": "application/json" };
 
 /** A calibrated, confident proposal the user rejected: the calibration failure worth reviewing. */
 const OUTCOME: GhostWalkOutcome = {
-  schemaVersion: "ghost.walk-outcome.v1",
+  schemaVersion: "shabang.walk-outcome.v1",
   runId: "55555555-5555-4555-8555-555555555555",
   state: "parked",
   reason: "locked-action",
@@ -50,7 +50,7 @@ describe("walk outcome routes", () => {
       environment: "hackathon",
       release: "ghost@demo-1",
     });
-    expect(loadConfig({ ...env, GHOST_PROVIDER: "heuristic" }).sentry).toBeUndefined();
+    expect(loadConfig({ ...env, SHABANG_PROVIDER: "heuristic" }).sentry).toBeUndefined();
     expect(loadConfig({ SENTRY_DSN: "not-a-dsn" }).sentry).toBeUndefined();
     expect(loadConfig({ SENTRY_DSN: "https://secret:password@o123.ingest.sentry.io/456" }).sentry).toBeUndefined();
   });

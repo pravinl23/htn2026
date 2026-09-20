@@ -145,7 +145,7 @@ describe("transitions", () => {
 });
 
 describe("the summary can describe without naming", () => {
-  it("says how much Ghost knows in kinds and counts only", () => {
+  it("says how much Shabang knows in kinds and counts only", () => {
     const aggregate = aggregateSurfaces([
       used("aaaa.test", { kind: "feed", visits: 20, hours: [9] }),
       used("bbbb.test", { kind: "feed", visits: 12, hours: [9] }),

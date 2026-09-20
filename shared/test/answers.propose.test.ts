@@ -70,7 +70,7 @@ const REFERRAL_SOURCES: FieldOption[] = [
   { value: "5", label: "Other" },
 ];
 
-// The six questions Ghost used to leave empty on the real Viam application, worded exactly as the live
+// The six questions Shabang used to leave empty on the real Viam application, worded exactly as the live
 // Safari capture recorded them (desktop/tests/fixtures/greenhouse-safari-viam.json).
 const VIAM_AUTH = q("Are you legally authorized to work in the United States for any employer?", "select", { options: YES_NO });
 const VIAM_SOURCE = q("How did you hear about this opportunity at Viam?", "select", { options: REFERRAL_SOURCES });
@@ -277,7 +277,7 @@ describe("proposeAnswer: protected questions decline, or say so as a long shot",
       for (const ctx of [{}, withDemo()]) {
         const p = propose(field, ctx);
         expect(p.class, field.label).toBe("protected");
-        // With the decline setting off, Ghost says nothing at all: the user opted out of these.
+        // With the decline setting off, Shabang says nothing at all: the user opted out of these.
         expect(p.source, field.label).toBe("none");
       }
       // With it on, a guess is never dressed up as a fact and never passes hold-Tab unseen.
@@ -489,7 +489,7 @@ describe("counters (docs/answers.md section 6)", () => {
     for (const leak of ["Viam", "United States", "Yes", "example.com", "Alex", "authorized"]) expect(raw).not.toContain(leak);
   });
 
-  it("nothing is counted for a question Ghost deliberately left alone", () => {
+  it("nothing is counted for a question Shabang deliberately left alone", () => {
     expect(answerProposedEvent(propose(VIAM_GENDER, withDemo()), false)).toBeNull();
   });
 

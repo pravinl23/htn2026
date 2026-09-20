@@ -7,7 +7,7 @@ import { registerLoopRoutes } from "../../src/routes/loop";
 
 // Live only (pnpm test:live). Exactly ONE real call per run: two open steps in one question.
 // Typed "Thistledown" where the page says "Thistledown Textiles" (first-word), typed "2001" where it says "INV-2001" (digits-only).
-const config = loadConfig({ ...process.env, GHOST_DECISION_PROVIDER: undefined, GHOST_TEXT_PROVIDER: undefined, GHOST_PROVIDER: undefined });
+const config = loadConfig({ ...process.env, SHABANG_DECISION_PROVIDER: undefined, SHABANG_TEXT_PROVIDER: undefined, SHABANG_PROVIDER: undefined });
 
 describe.skipIf(!config.llm)("live: loop synthesis through the LLM", () => {
   it("resolves both shorthand columns in one verified call", async () => {

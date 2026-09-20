@@ -158,9 +158,9 @@ window.__mail = { pickedSlot: { day, start, end, label } | null, sentReplies: Re
 
 ## Browser verification
 
-The demo pages work in a real browser without the extension. At the 2026-09-19 audit, `e2e/scripts/smoke-demo.mjs` passed 95 checks against the production preview on :5173 with no console errors, warnings, page errors or failed requests. The script expects a demo server to be running; start `pnpm --filter @ghost/demo preview` first.
+The demo pages work in a real browser without the extension. At the 2026-09-19 audit, `e2e/scripts/smoke-demo.mjs` passed 95 checks against the production preview on :5173 with no console errors, warnings, page errors or failed requests. The script expects a demo server to be running; start `pnpm --filter @shabang/demo preview` first.
 
-Run it with `pnpm --filter @ghost/demo build && pnpm --filter @ghost/demo preview`, then `node e2e/scripts/smoke-demo.mjs`. Setting `BASE_URL=http://localhost:<port>` points it at a dev server instead. It runs headless and exits 1 on the first failed check. It writes 24 full-page PNGs to `e2e/test-results/smoke/` (gitignored; a Playwright test run wipes that folder).
+Run it with `pnpm --filter @shabang/demo build && pnpm --filter @shabang/demo preview`, then `node e2e/scripts/smoke-demo.mjs`. Setting `BASE_URL=http://localhost:<port>` points it at a dev server instead. It runs headless and exits 1 on the first failed check. It writes 24 full-page PNGs to `e2e/test-results/smoke/` (gitignored; a Playwright test run wipes that folder).
 
 **What the script covers**
 - **Reset:** `/reset` leaves no `ghostdemo.*` keys (`data-remaining="0"`).

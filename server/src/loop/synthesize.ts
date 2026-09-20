@@ -1,4 +1,4 @@
-import { synthesizeProgram, type UnresolvedStep } from "@ghost/shared";
+import { synthesizeProgram, type UnresolvedStep } from "@shabang/shared";
 import { LruCache } from "../lib/cache";
 import type { LlmClient } from "../llm/client";
 import { parseModelPicks, type ModelPick } from "./answers";

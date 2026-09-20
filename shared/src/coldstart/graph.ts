@@ -4,7 +4,7 @@
 // of it and nothing else does:
 //
 //   1. seeding — surface records and habit counters from what the machine already keeps, so the first Tab on a
-//      screen Ghost has never seen is still a real guess (docs/knowledge.md section 3);
+//      screen Shabang has never seen is still a real guess (docs/knowledge.md section 3);
 //   2. provenance — which source produced which surface and which fact, so "Forget this source" can remove
 //      exactly what it produced and nothing else (docs/storage.md section 4).
 //
@@ -79,7 +79,7 @@ function countsOf(value: unknown): Record<string, number> {
   return out;
 }
 
-/** Never throws. A file written by an older Ghost, or half-written, yields empty provenance rather than an error. */
+/** Never throws. A file written by an older Shabang, or half-written, yields empty provenance rather than an error. */
 export function readColdStartMeta(text: string | null | undefined): ColdStartMeta {
   if (typeof text !== "string" || text.trim() === "") return emptyColdStartMeta();
   let raw: unknown;
@@ -371,7 +371,7 @@ function unique(values: readonly string[]): string[] {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// What Ghost knows, and unlearning it
+// What Shabang knows, and unlearning it
 // ---------------------------------------------------------------------------------------------------------------
 
 export interface KnowledgeSummarySurface {

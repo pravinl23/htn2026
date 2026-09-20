@@ -22,7 +22,7 @@ describe("time helpers", () => {
 });
 
 describe("slot labels", () => {
-  it("builds the label Ghost and the mail page rely on", () => {
+  it("builds the label Shabang and the mail page rely on", () => {
     expect(slotLabel("Thursday", "14:30", "15:00")).toBe("Thursday 2:30 PM to 3:00 PM");
     expect(makeSlot("Thursday", "14:30")).toEqual({
       day: "Thursday",
@@ -99,7 +99,7 @@ describe("week grid", () => {
     expect(fromNoon).toHaveLength(1);
   });
 
-  it("offers other free slots too, but few enough to stay under Ghost's 60 candidate limit", () => {
+  it("offers other free slots too, but few enough to stay under Shabang's 60 candidate limit", () => {
     const all = freeSlots();
     expect(freeSlotsOn("Thursday").some((slot) => !isAfternoon(slot))).toBe(true);
     expect(all.length).toBeGreaterThan(5);

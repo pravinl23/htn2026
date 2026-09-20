@@ -6,7 +6,7 @@ import { BadRequest, readJsonBody } from "../providers/validation";
 
 /** A heartbeat is three short strings. Anything bigger is not a heartbeat. */
 export const PRESENCE_LIMITS = { bodyBytes: 2_000, browserChars: 32, versionChars: 32, clients: 32 } as const;
-/** Heartbeats arrive every 30 s. Ghost Desktop calls one fresh for 90 s; the server forgets it after 5 minutes. */
+/** Heartbeats arrive every 30 s. Shabang Desktop calls one fresh for 90 s; the server forgets it after 5 minutes. */
 export const PRESENCE_TTL_MS = 5 * 60_000;
 
 export type PresenceClient = "extension" | "desktop";
@@ -89,7 +89,7 @@ function badRequest(c: Context, err: unknown): Response {
   throw err;
 }
 
-/** Coexistence: Ghost Desktop stays out of a browser whose extension sent a heartbeat lately (docs/desktop.md). */
+/** Coexistence: Shabang Desktop stays out of a browser whose extension sent a heartbeat lately (docs/desktop.md). */
 export function registerPresenceRoutes(app: Hono, _config: ServerConfig, deps: PresenceDeps = {}): void {
   const registry = deps.registry ?? new PresenceRegistry();
 

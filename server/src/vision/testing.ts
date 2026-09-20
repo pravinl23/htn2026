@@ -76,7 +76,7 @@ const PLATE: Rgb[] = [
 type Draw = (r: Raster, x: number, y: number, size: number, ink: Rgb) => void;
 
 /**
- * Icon-only controls with NO text anywhere, drawn from rectangles, triangles and lines. These are the case Ghost's
+ * Icon-only controls with NO text anywhere, drawn from rectangles, triangles and lines. These are the case Shabang's
  * vision fallback exists for: a DOM or accessibility tree reports "a button" and nothing else.
  */
 export const ICONS: Record<string, Draw> = {

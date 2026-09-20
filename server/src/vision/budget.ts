@@ -23,7 +23,7 @@ export class VisionBudget {
   }
 }
 
-/** GHOST_VISION_BUDGET: a whole number of calls, 0 switches vision off. Anything unreadable keeps the default. */
+/** SHABANG_VISION_BUDGET: a whole number of calls, 0 switches vision off. Anything unreadable keeps the default. */
 export function budgetLimitFrom(raw: string | undefined): number {
   const n = Number(raw);
   if (raw === undefined || raw.trim() === "" || !Number.isInteger(n) || n < 0) return DEFAULT_VISION_BUDGET;

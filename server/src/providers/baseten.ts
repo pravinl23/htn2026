@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { criterionText, type DecisionProvider, type DecisionResult, type DecisionState, type Questions } from "@ghost/shared";
+import { criterionText, type DecisionProvider, type DecisionResult, type DecisionState, type Questions } from "@shabang/shared";
 import type { BasetenConfig, LlmConfig } from "../config";
 import { stripThinkBlocks } from "../llm/client";
 import { consensus, type ConsensusAnswer, type Sample } from "./consensus";

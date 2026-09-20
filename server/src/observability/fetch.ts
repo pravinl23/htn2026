@@ -12,7 +12,7 @@
 import { genAiSystem, hostOf } from "./names";
 import { distribution, isEnabled, span, spanManual, spanManualIn, type Attrs, type GhostSpan } from "./sentry";
 
-/** Which part of Ghost owns this call. Decides the span name, nothing else. */
+/** Which part of Shabang owns this call. Decides the span name, nothing else. */
 export type FetchLabel = "decision" | "ghost-text" | "loop" | "vision";
 
 interface BodyShape {

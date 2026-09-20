@@ -8,7 +8,7 @@
  *       └── decide.jev               gen_ai.invoke_agent 118ms  model=jev-latest questions=9
  *           └── model.request        gen_ai.chat      112ms   server.address=api.typesafe.ai
  *
- * The gap between `predict.form` and `decide.jev` is Ghost's own code: the heuristic, the field digest, the cache
+ * The gap between `predict.form` and `decide.jev` is Shabang's own code: the heuristic, the field digest, the cache
  * lookup and the gate. The gap between `decide.jev` and `model.request` is the provider's own work (for Baseten,
  * several sibling `model.request` spans, because one decision is K + H parallel samples).
  *
@@ -24,11 +24,11 @@ const FORM_ROUTE = "/v1/predict/form";
 const METRICS_EVENT = "/v1/metrics/event";
 
 /** Which kind of ghost a route proposes. Used to group the counters. */
-const GHOST_CLASS: Record<string, string> = {
+const SHABANG_CLASS: Record<string, string> = {
   "/v1/predict/form": "form-field",
   "/v1/predict/next": "next-action",
   "/v1/predict/command": "command",
-  "/v1/ghost-text": "free-text",
+  "/v1/shabang-text": "free-text",
   "/v1/vision/label": "vision-label",
 };
 
@@ -45,7 +45,7 @@ async function jsonBody(response: Response): Promise<unknown> {
 }
 
 function proposedCounters(route: string, summary: Summary): void {
-  const ghostClass = GHOST_CLASS[route];
+  const ghostClass = SHABANG_CLASS[route];
   if (!ghostClass) return;
   const source = typeof summary.attributes["ghost.provider"] === "string" ? (summary.attributes["ghost.provider"] as string) : "unknown";
   const byBucket: Array<[string, unknown]> = [
@@ -69,7 +69,7 @@ function proposedCounters(route: string, summary: Summary): void {
 
 /**
  * The client's own counters, forwarded as Sentry metrics. `ghostsShown` / `ghostsAccepted` are deltas; a calibration
- * pair that was NOT accepted is a ghost the user corrected, which is the number that says whether Ghost is any good.
+ * pair that was NOT accepted is a ghost the user corrected, which is the number that says whether Shabang is any good.
  */
 function clientCounters(body: unknown): number {
   const parsed = summarizeClientMetrics(body);
@@ -120,7 +120,7 @@ async function report(route: string, response: Response, work: GhostSpan, reques
 }
 
 /**
- * A streamed answer (`/v1/ghost-text`) returns its Response as soon as the headers are ready, while the model is
+ * A streamed answer (`/v1/shabang-text`) returns its Response as soon as the headers are ready, while the model is
  * still writing. Ending the transaction there would cut the trace at 6 ms and leave the `llm.stream` span orphaned,
  * which is the opposite of the truth: the user waited for the last token. So the transaction is kept open until the
  * body is done, and the stream is handed back wrapped in a reader that ends it (also on cancel, so a client that

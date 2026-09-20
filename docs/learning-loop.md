@@ -20,7 +20,7 @@ one Tab walk
 
 ## What is captured
 
-The versioned `ghost.walk-outcome.v1` envelope can represent only:
+The versioned `shabang.walk-outcome.v1` envelope can represent only:
 
 - how the walk ended (`parked`, `exhausted`, `abandoned`) and a closed reason code;
 - per proposal: the closed action kind (`fill`, `select`, `check`, `click`), the closed source
@@ -72,7 +72,7 @@ SENTRY_RELEASE=ghost@YOUR_GIT_SHA
 
 No Sentry auth token is required to send SDK events. Keep API/auth tokens out of the repo. With no
 `SENTRY_DSN` the route still accepts outcomes and queues replays locally, reporting `captured: false`; adding
-the DSN activates the live sink without a code change. `GHOST_PROVIDER=heuristic` intentionally disables
+the DSN activates the live sink without a code change. `SHABANG_PROVIDER=heuristic` intentionally disables
 Sentry so deterministic e2e cannot make external calls even if the shell contains a DSN.
 
 If Shabang is installed as a LaunchAgent, add the same three variables to `~/.config/ghost/env` and restart it:
@@ -83,7 +83,7 @@ launchctl kickstart -k gui/$(id -u)/dev.ghost.server
 
 ## Inspect, export, and promote
 
-Every reviewable walk becomes a `ghost.walk-replay.v1` case in a newest-first, process-local queue capped at
+Every reviewable walk becomes a `shabang.walk-replay.v1` case in a newest-first, process-local queue capped at
 100. The same case goes into the Sentry event extras and is attached as `walk-replay-<run-id>.json` when
 Sentry is configured.
 

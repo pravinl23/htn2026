@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { DEMO_PROFILE, FACT_DESCRIPTIONS } from "@ghost/shared";
+import { DEMO_PROFILE, FACT_DESCRIPTIONS } from "@shabang/shared";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config";

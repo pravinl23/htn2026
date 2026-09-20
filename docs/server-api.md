@@ -6,7 +6,7 @@ Browserbase and Composio paths are unit/mock-tested and fall back to simulated e
 
 ## Access rules (the API is unauthenticated and spends paid model quota)
 
-- The server listens on `127.0.0.1` only (`GHOST_HOST` overrides it; never expose it on shared Wi-Fi).
+- The server listens on `127.0.0.1` only (`SHABANG_HOST` overrides it; never expose it on shared Wi-Fi).
 - Every `POST` MUST send `Content-Type: application/json`, otherwise `415`. This forces a CORS preflight, so no web page can reach a handler with a "simple" request.
 - A request whose `Origin` header is present and is not `chrome-extension://*` or `http://localhost:*` / `http://127.0.0.1:*` gets `403` (not just missing CORS headers).
 - A request whose `Host` is not `localhost`, `127.0.0.1` or `[::1]` gets `403` (DNS rebinding).
@@ -32,27 +32,27 @@ Baseten:
 | --- | --- |
 | `BASETEN_API_KEY` | Enables decision provider `baseten` and text provider `baseten`. Sent as `Authorization: Bearer`. Never logged. |
 | `BASETEN_BASE_URL` | Default `https://inference.baseten.co/v1`. |
-| `BASETEN_DECISION_MODEL` | Default `zai-org/GLM-5.3-Flash`. Pick a model whose thinking can be switched off (`pnpm --filter @ghost/server baseten:models` lists the live catalog with the switch the server would use). |
+| `BASETEN_DECISION_MODEL` | Default `zai-org/GLM-5.3-Flash`. Pick a model whose thinking can be switched off (`pnpm --filter @shabang/server baseten:models` lists the live catalog with the switch the server would use). |
 | `BASETEN_TEXT_MODEL` | Default `zai-org/GLM-5.3-Flash`. |
 | `BASETEN_SAMPLES` | K, valid samples a decision waits for. Default 3, clamped to 1..8. Below 3, no answer can reach the 0.7 gate (2 of 2 scores 0.69). |
 | `BASETEN_HEDGE` | H, extra identical requests fired with the K. Default 1, clamped to 0..4. ONE decision costs K + H requests. |
 | `BASETEN_DECISION_MODEL_URL` | Optional OpenAI-compatible base URL of a dedicated deployment (our own Tab model). Decisions only. Unverified: no such deployment exists yet. |
 | `BASETEN_LOGPROBS` | `1` asks for `logprobs` and, if a response ever carries them, uses token probabilities instead of the vote (`confidenceSource: "logprobs"`). Off by default: the Model APIs accept the flag and return none. |
-| `GHOST_WARMUP` | `0` skips the ONE one-token warm-up request sent at server start when `baseten` is the active decision provider. Never sent under Vitest. |
+| `SHABANG_WARMUP` | `0` skips the ONE one-token warm-up request sent at server start when `baseten` is the active decision provider. Never sent under Vitest. |
 
 Loop execution (Stage 8):
 
 | Variable | Meaning |
 | --- | --- |
-| `GHOST_EXTENSION_ID` | The Shabang extension's id from `chrome://extensions` (32 letters a to p, anything else is ignored). Only `chrome-extension://<this id>` may run REAL batches. |
-| `GHOST_EXECUTE_TOKEN` | Per-install secret, at least 16 characters (shorter is ignored). A caller without an `Origin` (the desktop daemon, a script) sends it as `X-Ghost-Token`. Never logged. |
+| `SHABANG_EXTENSION_ID` | The Shabang extension's id from `chrome://extensions` (32 letters a to p, anything else is ignored). Only `chrome-extension://<this id>` may run REAL batches. |
+| `SHABANG_EXECUTE_TOKEN` | Per-install secret, at least 16 characters (shorter is ignored). A caller without an `Origin` (the desktop daemon, a script) sends it as `X-Shabang-Token`. Never logged. |
 | `BROWSERBASE_API_KEY` + `BROWSERBASE_PROJECT_ID` | Enable `parallel` mode. Both are required. |
 | `BROWSERBASE_CONCURRENCY` | Cloud browsers open at once, default 5, clamped to 10. The cap is process-wide, not per request. |
 | `BROWSERBASE_CONTEXT_ID` | A Browserbase context the user logged in to once. Loaded read-only (`persist: false`) so every cloud browser starts logged in. Without it they start logged out. |
 | `SHABANG_PUBLIC_DEMO_URL` | Public URL serving the same site as a PRIVATE `baseUrl` (localhost demo behind a tunnel). Never applied to a public `baseUrl`. Use the final `https://` URL: a redirect to another origin fails the step. |
 | `COMPOSIO_API_KEY`, `COMPOSIO_USER_ID`, `COMPOSIO_GMAIL_ACCOUNT_ID`, `COMPOSIO_GOOGLESHEETS_ACCOUNT_ID`, `COMPOSIO_SPREADSHEET_ID`, `COMPOSIO_SHEET_RANGE` | Enable and configure `api` mode. |
 
-With `GHOST_PROVIDER=heuristic` (e2e) both server executors stay simulated even when their keys exist.
+With `SHABANG_PROVIDER=heuristic` (e2e) both server executors stay simulated even when their keys exist.
 
 Sentry outcome capture:
 
@@ -62,9 +62,9 @@ Sentry outcome capture:
 | `SENTRY_ENVIRONMENT` | Optional safe label, default `development`. |
 | `SENTRY_RELEASE` | Optional safe release label. |
 
-Default Sentry integrations, request tracing and default PII are disabled. `beforeSend` rebuilds each event from the strict shared outcome schema. `GHOST_PROVIDER=heuristic` also disables the Sentry config to keep e2e fully offline.
+Default Sentry integrations, request tracing and default PII are disabled. `beforeSend` rebuilds each event from the strict shared outcome schema. `SHABANG_PROVIDER=heuristic` also disables the Sentry config to keep e2e fully offline.
 
-Overrides used by tests and e2e so they never need keys: `GHOST_DECISION_PROVIDER=heuristic`, `GHOST_TEXT_PROVIDER=template`. `GHOST_PROVIDER=heuristic` is shorthand for both. `GHOST_FAST_PATH=0` disables the heuristic fast path. Both overrides also accept `baseten` (and the other provider names); a forced provider without credentials degrades to `heuristic` / `template`. Forcing `heuristic` + `template` removes the Baseten config from the server entirely: no client, no warm-up, zero network.
+Overrides used by tests and e2e so they never need keys: `SHABANG_DECISION_PROVIDER=heuristic`, `SHABANG_TEXT_PROVIDER=template`. `SHABANG_PROVIDER=heuristic` is shorthand for both. `SHABANG_FAST_PATH=0` disables the heuristic fast path. Both overrides also accept `baseten` (and the other provider names); a forced provider without credentials degrades to `heuristic` / `template`. Forcing `heuristic` + `template` removes the Baseten config from the server entirely: no client, no warm-up, zero network.
 
 ## Baseten provider (`server/src/providers/baseten.ts`, `consensus.ts`, `hedge.ts`)
 
@@ -79,7 +79,7 @@ Measured on the Model APIs: `logprobs` / `top_logprobs` are accepted but `choice
 - `401` / `403`: the provider pauses for 60 s (zero network, the heuristic answers) and logs one line without the key.
 
 - Measured (2026-09-19, GLM-5.3-Flash, K=3 + H=1, 12-field form, 8 decisions): p50 1052 ms, slowest 1150 ms, 0 failed, first sample at 604 ms p50. Full numbers, the ambiguous-form comparison and the limitations are in `docs/baseten.md` and `docs/media/bench-providers*.md` (`node scripts/bench-providers.mjs`, `--ambiguous` for the look-alike form; refuses more than 120 real calls).
-- Text: `POST /v1/ghost-text` streams through the OpenAI-compatible client with `chat_template_kwargs` from the same per-model table, `max_tokens`, header `x-session-affinity: ghost-text`; `reasoning_content` deltas are ignored and `<think>` blocks are filtered out of the stream. `firstTokenMs` and `latencyMs` are reported like on the xAI path.
+- Text: `POST /v1/shabang-text` streams through the OpenAI-compatible client with `chat_template_kwargs` from the same per-model table, `max_tokens`, header `x-session-affinity: ghost-text`; `reasoning_content` deltas are ignored and `<think>` blocks are filtered out of the stream. `firstTokenMs` and `latencyMs` are reported like on the xAI path.
 
 ## Jev wire format (do not invent fields)
 
@@ -107,7 +107,7 @@ The shared TypeScript mirror of this lives in `shared/src/decision.ts` (`Decisio
 `{ ok: true, provider: "typesafe"|"jev-gateway"|"baseten"|"llm"|"heuristic", calibrated: boolean, textProvider: "baseten"|"openai"|"xai"|"template", model?: string, textModel?: string, sampling?: { samples, hedge, confidenceSource: "consensus" }, version: string }`. `model` is the decision model, `textModel` the ghost-text model; `sampling` is present only for `baseten`.
 
 ### `POST /v1/predict/form`
-Request: `FormPredictRequest` from `@ghost/shared` (`origin`, `formSignature`, `fields: CapturedField[]`, `factKeys: string[]`). The server never receives profile VALUES for this route, only fact KEYS.
+Request: `FormPredictRequest` from `@shabang/shared` (`origin`, `formSignature`, `fields: CapturedField[]`, `factKeys: string[]`). The server never receives profile VALUES for this route, only fact KEYS.
 
 Behavior:
 - Build ONE decision call: state `{ page: { origin }, fields: [{ label, kind, name, placeholder, autocomplete, options (labels only, max 12), context }] }`, and one `choice` question per field named `f0..fN` whose criteria are `{ ...factKeys with FACT_DESCRIPTIONS, needs_text: "free-text answer the applicant must write", none: "no profile fact fits" }`. Instructions refer to the state with backticked paths, e.g. "Which profile fact should fill `fields[3]`?".
@@ -130,7 +130,7 @@ Response: `{ candidateId: string | "none", confidence, provider, calibrated, lat
 
 ### `POST /v1/walk/outcomes`
 
-Accepts the value-free `GhostWalkOutcome` contract from `@ghost/shared` (64 KB maximum): one redacted outcome per Tab walk. The extension and server both reconstruct this object from an allowlist. Unknown properties are dropped; invalid or widened actions, sources, verdicts, counts, buckets or IDs return `400`, as does a summary that contradicts the proposals it describes.
+Accepts the value-free `GhostWalkOutcome` contract from `@shabang/shared` (64 KB maximum): one redacted outcome per Tab walk. The extension and server both reconstruct this object from an allowlist. Unknown properties are dropped; invalid or widened actions, sources, verdicts, counts, buckets or IDs return `400`, as does a summary that contradicts the proposals it describes.
 
 Response: `{ accepted: true, captured: boolean, replayId?: string }`. `captured` means a configured Sentry SDK accepted the event for delivery; telemetry failures never fail, delay or change a walk. `replayId` is present when the walk was reviewable (a locked proposal was accepted, a confident calibrated proposal was rejected, or the walk was abandoned) and was added to the review queue.
 
@@ -138,7 +138,7 @@ Response: `{ accepted: true, captured: boolean, replayId?: string }`. `captured`
 
 Returns `{ schemaVersion, count, fixtures }` for the newest 100 reviewable walks in this server process. The queue is volatile and exists for immediate review/export; configured Sentry events and their redacted JSON attachments are the durable inbox. Use `pnpm eval:walk-replays export`, then review and commit appropriate cases under `evals/walk-replays/`. See [`learning-loop.md`](learning-loop.md).
 
-### `POST /v1/ghost-text`
+### `POST /v1/shabang-text`
 Request: `{ fieldLabel, fieldSignature, maxChars?, pageContext: { company?, role?, description? (<= 2000 chars) }, facts: Record<string,string> (only the relevant, non-sensitive ones), pastAnswers: PastAnswer[] (<= 3) }`.
 Response: `text/event-stream` with events `data: {"delta":"..."}` and a final `data: {"done":true,"text":"<full>","provider":"xai","latencyMs":1234,"firstTokenMs":210}`. With `?stream=0` returns JSON `{ text, provider, latencyMs }`.
 Safety: page text (`fieldLabel`, `pageContext.*`) only ever appears as JSON string values in the prompt and the model is told it is untrusted data. Contact facts (keys matching email, phone, address, postal) are never put in the prompt. A draft that contains an email address, a phone number, a contact fact value or a URL that is not in `facts`/`pastAnswers` is discarded: the template answers instead (`provider: "template"`, `fallbackFrom`) and nothing is cached. Control, zero-width and bidi characters are stripped.
@@ -170,8 +170,8 @@ Response:
 
 Applies to `/v1/loop/compile`, `/v1/loop/preview`, `/v1/loop/execute` and `DELETE /v1/loop/execute/:runId`, on top of the global access rules.
 
-1. **Who may call.** An `Origin` that is not `chrome-extension://<id>` gets `403`, `http://localhost:*` included: a web page never reaches these routes. With `GHOST_EXTENSION_ID` set, any other extension id gets `403`. An `X-Ghost-Token` header that does not equal `GHOST_EXECUTE_TOKEN` gets `401`.
-2. **Trusted callers.** A caller is trusted when its origin is the pinned extension, or when it sent the right `X-Ghost-Token`. REAL executors (keys configured) only run for trusted callers; everyone else gets `403` with the variable to set. The SIMULATED executors (no keys, touch nothing) run for any extension and for a local caller without an `Origin`, so the demo works unconfigured.
+1. **Who may call.** An `Origin` that is not `chrome-extension://<id>` gets `403`, `http://localhost:*` included: a web page never reaches these routes. With `SHABANG_EXTENSION_ID` set, any other extension id gets `403`. An `X-Shabang-Token` header that does not equal `SHABANG_EXECUTE_TOKEN` gets `401`.
+2. **Trusted callers.** A caller is trusted when its origin is the pinned extension, or when it sent the right `X-Shabang-Token`. REAL executors (keys configured) only run for trusted callers; everyone else gets `403` with the variable to set. The SIMULATED executors (no keys, touch nothing) run for any extension and for a local caller without an `Origin`, so the demo works unconfigured.
 3. **Confirmation is a server-issued ticket, not a field.** `confirmIrreversible` in a body is ignored. `POST /v1/loop/preview` returns the list the UI must show plus a random single-use `confirmToken` bound to a SHA-256 of the parsed `(mode, program, items, baseUrl)`. `POST /v1/loop/execute` needs that token with the same job. A changed program or item list, a second use, and a token older than 5 minutes are refused with `409`. At most 50 tokens are outstanding. EVERY execute needs a token, also for programs with no irreversible step. The ticket binds what runs to what was previewed; it cannot prove a human looked, which is why rule 1 and 2 exist.
 4. **Every click is irreversible here.** The server only sees a label, not the button type, the form or `data-ghost-lock`, so in a server-run batch every `click` step (and every `fill` with `locked: true`) is listed in `irreversible` and needs the confirmation, whatever the client's `locked` flag says. `open-item` is navigation and stays free.
 5. **One run at a time, no repeats.** A second execute while a run is active gets `409 { error, runId }` (its token is not consumed). Items that reached a writing step in a REAL run are remembered per `(program.id, item.index)` for the lifetime of the process and refused with `409 { error, alreadyRun: [index] }` at preview and at execute. A failed or cancelled item is never retried by the server.
@@ -229,7 +229,7 @@ The UI shows `irreversible` (with counts) and `origins` (every site the run may 
 - The run stops at the first failed item: items in flight finish, the rest are `skipped`. `error` names the step and the reason, never a value. `touched` means the item reached a writing step (it may be half done) and will not be run again by the server.
 - `stopped` is `"cancelled" | "disconnected" | "deadline"` when the run was stopped from outside; absent otherwise.
 - With `?stream=1` the answer is `text/event-stream`: `data: {"runId","total"}`, then one `data: {"progress":{"index","ok","done","total"}}` per item, then `data: {"done":true,"runId","report"}` (or `{"done":true,"runId","error"}`).
-- Status codes: `400` validation, missing `confirmToken` (the body then carries `items`, `irreversible`, `origins`), executor refusal; `401` wrong `X-Ghost-Token`; `403` caller not allowed or not trusted; `409` token unknown / used / expired / for another job, another run active, items already run; `413`; `415`.
+- Status codes: `400` validation, missing `confirmToken` (the body then carries `items`, `irreversible`, `origins`), executor refusal; `401` wrong `X-Shabang-Token`; `403` caller not allowed or not trusted; `409` token unknown / used / expired / for another job, another run active, items already run; `413`; `415`.
 - Log line, counts only: `[ghost] browserbase /v1/loop/execute 42000ms mode=parallel items=48 failed=0 irreversible=1 [stopped=cancelled]`.
 
 `parallel` mode (Browserbase, one cloud browser per item):
@@ -295,9 +295,9 @@ Shabang Desktop may send `{ "client": "desktop", "version": "<CFBundleShortVersi
 
 Jev reads text only. When the DOM or the macOS accessibility tree has a control with no text (an icon-only button, a canvas app, an image-only PDF, a custom-drawn widget), a client can ask OpenAI to SEE it. The answer is text that joins the state Jev decides over, or a ghost target. Nothing here clicks or types. Code: `server/src/routes/vision.ts`, `server/src/vision/**`. Why and how it fits: `docs/openai.md`.
 
-Configuration: enabled only when the server's LLM config is OpenAI (`OPENAI_API_KEY`; `OPENAI_BASE_URL` is honored). Every offline switch that drops that config also disables vision: `GHOST_PROVIDER=heuristic` (e2e), `GHOST_DECISION_PROVIDER=heuristic` + `GHOST_TEXT_PROVIDER=template`. An xAI or Baseten key does not enable it. `OPENAI_VISION_MODEL` (default `gpt-5.6-luna`), `GHOST_VISION_BUDGET` (default 200 billed calls per process, retries included; `0` disables), `GHOST_VISION_CACHE` (default 200 remembered pages; `0` disables).
+Configuration: enabled only when the server's LLM config is OpenAI (`OPENAI_API_KEY`; `OPENAI_BASE_URL` is honored). Every offline switch that drops that config also disables vision: `SHABANG_PROVIDER=heuristic` (e2e), `SHABANG_DECISION_PROVIDER=heuristic` + `SHABANG_TEXT_PROVIDER=template`. An xAI or Baseten key does not enable it. `OPENAI_VISION_MODEL` (default `gpt-5.6-luna`), `SHABANG_VISION_BUDGET` (default 200 billed calls per process, retries included; `0` disables), `SHABANG_VISION_CACHE` (default 200 remembered pages; `0` disables).
 
-Access: the local-only guard of every route (JSON `Content-Type` or `415`, foreign `Origin` / `Host` `403`), PLUS the loop routes' caller rules (`executors/access.ts`), because vision spends paid quota and carries screen pixels: a web page is refused with `403` even on localhost; a browser extension must be the pinned one (`GHOST_EXTENSION_ID`) or send a valid `X-Ghost-Token` (`GHOST_EXECUTE_TOKEN`), else `403`; a caller without an `Origin` (Shabang Desktop, a script) is admitted; a wrong token is `401`. Checked before availability, so a refused caller never costs a budget unit. `GET /v1/vision` stays open (no call, no pixels). Body limit 2.1 MB (`413`).
+Access: the local-only guard of every route (JSON `Content-Type` or `415`, foreign `Origin` / `Host` `403`), PLUS the loop routes' caller rules (`executors/access.ts`), because vision spends paid quota and carries screen pixels: a web page is refused with `403` even on localhost; a browser extension must be the pinned one (`SHABANG_EXTENSION_ID`) or send a valid `X-Shabang-Token` (`SHABANG_EXECUTE_TOKEN`), else `403`; a caller without an `Origin` (Shabang Desktop, a script) is admitted; a wrong token is `401`. Checked before availability, so a refused caller never costs a budget unit. `GET /v1/vision` stays open (no call, no pixels). Body limit 2.1 MB (`413`).
 
 ### `GET /v1/vision`
 `{ "available": true, "provider": "openai" | null, "model": "gpt-5.6-luna" | null, "budget": { "limit": 200, "used": 3, "remaining": 197 }, "cache": { "enabled": true, "entries": 4, "hits": 9, "misses": 4 } }`. No model call.
@@ -351,7 +351,7 @@ Opt-in, per `docs/anywhere.md` section 4: a client that sends `page: { pathPatte
 - A hit returns `cached: true`, `latencyMs` near 0, logs `cache=hit ... attempts=0`, makes no HTTP call and takes no budget unit — and is served even when the budget is spent (that money was already paid). A miss on an unknown page with a spent budget is still `429`.
 - Positional: cached labels come back under the CURRENT request's box ids.
 - Any change to the geometry, the crop size, the box count, the box order or the model is a different key and costs a call: a stale label is a wrong ghost.
-- Bounded: 200 pages (`GHOST_VISION_CACHE`), 30 minutes, oldest evicted first, in memory only, lost on restart.
+- Bounded: 200 pages (`SHABANG_VISION_CACHE`), 30 minutes, oldest evicted first, in memory only, lost on restart.
 - `page.pathPattern` is a PATTERN: 1 to 200 characters, no query string or fragment (`400`, they carry tokens and ids), nothing that looks like personal data (an email address, 7 or more digits: `400`, "replace them with *"), no bidi controls (`400`). It is NFKC-folded and stripped of invisible characters like every other text field, hashed locally, and never sent to the model or written to a log.
 
 ## Terminal (`POST /v1/predict/command`)
@@ -388,7 +388,7 @@ Builds the open fact graph from what the user already has (`docs/profile-sources
 
 **Nothing is persisted.** No document, fetched page, proposal or value is written to disk, cached between requests or logged. The response is the only place a value appears, and it goes back to the caller, which shows each proposal with its source and evidence and accepts them one by one. `/v1/predict/form` keeps receiving fact KEYS only.
 
-**Access**: the loop and vision caller rules minus the pinning requirement — a web page never reaches this route, not even one on `http://localhost` (`403`, the proposals are the user's own details); with `GHOST_EXTENSION_ID` set only that extension's origin is admitted (`403` otherwise); a caller without an `Origin` (Shabang Desktop, a script) is local by the global guard, and a wrong `X-Ghost-Token` is `401`.
+**Access**: the loop and vision caller rules minus the pinning requirement — a web page never reaches this route, not even one on `http://localhost` (`403`, the proposals are the user's own details); with `SHABANG_EXTENSION_ID` set only that extension's origin is admitted (`403` otherwise); a caller without an `Origin` (Shabang Desktop, a script) is local by the global guard, and a wrong `X-Shabang-Token` is `401`.
 
 ### `GET /v1/facts`
 `{ "adapters": ["github","website","text","resume"], "model": { "provider": "xai", "model": "grok-…" } | null, "conflicts": { "provider": "typesafe", "calibrated": true } | null, "limits": { "sources": 5, "textChars": 20000, "proposals": 60 } }`. `model: null` means no text key: the code extractors answer alone. `conflicts: null` means no decision provider: conflicts are settled in code.

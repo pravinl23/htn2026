@@ -12,7 +12,7 @@ const ROUTES = [
   "/v1/predict/form",
   "/v1/predict/next",
   "/v1/predict/command",
-  "/v1/ghost-text",
+  "/v1/shabang-text",
   "/v1/profile/extract",
   "/v1/metrics",
   "/v1/metrics/event",
@@ -56,13 +56,13 @@ export function transactionName(method: string, path: string): string {
 
 /**
  * The span that holds the actual work of a route, inside the request transaction. The gap between this span and its
- * children is the time Ghost spent in its own code (heuristic, hashing, cache, gating) rather than waiting on a model.
+ * children is the time Shabang spent in its own code (heuristic, hashing, cache, gating) rather than waiting on a model.
  */
 const WORK_SPANS: Record<string, string> = {
   "/v1/predict/form": "predict.form",
   "/v1/predict/next": "predict.next",
   "/v1/predict/command": "predict.command",
-  "/v1/ghost-text": "ghost.text",
+  "/v1/shabang-text": "ghost.text",
   "/v1/profile/extract": "profile.extract",
   "/v1/loop/synthesize": "loop.synthesize",
   "/v1/vision/label": "vision.label",
@@ -87,7 +87,7 @@ export function genAiSystem(provider: string): string {
 }
 
 /**
- * Confidence never leaves as a number attached to one field: that is a fingerprint of what Ghost saw. It leaves as the
+ * Confidence never leaves as a number attached to one field: that is a fingerprint of what Shabang saw. It leaves as the
  * bucket from docs/always-propose.md, which is the thing the product actually branches on.
  */
 export type ConfidenceBucket = "high" | "guess" | "weak" | "none";

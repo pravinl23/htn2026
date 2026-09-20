@@ -1,8 +1,8 @@
-// Gating: Ghost proposes the next step the page would actually accept, and nothing further.
+// Gating: Shabang proposes the next step the page would actually accept, and nothing further.
 // A Submit ghost that appears while two required dropdowns are empty is worse than no ghost:
 // it implies the form is finished when the page would reject it (docs/incremental.md).
 import { isLockedAction } from "../locks";
-import type { CapturedField, Ghost } from "../types";
+import type { CapturedField, Shabang } from "../types";
 import { isDefinitelyEmpty, isFilled } from "./filled";
 import { displayLabel, isRequired, type RequiredEvidence } from "./required";
 
@@ -13,7 +13,7 @@ const STEP =
   /^(continue|next|next step|proceed|save (and|&) (continue|next|proceed)|go (to|on) (the )?next|review (and|&) (submit|continue)|start (my |your )?application)\b/i;
 
 /** A ghost that may carry the client's record of the user having accepted it. */
-export type GateGhost = Ghost & { accepted?: boolean };
+export type GateGhost = Shabang & { accepted?: boolean };
 
 /**
  * Kinds whose empty reading is the page's own word rather than a gap in capture, and so may retire an
@@ -131,7 +131,7 @@ export function reconcileAccepted(fields: readonly CapturedField[], accepted: It
 }
 
 /** Drop the ghosts for terminal actions the gate withholds. Everything else is untouched, in the same order. */
-export function applyGate<T extends Ghost>(ghosts: readonly T[], gate: WalkGate): T[] {
+export function applyGate<T extends Shabang>(ghosts: readonly T[], gate: WalkGate): T[] {
   if (gate.blockedTerminals.length === 0) return [...ghosts];
   const blocked = new Set(gate.blockedTerminals);
   return ghosts.filter((ghost) => !blocked.has(ghost.signature));

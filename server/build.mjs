@@ -10,7 +10,7 @@
 //                    The server only imports it lazily, when a Browserbase batch actually runs, so the
 //                    bundle starts and serves every other route without it. install-background.sh puts a
 //                    real copy in <install dir>/node_modules/playwright-core (it has no dependencies).
-// Everything else (hono, @hono/node-server, ai, @ghost/shared) is bundled. @typesafe-ai/sdk is a declared
+// Everything else (hono, @hono/node-server, ai, @shabang/shared) is bundled. @typesafe-ai/sdk is a declared
 // dependency but never imported (TypeSafe is called over plain HTTP), so it is simply absent.
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
@@ -60,7 +60,7 @@ async function bundle() {
     legalComments: "none",
     metafile: true,
     logLevel: "warning",
-    alias: { "@ghost/shared": join(repo, "shared", "src", "index.ts") },
+    alias: { "@shabang/shared": join(repo, "shared", "src", "index.ts") },
     // Bundled CommonJS dependencies call require() for node builtins; an ES module has none until we make one.
     banner: { js: 'import { createRequire as __ghostCreateRequire } from "node:module";\nconst require = __ghostCreateRequire(import.meta.url);' },
   });
@@ -81,7 +81,7 @@ async function bundle() {
     const manifest = join(here, "node_modules", name, "package.json");
     if (!existsSync(manifest)) continue; // not installed: the bundle still serves every route that does not need it
     const deps = Object.keys(JSON.parse(readFileSync(manifest, "utf8")).dependencies ?? {});
-    if (deps.length > 0) fail(`${name} now depends on ${deps.join(", ")}: copy it with \`pnpm --filter @ghost/server deploy --prod\` instead (see scripts/install-background.sh).`);
+    if (deps.length > 0) fail(`${name} now depends on ${deps.join(", ")}: copy it with \`pnpm --filter @shabang/server deploy --prod\` instead (see scripts/install-background.sh).`);
   }
   // The install script reads this to know which packages to place next to the bundle.
   writeFileSync(join(here, "dist", "externals.txt"), EXTERNAL.map((name) => `${name}\n`).join(""));
@@ -103,7 +103,7 @@ function freePort() {
 /** Starts the bundle offline (no keys reach it: the environment is rebuilt from scratch) and asks for /v1/health. */
 async function smoke() {
   const port = await freePort();
-  const env = { PATH: process.env.PATH ?? "", PORT: String(port), GHOST_PROVIDER: "heuristic", GHOST_DECISION_PROVIDER: "heuristic", GHOST_TEXT_PROVIDER: "template" };
+  const env = { PATH: process.env.PATH ?? "", PORT: String(port), SHABANG_PROVIDER: "heuristic", SHABANG_DECISION_PROVIDER: "heuristic", SHABANG_TEXT_PROVIDER: "template" };
   const child = spawn(process.execPath, [outfile], { env, stdio: ["ignore", "ignore", "pipe"] });
   let stderr = "";
   child.stderr.on("data", (chunk) => (stderr += chunk));

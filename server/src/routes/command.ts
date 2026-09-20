@@ -1,4 +1,4 @@
-import type { DecisionProvider } from "@ghost/shared";
+import type { DecisionProvider } from "@shabang/shared";
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { createCommandPredictor } from "../command/predict";

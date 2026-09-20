@@ -1,5 +1,5 @@
 /** Test-only synthetic traces for /v1/loop/synthesize. Fictional data, no network, no keys. */
-import type { FactsByUrl, LoopCandidate, PageFact, TraceEvent, TraceEventType, TraceTarget } from "@ghost/shared";
+import type { FactsByUrl, LoopCandidate, PageFact, TraceEvent, TraceEventType, TraceTarget } from "@shabang/shared";
 
 export const ORIGIN = "http://localhost:5173";
 export const INBOX_LIST = "ul#inbox";

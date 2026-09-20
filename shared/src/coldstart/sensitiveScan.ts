@@ -156,4 +156,4 @@ export function screenCandidates<T>(items: readonly T[], toCandidate: (item: T) 
 
 // `SensitiveReason`, `SkippedCounts`, `mergeSkippedCounts` and `totalSkipped` live with the value shapes in
 // shared/src/facts/sensitivity.ts and are NOT re-exported here: the package keeps exactly one definition of each
-// name, so `@ghost/shared` cannot hand two callers two different ideas of what counts as sensitive.
+// name, so `@shabang/shared` cannot hand two callers two different ideas of what counts as sensitive.

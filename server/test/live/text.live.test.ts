@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { DEMO_PROFILE } from "@ghost/shared";
+import { DEMO_PROFILE } from "@shabang/shared";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config";
@@ -11,7 +11,7 @@ const hasKey = Boolean(process.env.XAI_API_KEY || process.env.OPENAI_API_KEY);
 const RESUME = readFileSync(fileURLToPath(new URL("../../../demo/fixtures/resume-alex-chen.txt", import.meta.url)), "utf8");
 
 function liveApp(): { app: Hono; provider: string } {
-  const config = loadConfig({ ...process.env, GHOST_TEXT_PROVIDER: undefined });
+  const config = loadConfig({ ...process.env, SHABANG_TEXT_PROVIDER: undefined });
   const app = new Hono();
   registerTextRoutes(app, config);
   return { app, provider: config.textProvider };
@@ -25,7 +25,7 @@ describe.skipIf(!hasKey)("live text provider", () => {
   it("streams one ghost-text draft and reports first-token and total latency", async () => {
     const { app, provider } = liveApp();
     const { school, major, graduationDate, github } = DEMO_PROFILE.facts;
-    const res = await post(app, "/v1/ghost-text", {
+    const res = await post(app, "/v1/shabang-text", {
       fieldLabel: "Why Northwind?",
       fieldSignature: "live|why",
       maxChars: 360, // keeps the request at 120 output tokens

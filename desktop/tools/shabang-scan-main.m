@@ -13,14 +13,14 @@
 // counts; the values live only in ~/Library/Application Support/Shabang/coldstart-pending.json (mode 0600) until
 // the user accepts or discards them.
 #import <Foundation/Foundation.h>
-#import "GHColdStart.h"
-#import "GHCore.h"
-#import "GHLog.h"
-#import "GHProfileStore.h"
+#import "SBColdStart.h"
+#import "SBCore.h"
+#import "SBLog.h"
+#import "SBProfileStore.h"
 #include <signal.h>
 
-static void GHOut(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
-static void GHOut(NSString *format, ...) {
+static void SBOut(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+static void SBOut(NSString *format, ...) {
     va_list args;
     va_start(args, format);
     NSString *line = [[NSString alloc] initWithFormat:format arguments:args];
@@ -28,8 +28,8 @@ static void GHOut(NSString *format, ...) {
     printf("%s\n", line.UTF8String);
 }
 
-static void GHErr(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
-static void GHErr(NSString *format, ...) {
+static void SBErr(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+static void SBErr(NSString *format, ...) {
     va_list args;
     va_start(args, format);
     NSString *line = [[NSString alloc] initWithFormat:format arguments:args];
@@ -37,7 +37,7 @@ static void GHErr(NSString *format, ...) {
     fprintf(stderr, "shabang-scan: %s\n", line.UTF8String);
 }
 
-static NSString *GHUsage(void) {
+static NSString *SBUsage(void) {
     return @"shabang-scan --dry-run [--sources a,b] [--out FILE]\n"
            @"          --sources a,b [--out FILE] [--budget SECONDS] [--max-files N]\n"
            @"          --safe [--out FILE]   every source that can raise no permission dialog\n"
@@ -51,35 +51,35 @@ static NSString *GHUsage(void) {
 
 #pragma mark - the run lock
 
-static NSString *GHSupportDirectory(void) {
-    return [GHProfileStore defaultDirectory];
+static NSString *SBSupportDirectory(void) {
+    return [SBProfileStore defaultDirectory];
 }
 
-static NSString *GHLockPath(void) {
-    return [GHSupportDirectory() stringByAppendingPathComponent:@"coldstart.lock"];
+static NSString *SBLockPath(void) {
+    return [SBSupportDirectory() stringByAppendingPathComponent:@"coldstart.lock"];
 }
 
-static NSString *GHPendingPath(void) {
-    return [GHSupportDirectory() stringByAppendingPathComponent:@"coldstart-pending.json"];
+static NSString *SBPendingPath(void) {
+    return [SBSupportDirectory() stringByAppendingPathComponent:@"coldstart-pending.json"];
 }
 
 /// The one small file (docs/storage.md section 1). The native agent owns it; nothing else writes it.
-static NSString *GHGraphPath(void) {
-    return [GHSupportDirectory() stringByAppendingPathComponent:@"graph.json"];
+static NSString *SBGraphPath(void) {
+    return [SBSupportDirectory() stringByAppendingPathComponent:@"graph.json"];
 }
 
-static GHCore *_Nullable GHLoadCore(void) {
-    NSString *bundle = [GHCore defaultBundlePath];
-    return bundle ? [[GHCore alloc] initWithBundlePath:bundle error:NULL] : nil;
+static SBCore *_Nullable SBLoadCore(void) {
+    NSString *bundle = [SBCore defaultBundlePath];
+    return bundle ? [[SBCore alloc] initWithBundlePath:bundle error:NULL] : nil;
 }
 
 /// One scan at a time, the same promise the harness makes with --expect-field: a second run refuses rather than
 /// racing the first. A lock whose process is gone (or older than ten minutes) is stale and may be taken.
-static BOOL GHTakeLock(NSString **problem) {
-    NSString *path = GHLockPath();
-    [NSFileManager.defaultManager createDirectoryAtPath:GHSupportDirectory() withIntermediateDirectories:YES
+static BOOL SBTakeLock(NSString **problem) {
+    NSString *path = SBLockPath();
+    [NSFileManager.defaultManager createDirectoryAtPath:SBSupportDirectory() withIntermediateDirectories:YES
                                              attributes:@{ NSFilePosixPermissions: @(0700) } error:NULL];
-    NSDictionary *existing = GHJSONParse([NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:NULL]);
+    NSDictionary *existing = SBJSONParse([NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:NULL]);
     if ([existing isKindOfClass:NSDictionary.class]) {
         pid_t pid = (pid_t)[existing[@"pid"] intValue];
         NSTimeInterval age = [NSDate.date timeIntervalSince1970] - [existing[@"startedAt"] doubleValue];
@@ -89,54 +89,54 @@ static BOOL GHTakeLock(NSString **problem) {
         }
     }
     NSDictionary *mine = @{ @"pid": @(getpid()), @"startedAt": @([NSDate.date timeIntervalSince1970]) };
-    NSData *data = [GHJSONString(mine) dataUsingEncoding:NSUTF8StringEncoding];
-    return data ? GHWritePrivateFile(path, data, NULL) : NO;
+    NSData *data = [SBJSONString(mine) dataUsingEncoding:NSUTF8StringEncoding];
+    return data ? SBWritePrivateFile(path, data, NULL) : NO;
 }
 
-static void GHReleaseLock(void) {
-    [NSFileManager.defaultManager removeItemAtPath:GHLockPath() error:NULL];
+static void SBReleaseLock(void) {
+    [NSFileManager.defaultManager removeItemAtPath:SBLockPath() error:NULL];
 }
 
 #pragma mark - printing
 
-static NSString *GHSeconds(NSNumber *milliseconds) {
+static NSString *SBSeconds(NSNumber *milliseconds) {
     return [NSString stringWithFormat:@"%.1fs", milliseconds.doubleValue / 1000.0];
 }
 
 /// The consent panel, on a terminal. Counts, statuses and what the user would have to click. No path, ever.
-static void GHPrintPlan(NSDictionary *plan, NSDictionary<NSString *, NSNumber *> *neverRead,
+static void SBPrintPlan(NSDictionary *plan, NSDictionary<NSString *, NSNumber *> *neverRead,
                         NSDictionary<NSString *, NSString *> *details) {
-    GHOut(@"Cold start plan (nothing has been read)");
-    GHOut(@"  %-16s %-16s %8s %8s %8s", "source", "status", "found", "planned", "est");
+    SBOut(@"Cold start plan (nothing has been read)");
+    SBOut(@"  %-16s %-16s %8s %8s %8s", "source", "status", "found", "planned", "est");
     for (NSDictionary *row in (NSArray *)(plan[@"sources"] ?: @[])) {
         NSString *found = row[@"itemCount"] ? [row[@"itemCount"] stringValue] : @"-";
-        GHOut(@"  %-16s %-16s %8s %8s %8s", [row[@"kind"] UTF8String], [row[@"status"] UTF8String], found.UTF8String,
-              [row[@"plannedItems"] stringValue].UTF8String, GHSeconds(row[@"estimatedMs"]).UTF8String);
+        SBOut(@"  %-16s %-16s %8s %8s %8s", [row[@"kind"] UTF8String], [row[@"status"] UTF8String], found.UTF8String,
+              [row[@"plannedItems"] stringValue].UTF8String, SBSeconds(row[@"estimatedMs"]).UTF8String);
         NSString *detail = details[row[@"kind"] ?: @""];
-        if (detail) GHOut(@"      (%@)", detail);
-        if (row[@"needsPermission"]) GHOut(@"      %@", row[@"needsPermission"]);
+        if (detail) SBOut(@"      (%@)", detail);
+        if (row[@"needsPermission"]) SBOut(@"      %@", row[@"needsPermission"]);
     }
     NSDictionary *totals = plan[@"totals"] ?: @{};
-    GHOut(@"  totals: %@ sources, %@ items, about %@, %@ need permission",
-          totals[@"enabledSources"] ?: @0, totals[@"plannedItems"] ?: @0, GHSeconds(totals[@"estimatedMs"] ?: @0),
+    SBOut(@"  totals: %@ sources, %@ items, about %@, %@ need permission",
+          totals[@"enabledSources"] ?: @0, totals[@"plannedItems"] ?: @0, SBSeconds(totals[@"estimatedMs"] ?: @0),
           totals[@"sourcesNeedingPermission"] ?: @0);
     if (neverRead.count > 0) {
         NSMutableArray *parts = [NSMutableArray array];
         for (NSString *reason in [neverRead.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
             [parts addObject:[NSString stringWithFormat:@"%@ %@", neverRead[reason], reason]];
         }
-        GHOut(@"  never read (matched by name): %@", [parts componentsJoinedByString:@", "]);
+        SBOut(@"  never read (matched by name): %@", [parts componentsJoinedByString:@", "]);
     }
-    for (NSString *line in (NSArray *)(plan[@"neverRead"] ?: @[])) GHOut(@"  never: %@", line);
+    for (NSString *line in (NSArray *)(plan[@"neverRead"] ?: @[])) SBOut(@"  never: %@", line);
 }
 
 /// What Ghost knows, on a terminal. Counts, kinds and sizes ONLY: the file legitimately stores the ids of the
 /// places this person uses, and this command deliberately does not print a single one of them.
-static void GHPrintGraph(NSDictionary *summary) {
+static void SBPrintGraph(NSDictionary *summary) {
     double kilobytes = [summary[@"bytes"] doubleValue] / 1024.0;
-    GHOut(@"What Ghost knows (%.1f KB, %@ the 200 KB target)", kilobytes,
+    SBOut(@"What Ghost knows (%.1f KB, %@ the 200 KB target)", kilobytes,
           [summary[@"withinTarget"] boolValue] ? @"inside" : @"OVER");
-    GHOut(@"  surfaces %@, habits %@, facts %@", summary[@"surfaces"] ?: @0, summary[@"habits"] ?: @0, summary[@"facts"] ?: @0);
+    SBOut(@"  surfaces %@, habits %@, facts %@", summary[@"surfaces"] ?: @0, summary[@"habits"] ?: @0, summary[@"facts"] ?: @0);
 
     NSDictionary *byKind = [summary[@"byScreenKind"] isKindOfClass:NSDictionary.class] ? summary[@"byScreenKind"] : @{};
     if (byKind.count > 0) {
@@ -144,15 +144,15 @@ static void GHPrintGraph(NSDictionary *summary) {
         for (NSString *kind in [byKind.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
             [parts addObject:[NSString stringWithFormat:@"%@ %@", byKind[kind], kind]];
         }
-        GHOut(@"  by kind of screen: %@", [parts componentsJoinedByString:@", "]);
+        SBOut(@"  by kind of screen: %@", [parts componentsJoinedByString:@", "]);
     }
 
     NSDictionary *bySource = [summary[@"bySource"] isKindOfClass:NSDictionary.class] ? summary[@"bySource"] : @{};
     if (bySource.count > 0) {
-        GHOut(@"  %-16s %9s %7s %6s %9s %12s", "source", "surfaces", "habits", "facts", "visits", "last scan");
+        SBOut(@"  %-16s %9s %7s %6s %9s %12s", "source", "surfaces", "habits", "facts", "visits", "last scan");
         for (NSString *kind in [bySource.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
             NSDictionary *row = bySource[kind];
-            GHOut(@"  %-16s %9s %7s %6s %9s %12s", kind.UTF8String,
+            SBOut(@"  %-16s %9s %7s %6s %9s %12s", kind.UTF8String,
                   [(row[@"surfaces"] ?: @0) stringValue].UTF8String, [(row[@"habits"] ?: @0) stringValue].UTF8String,
                   [(row[@"facts"] ?: @0) stringValue].UTF8String, [(row[@"visits"] ?: @0) stringValue].UTF8String,
                   [(row[@"lastScanDay"] ?: @"-") UTF8String]);
@@ -164,48 +164,48 @@ static void GHPrintGraph(NSDictionary *summary) {
         // The ids are in the file, on purpose. They are not in this output, also on purpose.
         NSMutableArray *visits = [NSMutableArray array];
         for (NSDictionary *place in top) [visits addObject:[(place[@"visits"] ?: @0) stringValue]];
-        GHOut(@"  the %lu places you use most, by visits (ids stay in the file): %@",
+        SBOut(@"  the %lu places you use most, by visits (ids stay in the file): %@",
               (unsigned long)top.count, [visits componentsJoinedByString:@", "]);
     }
 }
 
-static void GHPrintResult(GHColdStartResult *result) {
-    GHOut(@"Cold start finished: %@ (%.1f s, %lu files opened)", GHColdStartStopName(result.stop),
+static void SBPrintResult(SBColdStartResult *result) {
+    SBOut(@"Cold start finished: %@ (%.1f s, %lu files opened)", SBColdStartStopName(result.stop),
           result.elapsedSeconds, (unsigned long)result.filesOpened);
     for (NSDictionary *source in result.sourceReports) {
-        GHOut(@"  %-16s %-16s opened %@, proposals %@%@", [source[@"kind"] UTF8String], [source[@"status"] UTF8String],
+        SBOut(@"  %-16s %-16s opened %@, proposals %@%@", [source[@"kind"] UTF8String], [source[@"status"] UTF8String],
               source[@"opened"] ?: @0, source[@"proposals"] ?: @0,
               source[@"needsPermission"] ? [NSString stringWithFormat:@" (%@)", source[@"needsPermission"]] : @"");
     }
-    GHOut(@"  proposals: %lu, skipped as sensitive: %lu", (unsigned long)result.proposals.count, (unsigned long)result.skippedTotal);
-    for (GHColdStartProposal *proposal in result.proposals) {
-        GHOut(@"    %-4s %-28s %-12s %.2f  %@ chars, from %@",
+    SBOut(@"  proposals: %lu, skipped as sensitive: %lu", (unsigned long)result.proposals.count, (unsigned long)result.skippedTotal);
+    for (SBColdStartProposal *proposal in result.proposals) {
+        SBOut(@"    %-4s %-28s %-12s %.2f  %@ chars, from %@",
               proposal.identifier.UTF8String, proposal.key.UTF8String, proposal.category.UTF8String,
               proposal.confidence, @(proposal.value.length), proposal.sourceKind);
     }
-    for (NSString *line in (NSArray *)(result.habits[@"summary"] ?: @[])) GHOut(@"    habit: %@", line);
+    for (NSString *line in (NSArray *)(result.habits[@"summary"] ?: @[])) SBOut(@"    habit: %@", line);
     if (result.surfaces) {
-        GHOut(@"  places: %@ known, %@ transitions, %@ visits (%@ dropped, %@ past the cap)",
+        SBOut(@"  places: %@ known, %@ transitions, %@ visits (%@ dropped, %@ past the cap)",
               result.surfaces[@"surfaces"] ?: @0, result.surfaces[@"transitions"] ?: @0,
               result.surfaces[@"totalVisits"] ?: @0, result.surfaces[@"dropped"] ?: @0, result.surfaces[@"capped"] ?: @0);
-        for (NSString *line in (NSArray *)(result.surfaces[@"summary"] ?: @[])) GHOut(@"    place: %@", line);
+        for (NSString *line in (NSArray *)(result.surfaces[@"summary"] ?: @[])) SBOut(@"    place: %@", line);
     }
-    for (NSDictionary *kind in result.screenKinds) GHOut(@"    screens: %@ %@", kind[@"count"] ?: @0, kind[@"kind"] ?: @"?");
+    for (NSDictionary *kind in result.screenKinds) SBOut(@"    screens: %@ %@", kind[@"count"] ?: @0, kind[@"kind"] ?: @"?");
 }
 
 /// Writes JSON, but only after proving it carries nothing personal. A leak fails the write.
-static BOOL GHWriteValueFree(id object, NSString *path) {
+static BOOL SBWriteValueFree(id object, NSString *path) {
     NSString *offender = nil;
-    if (!GHColdStartIsValueFree(object, &offender)) {
-        GHErr(@"refusing to write the report: it contains something that looks like a %@", offender ?: @"value");
+    if (!SBColdStartIsValueFree(object, &offender)) {
+        SBErr(@"refusing to write the report: it contains something that looks like a %@", offender ?: @"value");
         return NO;
     }
     NSData *data = [NSJSONSerialization dataWithJSONObject:object
                                                    options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:NULL];
     if (!data) return NO;
     NSError *error = nil;
-    if (!GHWritePrivateFile(path, data, &error)) {
-        GHErr(@"could not write the report (%@)", error.localizedDescription ?: @"?");
+    if (!SBWritePrivateFile(path, data, &error)) {
+        SBErr(@"could not write the report (%@)", error.localizedDescription ?: @"?");
         return NO;
     }
     return YES;
@@ -213,7 +213,7 @@ static BOOL GHWriteValueFree(id object, NSString *path) {
 
 #pragma mark - commands
 
-static NSSet<NSString *> *GHKindsFromArgument(NSString *value) {
+static NSSet<NSString *> *SBKindsFromArgument(NSString *value) {
     NSMutableSet *kinds = [NSMutableSet set];
     for (NSString *part in [value componentsSeparatedByString:@","]) {
         NSString *kind = [part stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
@@ -222,86 +222,86 @@ static NSSet<NSString *> *GHKindsFromArgument(NSString *value) {
     return kinds;
 }
 
-static NSSet<NSString *> *GHAllKinds(void) {
-    return [NSSet setWithArray:@[ GHScanKindSpotlight, GHScanKindDock, GHScanKindLoginItems, GHScanKindRecentApps,
-                                  GHScanKindRecentDocs, GHScanKindAppInventory, GHScanKindContacts, GHScanKindResume,
-                                  GHScanKindBrowserHistory, GHScanKindCalendar, GHScanKindMail, GHScanKindProjects ]];
+static NSSet<NSString *> *SBAllKinds(void) {
+    return [NSSet setWithArray:@[ SBScanKindSpotlight, SBScanKindDock, SBScanKindLoginItems, SBScanKindRecentApps,
+                                  SBScanKindRecentDocs, SBScanKindAppInventory, SBScanKindContacts, SBScanKindResume,
+                                  SBScanKindBrowserHistory, SBScanKindCalendar, SBScanKindMail, SBScanKindProjects ]];
 }
 
 /// Everything that can run unattended: not one of these can raise a permission dialog on any Mac.
-static NSSet<NSString *> *GHDialogFreeKinds(void) {
-    return [NSSet setWithArray:@[ GHScanKindSpotlight, GHScanKindDock, GHScanKindLoginItems, GHScanKindRecentApps,
-                                  GHScanKindRecentDocs, GHScanKindAppInventory, GHScanKindBrowserHistory ]];
+static NSSet<NSString *> *SBDialogFreeKinds(void) {
+    return [NSSet setWithArray:@[ SBScanKindSpotlight, SBScanKindDock, SBScanKindLoginItems, SBScanKindRecentApps,
+                                  SBScanKindRecentDocs, SBScanKindAppInventory, SBScanKindBrowserHistory ]];
 }
 
-static int GHGraph(void) {
-    GHCore *core = GHLoadCore();
+static int SBGraph(void) {
+    SBCore *core = SBLoadCore();
     if (!core) {
-        GHErr(@"shabang-core.js not found (run 'make -C desktop core')");
+        SBErr(@"shabang-core.js not found (run 'make -C desktop core')");
         return 1;
     }
-    NSDictionary *summary = GHColdStartDescribeGraph(core, GHGraphPath());
+    NSDictionary *summary = SBColdStartDescribeGraph(core, SBGraphPath());
     if (!summary) {
-        GHErr(@"could not read the graph");
+        SBErr(@"could not read the graph");
         return 1;
     }
-    GHPrintGraph(summary);
+    SBPrintGraph(summary);
     return 0;
 }
 
-static int GHForget(NSString *kind) {
-    GHCore *core = GHLoadCore();
+static int SBForget(NSString *kind) {
+    SBCore *core = SBLoadCore();
     if (!core) {
-        GHErr(@"shabang-core.js not found (run 'make -C desktop core')");
+        SBErr(@"shabang-core.js not found (run 'make -C desktop core')");
         return 1;
     }
     NSDictionary *removed = nil;
-    if (!GHColdStartForgetSource(core, GHGraphPath(), kind, &removed)) {
-        GHErr(@"could not forget %@", kind);
+    if (!SBColdStartForgetSource(core, SBGraphPath(), kind, &removed)) {
+        SBErr(@"could not forget %@", kind);
         return 1;
     }
-    GHOut(@"Forgot %@: %@ places, %@ habits, %@ facts (%@ facts kept because you confirmed them)",
+    SBOut(@"Forgot %@: %@ places, %@ habits, %@ facts (%@ facts kept because you confirmed them)",
           kind, removed[@"surfaces"] ?: @0, removed[@"habits"] ?: @0, removed[@"facts"] ?: @0, removed[@"factsKept"] ?: @0);
     return 0;
 }
 
-static int GHForgetAll(void) {
-    BOOL removed = GHColdStartForgetEverything(GHSupportDirectory());
-    GHOut(@"%@", removed ? @"Everything Ghost had learned is gone." : @"There was nothing to forget.");
+static int SBForgetAll(void) {
+    BOOL removed = SBColdStartForgetEverything(SBSupportDirectory());
+    SBOut(@"%@", removed ? @"Everything Ghost had learned is gone." : @"There was nothing to forget.");
     return 0;
 }
 
-static int GHApply(NSString *reportPath) {
-    NSDictionary *report = GHJSONParse([NSString stringWithContentsOfFile:reportPath encoding:NSUTF8StringEncoding error:NULL]);
+static int SBApply(NSString *reportPath) {
+    NSDictionary *report = SBJSONParse([NSString stringWithContentsOfFile:reportPath encoding:NSUTF8StringEncoding error:NULL]);
     if (![report isKindOfClass:NSDictionary.class]) {
-        GHErr(@"%@ is not a scan report", reportPath.lastPathComponent);
+        SBErr(@"%@ is not a scan report", reportPath.lastPathComponent);
         return 64;
     }
-    NSDictionary *pending = GHJSONParse([NSString stringWithContentsOfFile:GHPendingPath() encoding:NSUTF8StringEncoding error:NULL]);
+    NSDictionary *pending = SBJSONParse([NSString stringWithContentsOfFile:SBPendingPath() encoding:NSUTF8StringEncoding error:NULL]);
     if (![pending isKindOfClass:NSDictionary.class]) {
-        GHErr(@"there are no pending proposals to apply (run a scan first)");
+        SBErr(@"there are no pending proposals to apply (run a scan first)");
         return 1;
     }
-    GHProfileStore *store = [[GHProfileStore alloc] initWithDirectory:GHSupportDirectory() core:[GHCore sharedCore]];
+    SBProfileStore *store = [[SBProfileStore alloc] initWithDirectory:SBSupportDirectory() core:[SBCore sharedCore]];
     [store prepare];
     NSError *error = nil;
-    GHColdStartApplyCounts counts = GHColdStartApply(report, pending, store, &error);
+    SBColdStartApplyCounts counts = SBColdStartApply(report, pending, store, &error);
     if (error) {
-        GHErr(@"%@", error.localizedDescription);
+        SBErr(@"%@", error.localizedDescription);
         return 1;
     }
-    BOOL seeded = GHColdStartSeedRoleMemory(pending, [GHSupportDirectory() stringByAppendingPathComponent:@"memory.json"]);
-    GHOut(@"Applied %lu facts (%lu already there, %lu conflicts left for you, %lu not accepted)%@",
+    BOOL seeded = SBColdStartSeedRoleMemory(pending, [SBSupportDirectory() stringByAppendingPathComponent:@"memory.json"]);
+    SBOut(@"Applied %lu facts (%lu already there, %lu conflicts left for you, %lu not accepted)%@",
           (unsigned long)counts.applied, (unsigned long)counts.unchanged, (unsigned long)counts.conflicts,
           (unsigned long)counts.ignored, seeded ? @", habit priors seeded" : @"");
     // The values are not kept around after they have been accepted or refused.
-    [NSFileManager.defaultManager removeItemAtPath:GHPendingPath() error:NULL];
+    [NSFileManager.defaultManager removeItemAtPath:SBPendingPath() error:NULL];
     return 0;
 }
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
-        GHLogSetMirrorToStderr(NO);
+        SBLogSetMirrorToStderr(NO);
         NSMutableArray<NSString *> *args = [NSMutableArray array];
         for (int i = 1; i < argc; i++) [args addObject:@(argv[i] ?: "")];
 
@@ -317,51 +317,51 @@ int main(int argc, const char *argv[]) {
             else if ([flag isEqualToString:@"--safe"]) safe = YES;
             else if ([flag isEqualToString:@"--forget-all"]) forgetAll = YES;
             else if ([flag isEqualToString:@"--forget"] && value) { forgetKind = value; i++; }
-            else if ([flag isEqualToString:@"--help"] || [flag isEqualToString:@"-h"]) { GHOut(@"%@", GHUsage()); return 0; }
+            else if ([flag isEqualToString:@"--help"] || [flag isEqualToString:@"-h"]) { SBOut(@"%@", SBUsage()); return 0; }
             else if ([flag isEqualToString:@"--sources"] && value) { sourcesArgument = value; i++; }
             else if ([flag isEqualToString:@"--out"] && value) { out = value; i++; }
             else if ([flag isEqualToString:@"--apply"] && value) { applyPath = value; i++; }
             else if ([flag isEqualToString:@"--budget"] && value) { budgetSeconds = value.doubleValue; i++; }
             else if ([flag isEqualToString:@"--max-files"] && value) { maxFiles = (NSUInteger)MAX(0, value.integerValue); i++; }
-            else { GHErr(@"unknown option '%@'\n%@", flag, GHUsage()); return 64; }
+            else { SBErr(@"unknown option '%@'\n%@", flag, SBUsage()); return 64; }
         }
-        if (graph) return GHGraph();
-        if (forgetAll) return GHForgetAll();
-        if (forgetKind) return GHForget(forgetKind);
-        if (applyPath) return GHApply(applyPath);
+        if (graph) return SBGraph();
+        if (forgetAll) return SBForgetAll();
+        if (forgetKind) return SBForget(forgetKind);
+        if (applyPath) return SBApply(applyPath);
         if (!dryRun && !sourcesArgument && !safe) {
-            GHErr(@"say what to scan\n%@", GHUsage());
+            SBErr(@"say what to scan\n%@", SBUsage());
             return 64;
         }
 
         NSString *problem = nil;
-        if (!GHTakeLock(&problem)) {
-            GHErr(@"%@", problem ?: @"could not take the scan lock");
+        if (!SBTakeLock(&problem)) {
+            SBErr(@"%@", problem ?: @"could not take the scan lock");
             return 1;
         }
 
-        GHCore *core = GHLoadCore();
+        SBCore *core = SBLoadCore();
         if (!core) {
-            GHReleaseLock();
-            GHErr(@"shabang-core.js not found (run 'make -C desktop core')");
+            SBReleaseLock();
+            SBErr(@"shabang-core.js not found (run 'make -C desktop core')");
             return 1;
         }
 
-        GHScanEnvironmentMac *environment = [[GHScanEnvironmentMac alloc] init];
-        GHScanSources *discovery = [[GHScanSources alloc] initWithEnvironment:environment];
-        NSArray<GHScanSource *> *sources = [discovery discover];
+        SBScanEnvironmentMac *environment = [[SBScanEnvironmentMac alloc] init];
+        SBScanSources *discovery = [[SBScanSources alloc] initWithEnvironment:environment];
+        NSArray<SBScanSource *> *sources = [discovery discover];
         // A dry run shows the whole panel. A real scan with no --sources reads only what can raise no dialog:
         // the default has to be the one that is always safe to run, not the one that asks for the most.
-        NSSet<NSString *> *kinds = sourcesArgument ? GHKindsFromArgument(sourcesArgument)
-                                  : (safe && !dryRun ? GHDialogFreeKinds() : GHAllKinds());
+        NSSet<NSString *> *kinds = sourcesArgument ? SBKindsFromArgument(sourcesArgument)
+                                  : (safe && !dryRun ? SBDialogFreeKinds() : SBAllKinds());
 
-        GHColdStartFilesMac *files = [[GHColdStartFilesMac alloc] init];
-        GHColdStart *coldStart = [[GHColdStart alloc] initWithCore:core files:files];
+        SBColdStartFilesMac *files = [[SBColdStartFilesMac alloc] init];
+        SBColdStart *coldStart = [[SBColdStart alloc] initWithCore:core files:files];
         // The same machine the discovery used: the plist reads, directory listings and metadata queries the
         // no-permission sources need. It asks macOS for nothing, exactly like the discovery pass.
         coldStart.environment = environment;
         if (budgetSeconds > 0 || maxFiles > 0) {
-            GHColdStartBudget budget = coldStart.budget;
+            SBColdStartBudget budget = coldStart.budget;
             if (budgetSeconds > 0) budget.wallClockSeconds = MIN(budgetSeconds, budget.wallClockSeconds);
             if (maxFiles > 0) budget.maxFiles = MIN(maxFiles, budget.maxFiles);
             coldStart.budget = budget;
@@ -372,32 +372,32 @@ int main(int argc, const char *argv[]) {
             NSDictionary *plan = [coldStart planForSources:sources enabledKinds:kinds];
             NSDictionary<NSString *, NSNumber *> *neverRead = [discovery neverReadCounts];
             if (!plan) {
-                GHErr(@"the core could not build a plan");
+                SBErr(@"the core could not build a plan");
                 status = 1;
             } else {
                 NSMutableDictionary<NSString *, NSString *> *details = [NSMutableDictionary dictionary];
-                for (GHScanSource *source in sources) if (source.detail) details[source.kind] = source.detail;
-                GHPrintPlan(plan, neverRead, details);
+                for (SBScanSource *source in sources) if (source.detail) details[source.kind] = source.detail;
+                SBPrintPlan(plan, neverRead, details);
                 if (out) {
                     NSMutableDictionary *document = [plan mutableCopy];
                     document[@"neverReadCounts"] = neverRead;
                     document[@"dryRun"] = @YES;
-                    status = GHWriteValueFree(document, out) ? 0 : 1;
-                    if (status == 0) GHErr(@"wrote %@", out.lastPathComponent);
+                    status = SBWriteValueFree(document, out) ? 0 : 1;
+                    if (status == 0) SBErr(@"wrote %@", out.lastPathComponent);
                 }
             }
         } else {
-            GHColdStartResult *result = [coldStart runSources:sources enabledKinds:kinds];
-            GHPrintResult(result);
+            SBColdStartResult *result = [coldStart runSources:sources enabledKinds:kinds];
+            SBPrintResult(result);
             if (out) {
-                status = GHWriteValueFree(result.reportObject, out) ? 0 : 1;
-                if (status == 0) GHErr(@"wrote %@ (value-free)", out.lastPathComponent);
+                status = SBWriteValueFree(result.reportObject, out) ? 0 : 1;
+                if (status == 0) SBErr(@"wrote %@ (value-free)", out.lastPathComponent);
             }
             NSDictionary *pending = result.pendingObject;
             if (result.proposals.count > 0 || result.roleMemory || result.surfaceAggregate || result.historyAggregate) {
                 NSData *data = [NSJSONSerialization dataWithJSONObject:pending options:0 error:NULL];
-                if (data && GHWritePrivateFile(GHPendingPath(), data, NULL)) {
-                    GHErr(@"the values stay in coldstart-pending.json (0600) until you accept or discard them");
+                if (data && SBWritePrivateFile(SBPendingPath(), data, NULL)) {
+                    SBErr(@"the values stay in coldstart-pending.json (0600) until you accept or discard them");
                 }
             }
             // Places and habits go into the graph now; FACTS still wait for --apply, because a fact is a value
@@ -407,16 +407,16 @@ int main(int argc, const char *argv[]) {
                 NSDictionary *summary = nil;
                 NSMutableDictionary *habitsOnly = [pending mutableCopy];
                 habitsOnly[@"proposals"] = @[];
-                if (GHColdStartApplyGraph(core, @{ @"proposals": @[] }, habitsOnly, GHGraphPath(), &summary)) {
-                    GHOut(@"  graph: %@ places, %@ habits, %.1f KB", summary[@"surfaces"] ?: @0, summary[@"habits"] ?: @0,
+                if (SBColdStartApplyGraph(core, @{ @"proposals": @[] }, habitsOnly, SBGraphPath(), &summary)) {
+                    SBOut(@"  graph: %@ places, %@ habits, %.1f KB", summary[@"surfaces"] ?: @0, summary[@"habits"] ?: @0,
                           [summary[@"bytes"] doubleValue] / 1024.0);
                 } else {
-                    GHErr(@"the graph could not be written; nothing was changed");
+                    SBErr(@"the graph could not be written; nothing was changed");
                 }
             }
         }
-        GHReleaseLock();
-        GHLogFlush();
+        SBReleaseLock();
+        SBLogFlush();
         return status;
     }
 }

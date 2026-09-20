@@ -7,8 +7,8 @@ This layer predicts and executes one action at a time. It sits beside the existi
 Start the server and demo site:
 
 ```sh
-pnpm --filter @ghost/server dev
-pnpm --filter @ghost/demo dev
+pnpm --filter @shabang/server dev
+pnpm --filter @shabang/demo dev
 ```
 
 Open `http://localhost:5173/workflow/index.html`. The no-key demo is explicitly simulated and never touches an external account. Press Tab three times to run:
@@ -84,6 +84,6 @@ References: [Sessions](https://docs.composio.dev/reference/api-reference/tool-ro
 
 Set `COMPOSIO_API_KEY` in the gitignored root `.env` (or the process environment) to enable real sessions. A scoped key needs session-management write, session tool-execution write, connected-account read, and Connect Link permissions. Never put it in `.env.example` as a value or expose it to the native app.
 
-Real account and execution routes also require the repository's existing pinned-caller protection: set `GHOST_EXTENSION_ID`, or set a random `GHOST_EXECUTE_TOKEN` of at least 16 characters and have the native client send it as `X-Ghost-Token`. Browser demo calls remain allowed only when every candidate is explicitly simulated.
+Real account and execution routes also require the repository's existing pinned-caller protection: set `SHABANG_EXTENSION_ID`, or set a random `SHABANG_EXECUTE_TOKEN` of at least 16 characters and have the native client send it as `X-Shabang-Token`. Browser demo calls remain allowed only when every candidate is explicitly simulated.
 
 With `TYPESAFE_API_KEY` or `AI_GATEWAY_API_KEY`, workflow prediction uses the existing Jev provider; otherwise the explicit demo uses a deterministic local selector. On the audited developer machine, direct TypeSafe/Jev is configured and the complete three-action meeting workflow was live-verified with calibrated Jev choices. Production no-key requests are inert and return only `no_action`/local actions.

@@ -1,7 +1,7 @@
 /**
  * Sentry for the demo site (Sentry project "ghost-web"): error monitoring, tracing, logs and Session Replay.
  *
- * Why Session Replay is the product beat here: Ghost's claim is that a ghost appears instantly and Tab walks
+ * Why Session Replay is the product beat here: Shabang's claim is that a ghost appears instantly and Tab walks
  * the form. A replay is the only artefact that shows that happening, frame by frame, next to the trace that
  * says how long it took.
  *
@@ -28,8 +28,8 @@ import type { Breadcrumb, BrowserOptions, ErrorEvent, Log, ReplayFrameEvent } fr
 /** The deployed demo, watched by the Sentry uptime monitor. */
 export const PUBLIC_DEMO_ORIGIN = "https://whitespace-delta.vercel.app";
 
-/** The Ghost extension's overlay host, and the attributes it mirrors its state onto (`extension/src/content/overlay.ts`). */
-export const GHOST_HOST_SELECTOR = "#ghost-overlay-host, [data-ghost-state]";
+/** The Shabang extension's overlay host, and the attributes it mirrors its state onto (`extension/src/content/overlay.ts`). */
+export const SHABANG_HOST_SELECTOR = "#ghost-overlay-host, [data-ghost-state]";
 const GHOST_STATE_ATTR = "data-ghost-state";
 const GHOST_COUNT_ATTR = "data-ghost-count";
 
@@ -439,7 +439,7 @@ export function watchWalkMoments(doc: Document, options: WalkWatchOptions = {}):
   const timer = setInterval(() => check(), options.pollMs ?? WALK_POLL_MS);
   const deadline = setTimeout(() => {
     if (stopped) return;
-    const host = doc.querySelector(GHOST_HOST_SELECTOR);
+    const host = doc.querySelector(SHABANG_HOST_SELECTOR);
     api.log("warn", "no ghost appeared", {
       "ghost.form.fields": fields,
       "ghost.host_present": host !== null,
@@ -468,7 +468,7 @@ export function watchWalkMoments(doc: Document, options: WalkWatchOptions = {}):
         api.log("info", "demo form ready", { "ghost.form.fields": count, "ghost.form.ready_ms": Math.round(formReadyAt - started) });
       }
     }
-    const host = doc.querySelector(GHOST_HOST_SELECTOR);
+    const host = doc.querySelector(SHABANG_HOST_SELECTOR);
     if (!ghostHostReady(host)) return;
     const at = api.now();
     const attributes: Record<string, SafeValue> = {

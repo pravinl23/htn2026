@@ -71,7 +71,7 @@ function normalizeUrl(url: string): string {
   return /^https?:\/\//i.test(url) ? url.replace(/[.,;:)]+$/, "") : `https://${url.replace(/[.,;:)]+$/, "")}`;
 }
 
-/** Which link a URL is: the three Ghost has keys for, then a personal site, or nothing worth keeping. */
+/** Which link a URL is: the three Shabang has keys for, then a personal site, or nothing worth keeping. */
 export function classifyLink(url: string): "github" | "linkedin" | "links.twitter" | "website" | null {
   const clean = normalizeUrl(url);
   if (GITHUB_URL.test(clean)) return "github";
@@ -189,7 +189,7 @@ export interface TextExtractOptions {
 }
 
 /**
- * Free text the user pointed Ghost at: a mail signature block, an "about" page, a bio. Only the things
+ * Free text the user pointed Shabang at: a mail signature block, an "about" page, a bio. Only the things
  * code can read without guessing — addresses and prose are left to the LLM pass, which proposes into the
  * same review list. Confidence stays modest because a signature can hold someone else's details.
  */

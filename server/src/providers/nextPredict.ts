@@ -1,4 +1,4 @@
-import { NONE, type DecisionProvider } from "@ghost/shared";
+import { NONE, type DecisionProvider } from "@shabang/shared";
 import { buildNextDecision, pickNextFromMemory, readNextAnswer, withoutSensitive, type NextPredictRequest } from "./nextQuestions";
 import { DECISION_TIMEOUT_MS, withDeadline } from "./timeout";
 

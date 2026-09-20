@@ -35,12 +35,12 @@ describe("GET /v1/health", () => {
   });
 
   it("honors the test overrides even when keys are present", async () => {
-    const body = await healthFor({ TYPESAFE_API_KEY: FAKE_KEY, OPENAI_API_KEY: FAKE_KEY, GHOST_DECISION_PROVIDER: "heuristic", GHOST_TEXT_PROVIDER: "template" });
+    const body = await healthFor({ TYPESAFE_API_KEY: FAKE_KEY, OPENAI_API_KEY: FAKE_KEY, SHABANG_DECISION_PROVIDER: "heuristic", SHABANG_TEXT_PROVIDER: "template" });
     expect(body).toMatchObject({ provider: "heuristic", textProvider: "template" });
   });
 
-  it("GHOST_PROVIDER=heuristic (the e2e web server) stays fully offline whatever keys the .env holds", async () => {
-    const config = loadConfig({ XAI_API_KEY: FAKE_KEY, AI_GATEWAY_API_KEY: FAKE_KEY, GHOST_PROVIDER: "heuristic" });
+  it("SHABANG_PROVIDER=heuristic (the e2e web server) stays fully offline whatever keys the .env holds", async () => {
+    const config = loadConfig({ XAI_API_KEY: FAKE_KEY, AI_GATEWAY_API_KEY: FAKE_KEY, SHABANG_PROVIDER: "heuristic" });
     expect(config).toMatchObject({ decisionProvider: "heuristic", textProvider: "template", llm: undefined });
   });
 

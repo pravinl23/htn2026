@@ -1,5 +1,5 @@
 // The before-and-after benchmark (docs/knowledge.md section 6). The table this produces IS the deliverable:
-// proof that one small local graph of habits changes what Ghost proposes, on any screen, without a single rule
+// proof that one small local graph of habits changes what Shabang proposes, on any screen, without a single rule
 // that names a site or an app.
 //
 // It is a harness, not a test: `shared/test/knowledge.benchmark.test.ts` asserts on it and
@@ -11,7 +11,7 @@
 //   2. COLD START — what the first-run local scan could know: how this person behaves on screens of each KIND,
 //                   learned from browser history on OTHER places, through the real pipeline
 //                   (`aggregateHabits` -> `seedFromColdStart`). It never carries any screen's own answer.
-//   3. LEARNED    — after five simulated sessions on the screen itself, with the ranker in the loop: Ghost
+//   3. LEARNED    — after five simulated sessions on the screen itself, with the ranker in the loop: Shabang
 //                   proposes, the scripted person accepts it or does something else, and the graph learns.
 import {
   PREVIOUS_NONE,
@@ -60,8 +60,8 @@ export interface SessionScript {
  * learn, because history knows what kind of page was open and what was done there, never which control a
  * particular screen offers. Kinds not listed are ones the scan has no opinion about.
  *
- * Three screens below deviate from it on purpose (the `unusual` persona): that is what separates "Ghost knows
- * this person" from "Ghost knows this screen".
+ * Three screens below deviate from it on purpose (the `unusual` persona): that is what separates "Shabang knows
+ * this person" from "Shabang knows this screen".
  */
 export const KIND_HABITS: Partial<Record<ScreenKind, ActionRole>> = {
   feed: "primary-item",
@@ -296,7 +296,7 @@ export function coldStartGraph(): { graph: KnowledgeGraph; facts: ColdStartFacts
 
 export interface SessionLog {
   surface: string;
-  /** How often Ghost's top proposal was the control the person then used. */
+  /** How often Shabang's top proposal was the control the person then used. */
   accepted: number;
   /** How often they used a different control instead. */
   otherControl: number;
@@ -306,7 +306,7 @@ export interface SessionLog {
 }
 
 /**
- * Play the script. Ghost proposes, the person acts, and every outcome is recorded exactly as a client would
+ * Play the script. Shabang proposes, the person acts, and every outcome is recorded exactly as a client would
  * record it: an accepted proposal is `taken`, and anything else is a replacement, which demotes what was
  * proposed and teaches what was chosen in one call.
  */

@@ -3,10 +3,10 @@
 // Tab is the right key in exactly one situation: the ghost is a value for the field that currently has focus, on a
 // site or app that has never been seen handling Tab itself. There Tab already means "take this and move on", so
 // nothing is stolen. Everywhere else - a click ghost, a media control, a cross-app suggestion, a site that runs its
-// own Tab surface - the Ghost key accepts, because a helper that steals Tab from a spreadsheet or an editor is a bug.
+// own Tab surface - the Shabang key accepts, because a helper that steals Tab from a spreadsheet or an editor is a bug.
 //
 // Two rules outrank everything here:
-//   - Ghost always proposes (docs/always-propose.md). This layer therefore never answers "no key": every call names
+//   - Shabang always proposes (docs/always-propose.md). This layer therefore never answers "no key": every call names
 //     a key and the hint chip to draw with it. A proposal the user cannot accept is worse than no proposal.
 //   - Irreversible actions are never accepted by a key at all (CLAUDE.md rule 2). A locked ghost still gets a key
 //     that WALKS to it, but its chip says Enter, and `explicit` tells the client that a deliberate press is required.
@@ -18,13 +18,13 @@ export type AcceptKey = "tab" | "ghost-key";
 /** What observation knows about Tab on one origin or app (see ./observe.ts). */
 export type TabState = "unknown" | "free" | "taken";
 
-/** The Ghost key itself, configurable for people who use right Option for accented characters (doc section 3). */
-export type GhostKeyId = "right-option" | "option-space" | "cmd-quote" | "f19" | "double-shift";
+/** The Shabang key itself, configurable for people who use right Option for accented characters (doc section 3). */
+export type AcceptKeyId = "right-option" | "option-space" | "cmd-quote" | "f19" | "double-shift";
 
-export const DEFAULT_GHOST_KEY: GhostKeyId = "right-option";
+export const DEFAULT_ACCEPT_KEY: AcceptKeyId = "right-option";
 
 /** The chip text for each binding. Short enough to sit inside a ghost's hint chip. */
-export const GHOST_KEY_HINTS: Record<GhostKeyId, string> = {
+export const ACCEPT_KEY_HINTS: Record<AcceptKeyId, string> = {
   "right-option": "⌥ tap",
   "option-space": "⌥Space",
   "cmd-quote": "⌘'",
@@ -37,15 +37,15 @@ export const TAB_HINT = "Tab";
 export const EXPLICIT_HINT = "Enter";
 
 /** A binding read back from storage may be anything; an unknown id falls back to the default rather than throwing. */
-export function ghostKeyHint(id?: GhostKeyId | null): string {
-  const hint = GHOST_KEY_HINTS[id as GhostKeyId] as string | undefined;
-  return hint ?? GHOST_KEY_HINTS[DEFAULT_GHOST_KEY];
+export function ghostKeyHint(id?: AcceptKeyId | null): string {
+  const hint = ACCEPT_KEY_HINTS[id as AcceptKeyId] as string | undefined;
+  return hint ?? ACCEPT_KEY_HINTS[DEFAULT_ACCEPT_KEY];
 }
 
 /** Why this key, in a form the HUD can render and a test can assert on. */
 export type AcceptKeyReason =
-  | "paused" // Ghost proposes nothing in this app, so the question never arises
-  | "ghost-key-chosen" // the user asked for the Ghost key everywhere and Tab to be left alone
+  | "paused" // Shabang proposes nothing in this app, so the question never arises
+  | "ghost-key-chosen" // the user asked for the Shabang key everywhere and Tab to be left alone
   | "tab-everywhere" // the user chose plain Tab everywhere in settings
   | "click-ghost" // the ghost is a click, not a value for a field
   | "focus-elsewhere" // the ghost fills a field that does not have focus
@@ -54,8 +54,8 @@ export type AcceptKeyReason =
   | "tab-free"; // watched, free, and the ghost fills the focused field
 
 export const ACCEPT_KEY_REASON_TEXT: Record<AcceptKeyReason, string> = {
-  paused: "Ghost is paused here",
-  "ghost-key-chosen": "you chose the Ghost key everywhere",
+  paused: "Shabang is paused here",
+  "ghost-key-chosen": "you chose the Shabang key everywhere",
   "tab-everywhere": "you chose Tab everywhere",
   "click-ghost": "this ghost is a click, not a field",
   "focus-elsewhere": "the ghosted field does not have focus",
@@ -65,7 +65,7 @@ export const ACCEPT_KEY_REASON_TEXT: Record<AcceptKeyReason, string> = {
 };
 
 /**
- * The minimum a ghost has to say for this decision. A full `Ghost` (../types) satisfies it, and so does the native
+ * The minimum a ghost has to say for this decision. A full `Shabang` (../types) satisfies it, and so does the native
  * agent's overlay model, so neither client has to build an adapter.
  */
 export interface AcceptKeyGhost {
@@ -85,11 +85,11 @@ export interface SiteKeyState {
   tab?: TabState;
   /** Editors, terminals and password managers (docs/accept-key.md section 2 step 5). */
   paused?: boolean;
-  /** The user's chosen Ghost key, for the chip. */
-  ghostKey?: GhostKeyId | null;
+  /** The user's chosen Shabang key, for the chip. */
+  ghostKey?: AcceptKeyId | null;
   /** Settings: plain Tab everywhere, the old behaviour. */
   tabEverywhere?: boolean;
-  /** Settings: the Ghost key everywhere, so Tab is never touched at all. Outranks `tabEverywhere`. */
+  /** Settings: the Shabang key everywhere, so Tab is never touched at all. Outranks `tabEverywhere`. */
   ghostKeyOnly?: boolean;
 }
 
@@ -106,7 +106,7 @@ export interface AcceptKeyInput {
 
 export interface AcceptKeyChoice {
   key: AcceptKey;
-  /** What the ghost's hint chip shows: "Tab", the Ghost key's chip, or "Enter" for a locked action. */
+  /** What the ghost's hint chip shows: "Tab", the Shabang key's chip, or "Enter" for a locked action. */
   hint: string;
   reason: AcceptKeyReason;
   /**
@@ -160,7 +160,7 @@ function useGhostKey(reason: AcceptKeyReason, probeTab = false): Decision {
 }
 
 function decide(input: AcceptKeyInput, state: SiteKeyState): Decision {
-  // Paused: Ghost suggests nothing here, so it asks nothing of Tab either and never probes (doc section 2 step 5).
+  // Paused: Shabang suggests nothing here, so it asks nothing of Tab either and never probes (doc section 2 step 5).
   if (state.paused === true) return useGhostKey("paused");
   // The user's own settings win over every observation, and neither of them needs anything watched afterwards.
   if (state.ghostKeyOnly === true) return useGhostKey("ghost-key-chosen");
@@ -169,7 +169,7 @@ function decide(input: AcceptKeyInput, state: SiteKeyState): Decision {
   if (!input.focusIsOnGhostField) return useGhostKey("focus-elsewhere");
   const tab = state.tab ?? "unknown";
   if (tab === "taken") return useGhostKey("tab-taken");
-  // Never seen a Tab press here: use the Ghost key and WATCH this one. Assuming Tab is free is the expensive
+  // Never seen a Tab press here: use the Shabang key and WATCH this one. Assuming Tab is free is the expensive
   // mistake, so an unknown site never gets to steal it on the strength of a first ghost.
   if (tab !== "free") return useGhostKey("tab-untested", true);
   return { key: "tab", reason: "tab-free", probeTab: false };

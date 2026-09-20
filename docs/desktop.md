@@ -17,7 +17,7 @@ The Chrome extension only covers Chromium browsers. Shabang Desktop is a native 
 desktop/
   Makefile            make core | make app | make test | make run | make dump | make clean
   Info.plist          LSUIElement=1 (no Dock icon), bundle id dev.shabang.desktop, NSAppleEventsUsageDescription not needed
-  core/build-core.mjs esbuild bundle of @ghost/shared -> build/shabang-core.js (IIFE, global GhostCore)
+  core/build-core.mjs esbuild bundle of @shabang/shared -> build/shabang-core.js (IIFE, global GhostCore)
   core/entry.ts       exports exactly what the native side calls (see "Core bridge")
   src/                Objective-C sources (below)
   tests/              plain executable test runner (no XCTest): exits non-zero on failure
@@ -34,7 +34,7 @@ build/Shabang.app       output (gitignored)
 | `GHAccessibility` | Trust check; observe frontmost app changes (`NSWorkspace`), focused-window and focused-element changes (`AXObserver`), value changes and layout changes (debounced 150 ms). Tree walk of the focused window, breadth-first, bounded (max 1500 nodes, max depth 40, 120 ms budget, abort and keep partial results). For Chromium and Electron apps set `AXEnhancedUserInterface` and `AXManualAccessibility` to true on the application element so the web tree is exposed. |
 | `GHCapture` | AX roles to kinds: `AXTextField` text (email/tel/url inferred from label and subrole), `AXTextArea` textarea, `AXComboBox`/`AXPopUpButton` select (options from `AXChildren` of the menu when cheap, else lazily when the ghost becomes current), `AXCheckBox` checkbox, `AXRadioGroup`/`AXRadioButton` one radio field with options, `AXButton`/`AXLink` button/link. Label precedence: `AXTitleUIElement` text, `AXTitle`, `AXDescription`, `AXPlaceholderValue`, `AXHelp`, nearest preceding `AXStaticText` sibling. **Never capture** `AXSecureTextField`, or any element whose label/placeholder/identifier trips `GhostCore.isSensitive` (not even the label). Skip disabled (`AXEnabled` false), hidden, zero-size, and off-window elements. Signature = role, subrole, normalized label, DOM identifier (`AXDOMIdentifier`) when present, index among same-label siblings. Never include values. |
 | `GHCore` | JavaScriptCore bridge. Loads `shabang-core.js` once. See "Core bridge". |
-| `GHServerClient` | `NSURLSession` to `http://127.0.0.1:8787`: `POST /v1/predict/form` (fact KEYS only, never values), `POST /v1/ghost-text` (SSE parsing, relevant non-sensitive facts only, same filtering rules as the extension), `GET /v1/health`. 3 s timeout, silent offline fallback. Must send `Content-Type: application/json` and no `Origin` header. Per (bundle id + window title host + form signature) in-memory + on-disk cache so repeat visits make zero calls. |
+| `GHServerClient` | `NSURLSession` to `http://127.0.0.1:8787`: `POST /v1/predict/form` (fact KEYS only, never values), `POST /v1/shabang-text` (SSE parsing, relevant non-sensitive facts only, same filtering rules as the extension), `GET /v1/health`. 3 s timeout, silent offline fallback. Must send `Content-Type: application/json` and no `Origin` header. Per (bundle id + window title host + form signature) in-memory + on-disk cache so repeat visits make zero calls. |
 | `GHProfileStore` | `~/Library/Application Support/Shabang/profile.json`, `settings.json` and `answers.json` (same shapes as the extension: `Profile`, `GhostSettings`, `LearnedAnswersSnapshot`), seeded with the fictional demo profile from the core, file-watched for edits. Files are created with mode 0600, written atomically (temp file + rename). `answers.json` is never seeded: an absent file IS "nothing learned yet", and a missing, corrupt, truncated or wrong-shaped one reads as an empty store rather than stopping Shabang from proposing. Every malformed entry is dropped on load, the store caps at 500, and nothing in it is ever logged or sent anywhere. |
 | `GHController` | The same state machine as `extension/src/content/controller.ts`: ghost list in reading order (top to bottom, then left to right, using rects), current ghost, accept/advance, dismiss, typing override, focus follow, rescan on AX notifications, never touch fields that already have a value, lock ghost parked last. Pure logic is separated from AX so it is unit-testable with fake fields. |
 | `GHEventTap` | `CGEventTap` (session level, head insert) for keyDown. **Consumes Tab only when** Shabang is enabled, the frontmost app is not paused, a current ghost is visible on screen, no modifier keys are held, and the system-wide focused element is the current ghost's element, the element the walk just left, or the window itself. Otherwise the event passes through untouched. Esc dismisses the current ghost (consumed only if something was dismissed). Any other printable key while focus is in a ghosted field dismisses that ghost (typing overrides) and passes through. Auto-repeat Tab = hold-Tab: accept every unlocked, non-pending ghost, stop at the lock. If the tap is disabled by timeout (`kCGEventTapDisabledByTimeout`), re-enable it. The tap callback must return in well under 10 ms: do the write asynchronously on the main queue after consuming the event. |
@@ -56,7 +56,7 @@ GhostCore.isLockedAction(probeJson): boolean
 GhostCore.formRequest(fieldsJson, factKeysJson, origin, formSignature): string
 GhostCore.cleanAssignments(assignmentsJson): string
 GhostCore.isPlaceholder(value, label): boolean
-GhostCore.textFacts(profileJson): string                                      // the non-sensitive subset allowed to go to /v1/ghost-text
+GhostCore.textFacts(profileJson): string                                      // the non-sensitive subset allowed to go to /v1/shabang-text
 GhostCore.textPastAnswers(profileJson, label): string
 GhostCore.defaultSettings(): string
 ```
@@ -173,5 +173,5 @@ When the extension is active in a browser, both can draw ghosts. The intended de
 ## Other browsers through the extension
 
 - Chromium family (Chrome, Arc, Brave, Edge, Opera, Vivaldi): the same `extension/dist` folder, Load unpacked.
-- Firefox: `pnpm --filter @ghost/extension build:firefox` writes `extension/dist-firefox` (MV3 with `background.scripts`, `browser_specific_settings.gecko.id`, no `debugger` permission; the debugger fallback reports "unsupported").
+- Firefox: `pnpm --filter @shabang/extension build:firefox` writes `extension/dist-firefox` (MV3 with `background.scripts`, `browser_specific_settings.gecko.id`, no `debugger` permission; the debugger fallback reports "unsupported").
 - Safari: needs full Xcode (`xcrun safari-web-extension-converter extension/dist`). Until then Safari is covered by Shabang Desktop.

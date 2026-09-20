@@ -1,4 +1,4 @@
-import type { Answer, ChoiceAnswer, NoulAnswer, Question, Questions, ScoreAnswer } from "@ghost/shared";
+import type { Answer, ChoiceAnswer, NoulAnswer, Question, Questions, ScoreAnswer } from "@shabang/shared";
 
 /**
  * Self-consistency as a confidence signal: ask the same decision K times at temperature > 0 and read the vote.

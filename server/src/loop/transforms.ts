@@ -1,4 +1,4 @@
-import { applyTransform, matchesUnder, type FactLocator, type LoopProgram, type LoopStep, type ValueTransform } from "@ghost/shared";
+import { applyTransform, matchesUnder, type FactLocator, type LoopProgram, type LoopStep, type ValueTransform } from "@shabang/shared";
 
 /**
  * The CLOSED list a model may pick from. The first three are the shared heuristic's transforms; the rest only ever

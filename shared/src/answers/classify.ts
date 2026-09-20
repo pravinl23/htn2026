@@ -3,7 +3,7 @@
 // the same vocabulary decides on Greenhouse, Lever, Ashby, Workday, iCIMS and a hand-written careers page.
 import type { FieldKind, FieldOption } from "../types";
 
-/** What Ghost is allowed to do with a question. */
+/** What Shabang is allowed to do with a question. */
 export type QuestionClass = "ordinary" | "protected" | "declaration";
 
 /** What the question is about, when the vocabulary recognizes it. Drives the (country-qualified) fact key. */
@@ -164,7 +164,7 @@ const PROTECTED_RULES: readonly TopicRule[] = [
   { topic: "maritalStatus", pattern: /\bmarital status\b|\bare you (married|single)\b|\bcivil partnership\b|\bspousal status\b/ },
   {
     // Pregnancy and family plans are protected in every jurisdiction that protects sex, and an employer asking
-    // is the classic unlawful question. Ghost answers it the way it answers any other protected one: it declines.
+    // is the classic unlawful question. Shabang answers it the way it answers any other protected one: it declines.
     topic: "familyStatus",
     pattern:
       /\bpregnan\w*\b|\bmaternity\b|\bpaternity\b|\bparental leave\b|\bfamil(y|ial) status\b|\b(start|starting|have|having|expand\w*)\b[^.?]{0,15}\ba family\b|\bplan\w*\b[^.?]{0,20}\b(children|kids|a family)\b|\bdo you have (any )?(children|kids|dependents)\b|\bchild ?care (responsibilit|arrangement|needs)\w*\b|\bcaregiv\w+ (status|responsibilit\w+)\b/,
@@ -307,7 +307,7 @@ export function classifyQuestion(field: QuestionField): Classification {
 }
 
 /**
- * A question about a protected characteristic. Ghost answers these (with the form's own way of declining),
+ * A question about a protected characteristic. Shabang answers these (with the form's own way of declining),
  * but it never mentions one to a server: the desktop client has enforced this since it shipped
  * (`desktop/core/predict.ts`), and `isProtectedQuestion` is the one rule both clients now share.
  *
@@ -325,7 +325,7 @@ export function isProtectedQuestion(field: QuestionField): boolean {
  * A question whose text, options and answer all stay on this machine (docs/answers.md section 7).
  * Protected characteristics AND legal declarations qualify: "Explain the circumstances of any conviction"
  * or "describe the accommodations you need" is a disclosure whether it rides along as a question or as an
- * answer, so neither is sent to `/v1/ghost-text`, kept in `profile.pastAnswers`, or drafted by a server.
+ * answer, so neither is sent to `/v1/shabang-text`, kept in `profile.pastAnswers`, or drafted by a server.
  * Learning still keeps them, locally, in the learned-answer store: that is the user's own answer, on their disk.
  */
 export function staysOnThisMachine(field: QuestionField): boolean {

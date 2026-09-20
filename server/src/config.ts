@@ -33,13 +33,13 @@ export interface BasetenConfig {
   decisionBaseUrl?: string;
   /** BASETEN_LOGPROBS=1: ask for logprobs and use them when a response carries them. Off by default: the Model APIs return none. */
   logprobs: boolean;
-  /** One tiny request at server start so the first form does not pay the cold json_schema compile. GHOST_WARMUP=0 disables. */
+  /** One tiny request at server start so the first form does not pay the cold json_schema compile. SHABANG_WARMUP=0 disables. */
   warmup: boolean;
 }
 
 export interface ServerConfig {
   port: number;
-  /** Listen address. Loopback unless GHOST_HOST says otherwise: the API is unauthenticated and spends paid model quota. */
+  /** Listen address. Loopback unless SHABANG_HOST says otherwise: the API is unauthenticated and spends paid model quota. */
   host: string;
   decisionProvider: DecisionProviderName;
   textProvider: TextProviderName;
@@ -56,9 +56,9 @@ export interface ServerConfig {
   composio?: { apiKey: string; userId: string; connectedAccounts: Record<string, string | undefined>; defaults: Record<string, string> };
   /** SHABANG_PUBLIC_DEMO_URL: where cloud browsers can reach the site that runs on localhost here. */
   publicDemoUrl?: string;
-  /** GHOST_EXTENSION_ID: the only chrome-extension origin that may run real loop batches (see executors/access.ts). */
+  /** SHABANG_EXTENSION_ID: the only chrome-extension origin that may run real loop batches (see executors/access.ts). */
   extensionId?: string;
-  /** GHOST_EXECUTE_TOKEN: per-install secret a caller without an Origin (the desktop daemon) sends as X-Ghost-Token. Never logged. */
+  /** SHABANG_EXECUTE_TOKEN: per-install secret a caller without an Origin (the desktop daemon) sends as X-Shabang-Token. Never logged. */
   executeToken?: string;
   /** Optional, manual-only agent outcome capture. No automatic request/error instrumentation is enabled. */
   sentry?: { dsn: string; environment: string; release?: string };
@@ -99,7 +99,7 @@ function basetenFromEnv(env: Env): BasetenConfig | undefined {
     hedge: boundedInt(env.BASETEN_HEDGE, 1, 0, BASETEN_MAX_HEDGE),
     decisionBaseUrl: env.BASETEN_DECISION_MODEL_URL || undefined,
     logprobs: env.BASETEN_LOGPROBS === "1",
-    warmup: env.GHOST_WARMUP !== "0",
+    warmup: env.SHABANG_WARMUP !== "0",
   };
 }
 
@@ -159,15 +159,15 @@ export function loadConfig(env: Env = process.env): ServerConfig {
   const llm = llmFromEnv(env);
   const basetenEnv = basetenFromEnv(env);
   const auto: DecisionProviderName = env.TYPESAFE_API_KEY ? "typesafe" : env.AI_GATEWAY_API_KEY ? "jev-gateway" : basetenEnv ? "baseten" : llm ? "llm" : "heuristic";
-  // GHOST_PROVIDER=heuristic (set by the e2e web server) means fully offline: no decision model and no text model.
-  const offline = env.GHOST_PROVIDER === "heuristic";
-  const forcedDecision = (env.GHOST_DECISION_PROVIDER || (offline ? "heuristic" : undefined)) as DecisionProviderName | undefined;
-  const forcedText = (env.GHOST_TEXT_PROVIDER || (offline ? "template" : undefined)) as TextProviderName | undefined;
+  // SHABANG_PROVIDER=heuristic (set by the e2e web server) means fully offline: no decision model and no text model.
+  const offline = env.SHABANG_PROVIDER === "heuristic";
+  const forcedDecision = (env.SHABANG_DECISION_PROVIDER || (offline ? "heuristic" : undefined)) as DecisionProviderName | undefined;
+  const forcedText = (env.SHABANG_TEXT_PROVIDER || (offline ? "template" : undefined)) as TextProviderName | undefined;
   const decisionProvider = forcedDecision ?? auto;
   const textProvider = resolveTextProvider(forcedText, basetenEnv, llm);
   return {
     port: Number(env.PORT ?? 8787),
-    host: env.GHOST_HOST || "127.0.0.1",
+    host: env.SHABANG_HOST || "127.0.0.1",
     decisionProvider,
     textProvider,
     typesafeApiKey: env.TYPESAFE_API_KEY || undefined,
@@ -175,14 +175,14 @@ export function loadConfig(env: Env = process.env): ServerConfig {
     llm: forcedText === "template" && forcedDecision === "heuristic" ? undefined : llm,
     // Forcing another provider (heuristic, template, llm...) drops the Baseten config entirely: no client, no warm-up, zero network.
     baseten: decisionProvider === "baseten" || textProvider === "baseten" ? basetenEnv : undefined,
-    fastPath: env.GHOST_FAST_PATH !== "0",
+    fastPath: env.SHABANG_FAST_PATH !== "0",
     // Offline (e2e) never opens cloud browsers or calls external APIs: the simulated executors answer instead.
     browserbase: offline ? undefined : browserbaseFromEnv(env),
     composio: offline ? undefined : composioFromEnv(env),
     publicDemoUrl: env.SHABANG_PUBLIC_DEMO_URL || undefined,
-    extensionId: /^[a-p]{32}$/.test(env.GHOST_EXTENSION_ID ?? "") ? env.GHOST_EXTENSION_ID : undefined,
+    extensionId: /^[a-p]{32}$/.test(env.SHABANG_EXTENSION_ID ?? "") ? env.SHABANG_EXTENSION_ID : undefined,
     // Short secrets are ignored rather than accepted: a guessable token is worse than none, because it looks like protection.
-    executeToken: (env.GHOST_EXECUTE_TOKEN ?? "").length >= 16 ? env.GHOST_EXECUTE_TOKEN : undefined,
+    executeToken: (env.SHABANG_EXECUTE_TOKEN ?? "").length >= 16 ? env.SHABANG_EXECUTE_TOKEN : undefined,
     sentry: offline ? undefined : sentryFromEnv(env),
   };
 }

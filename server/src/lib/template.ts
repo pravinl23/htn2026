@@ -1,4 +1,4 @@
-import type { PastAnswer } from "@ghost/shared";
+import type { PastAnswer } from "@shabang/shared";
 
 /** One message already on screen. `fromMe` is the user's own side of the thread. */
 export interface DraftMessage {

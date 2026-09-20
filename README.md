@@ -47,7 +47,7 @@ pnpm eval:walk-replays  # validate every reviewed redacted walk outcome fixture
 make -C desktop test  # native macOS agent unit tests (not included in pnpm test)
 ```
 
-The first Playwright run also needs `pnpm --filter @ghost/e2e exec playwright install chromium`. The standalone demo smoke test expects the preview server to already be running, then runs with `node e2e/scripts/smoke-demo.mjs`.
+The first Playwright run also needs `pnpm --filter @shabang/e2e exec playwright install chromium`. The standalone demo smoke test expects the preview server to already be running, then runs with `node e2e/scripts/smoke-demo.mjs`.
 
 ## Keys
 
@@ -57,7 +57,7 @@ The implemented offline form path and server endpoints have deterministic fallba
 
 The demo site reports to the Sentry project `ghost-web`: errors, tracing, logs and Session Replay. It reads one build-time variable, `VITE_SENTRY_DSN` (see `demo/.env.example`); a local build also accepts `SENTRY_WEB_DSN` from the repo-root `.env`, which is the name the server already uses. With no DSN the demo initialises no SDK at all - no replay, no spans, no network - so tests and a plain `pnpm dev` stay offline.
 
-What it sends, and only this: a replay with **every input masked** and every password, card and `data-ghost-sensitive` element blocked; two custom spans, `ghost.demo.form-ready` and `ghost.demo.first-ghost`, carrying field counts and durations; and log lines that say a form was ready, a ghost appeared, or that none did. Query strings, request bodies, console breadcrumbs, user identity and any attribute outside the allowlist in `demo/src/observability.ts` are stripped before an event leaves the browser (`pnpm --filter @ghost/demo test`). One gap the SDK does not let us close: rrweb records `location.href` into the replay's meta frame before any callback runs, so a query string typed into the address bar reaches that single field. Do not put a value in a demo URL; the site itself only ever uses `?reset=1`.
+What it sends, and only this: a replay with **every input masked** and every password, card and `data-ghost-sensitive` element blocked; two custom spans, `ghost.demo.form-ready` and `ghost.demo.first-ghost`, carrying field counts and durations; and log lines that say a form was ready, a ghost appeared, or that none did. Query strings, request bodies, console breadcrumbs, user identity and any attribute outside the allowlist in `demo/src/observability.ts` are stripped before an event leaves the browser (`pnpm --filter @shabang/demo test`). One gap the SDK does not let us close: rrweb records `location.href` into the replay's meta frame before any callback runs, so a query string typed into the address bar reaches that single field. Do not put a value in a demo URL; the site itself only ever uses `?reset=1`.
 
 ## Run Shabang in the background (macOS)
 
@@ -75,7 +75,7 @@ scripts/install-background.sh --dry-run   # prints every action and the rendered
 scripts/install-background.sh             # build, install, start
 ```
 
-It builds the server bundle (`pnpm --filter @ghost/server bundle`, i.e. `node server/build.mjs` -> `server/dist/server.mjs`) and `make -C desktop app`, copies the bundle to `~/Library/Application Support/Shabang/server/`, copies `Shabang.app` to `~/Applications/` **only if it is not there yet**, runs `make -C desktop install-lib`, writes the two plists to `~/Library/LaunchAgents/`, and loads them with `launchctl bootout` (errors ignored) followed by `launchctl bootstrap gui/$UID`. Options: `--server-only`, `--desktop-only`, `--launch-via-open`, `--render-to DIR` (render and lint the plists into a directory, touch nothing else).
+It builds the server bundle (`pnpm --filter @shabang/server bundle`, i.e. `node server/build.mjs` -> `server/dist/server.mjs`) and `make -C desktop app`, copies the bundle to `~/Library/Application Support/Shabang/server/`, copies `Shabang.app` to `~/Applications/` **only if it is not there yet**, runs `make -C desktop install-lib`, writes the two plists to `~/Library/LaunchAgents/`, and loads them with `launchctl bootout` (errors ignored) followed by `launchctl bootstrap gui/$UID`. Options: `--server-only`, `--desktop-only`, `--launch-via-open`, `--render-to DIR` (render and lint the plists into a directory, touch nothing else).
 
 **Permission (once, by hand).** System Settings -> Privacy & Security -> Accessibility -> switch **Shabang** on (`~/Applications/Shabang.app`). Shabang notices within two seconds; nothing to restart. No script here grants, resets or edits privacy permissions. macOS ties the grant of an ad-hoc signed app to its exact code, which is why the installer **never overwrites an existing `~/Applications/Shabang.app`**: the app is a tiny stable host, and updates arrive through `libshabang.dylib` next to your profile (`docs/desktop-realworld.md`, section 1):
 
@@ -119,7 +119,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.ghost.server.plist  
 Shabang also predicts your next shell command in zsh and shows it as gray text after the cursor: after `git add -A` the line already says `git commit -m ""`, Tab puts it on the line with the cursor inside the quotes, and Enter stays yours (Shabang never runs anything). Tab keeps completing as before whenever no ghost is visible; Right arrow at the end of the line also accepts; Esc dismisses.
 
 ```bash
-pnpm --filter @ghost/server start                          # the server on :8787 (or the background LaunchAgent above)
+pnpm --filter @shabang/server start                          # the server on :8787 (or the background LaunchAgent above)
 echo 'source /path/to/htn2026/terminal/ghost.zsh' >> ~/.zshrc  # add it yourself, after plugins that bind Tab
 ```
 

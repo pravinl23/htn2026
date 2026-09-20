@@ -1,14 +1,14 @@
-// GHHarness without AX, without a keyboard and without the real ~/Library: request parsing and encoding, the file
+// SBHarness without AX, without a keyboard and without the real ~/Library: request parsing and encoding, the file
 // channel, the agent-side server, the tree redaction and the autotab loop (fake controller, fake key poster, a
 // clock and a timer the test runs by hand).
-#import "GHTest.h"
-#import "GHHarness.h"
+#import "SBTest.h"
+#import "SBHarness.h"
 #import <objc/runtime.h>
 
 #pragma mark - fakes
 
 /// A scripted walk: each entry is { label, action, locked, consumes (default YES), outcome (default accepted) }.
-@interface GHFakeAutotabSubject : NSObject <GHAutotabSubject>
+@interface SBFakeAutotabSubject : NSObject <SBAutotabSubject>
 @property (nonatomic, copy) NSArray<NSDictionary *> *ghosts;
 @property (nonatomic) NSUInteger index;
 @property (nonatomic) BOOL active;
@@ -19,7 +19,7 @@
 - (void)tabArrived;
 @end
 
-@implementation GHFakeAutotabSubject
+@implementation SBFakeAutotabSubject
 
 - (NSDictionary *)current {
     return self.index < self.ghosts.count ? self.ghosts[self.index] : nil;
@@ -35,7 +35,7 @@
 - (void)tabArrived {
     self.tabsSeen++;
     NSDictionary *current = [self current];
-    if (!current || [current[@"consumes"] isEqual:@NO]) return;   // a native Tab: Ghost did not take it
+    if (!current || [current[@"consumes"] isEqual:@NO]) return;   // a native Tab: Shabang did not take it
     NSString *outcome = current[@"outcome"] ?: @"accepted";
     self.lastStep = @{ @"label": current[@"label"], @"action": current[@"action"] ?: @"fill", @"outcome": outcome,
                        @"verified": @([outcome isEqualToString:@"accepted"]), @"ms": @7 };
@@ -45,13 +45,13 @@
 
 @end
 
-@interface GHFakeTabPoster : NSObject <GHAutotabKeyPosting>
-@property (nonatomic, weak) GHFakeAutotabSubject *subject;
+@interface SBFakeTabPoster : NSObject <SBAutotabKeyPosting>
+@property (nonatomic, weak) SBFakeAutotabSubject *subject;
 @property (nonatomic) NSUInteger posted;
 @property (nonatomic) BOOL fails;
 @end
 
-@implementation GHFakeTabPoster
+@implementation SBFakeTabPoster
 - (BOOL)postTab {
     if (self.fails) return NO;
     self.posted++;
@@ -61,9 +61,9 @@
 @end
 
 /// Runs a runner to the end with a hand-driven timer and clock. Returns the report (nil if it never finished).
-static NSDictionary *RunAutotab(GHFakeAutotabSubject *subject, GHFakeTabPoster *poster, NSInteger count, void (^configure)(GHAutotabRunner *)) {
+static NSDictionary *RunAutotab(SBFakeAutotabSubject *subject, SBFakeTabPoster *poster, NSInteger count, void (^configure)(SBAutotabRunner *)) {
     poster.subject = subject;
-    GHAutotabRunner *runner = [[GHAutotabRunner alloc] initWithSubject:subject poster:poster];
+    SBAutotabRunner *runner = [[SBAutotabRunner alloc] initWithSubject:subject poster:poster];
     NSMutableArray<dispatch_block_t> *timers = [NSMutableArray array];
     __block NSTimeInterval now = 1000;
     runner.after = ^(NSTimeInterval delay, dispatch_block_t block) { now += delay; [timers addObject:[block copy]]; };
@@ -79,12 +79,12 @@ static NSDictionary *RunAutotab(GHFakeAutotabSubject *subject, GHFakeTabPoster *
     return report;
 }
 
-static NSDictionary *Ghost(NSString *label, BOOL locked) {
+static NSDictionary *Shabang(NSString *label, BOOL locked) {
     return @{ @"label": label, @"action": locked ? @"click" : @"fill", @"locked": @(locked) };
 }
 
-static GHFakeAutotabSubject *Subject(NSArray<NSDictionary *> *ghosts) {
-    GHFakeAutotabSubject *subject = [[GHFakeAutotabSubject alloc] init];
+static SBFakeAutotabSubject *Subject(NSArray<NSDictionary *> *ghosts) {
+    SBFakeAutotabSubject *subject = [[SBFakeAutotabSubject alloc] init];
     subject.ghosts = ghosts;
     subject.active = YES;
     return subject;
@@ -96,22 +96,22 @@ static GHFakeAutotabSubject *Subject(NSArray<NSDictionary *> *ghosts) {
 static NSString *HOut(NSString *name) {
     static NSString *directory;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ directory = GHTestTempDirectory(); });
+    dispatch_once(&once, ^{ directory = SBTestTempDirectory(); });
     return [directory stringByAppendingPathComponent:name];
 }
 
 GH_TEST(harness_request_is_nil_without_a_harness_flag) {
     NSString *error = @"untouched";
-    GH_ASSERT([GHHarnessRequest requestWithArguments:@[ @"/path/Ghost", @"-NSDocumentRevisionsDebugMode", @"YES" ] error:&error] == nil);
+    GH_ASSERT([SBHarnessRequest requestWithArguments:@[ @"/path/Shabang", @"-NSDocumentRevisionsDebugMode", @"YES" ] error:&error] == nil);
     GH_ASSERT(error == nil);
 }
 
 GH_TEST(harness_request_parses_autotab_with_every_option) {
     NSString *error;
-    GHHarnessRequest *request = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--autotab", @"12", @"--interval", @"300", @"--delay", @"1.5",
+    SBHarnessRequest *request = [SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--autotab", @"12", @"--interval", @"300", @"--delay", @"1.5",
                                                                            @"--frontmost", @"Safari", @"--out", HOut(@"a.json") ] error:&error];
     GH_ASSERT_MSG(request != nil, @"%@", error);
-    GH_ASSERT_EQUAL_OBJECTS(request.mode, GHHarnessModeAutotab);
+    GH_ASSERT_EQUAL_OBJECTS(request.mode, SBHarnessModeAutotab);
     GH_ASSERT_EQUAL_INT(request.count, 12);
     GH_ASSERT_EQUAL_INT(request.intervalMs, 300);
     GH_ASSERT_NEAR(request.delay, 1.5, 0.0001);
@@ -122,37 +122,37 @@ GH_TEST(harness_request_parses_autotab_with_every_option) {
 }
 
 GH_TEST(harness_request_defaults) {
-    GHHarnessRequest *tree = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--dump-tree" ] error:NULL];
-    GH_ASSERT_EQUAL_OBJECTS(tree.mode, GHHarnessModeDumpTree);
-    GH_ASSERT_EQUAL_INT(tree.depth, GHHarnessDefaultDepth);
-    GH_ASSERT_EQUAL_INT(tree.intervalMs, GHHarnessDefaultIntervalMs);
+    SBHarnessRequest *tree = [SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--dump-tree" ] error:NULL];
+    GH_ASSERT_EQUAL_OBJECTS(tree.mode, SBHarnessModeDumpTree);
+    GH_ASSERT_EQUAL_INT(tree.depth, SBHarnessDefaultDepth);
+    GH_ASSERT_EQUAL_INT(tree.intervalMs, SBHarnessDefaultIntervalMs);
     GH_ASSERT_NEAR(tree.delay, 0, 0.0001);
     GH_ASSERT(tree.outPath == nil && tree.frontmost == nil);
-    GHHarnessRequest *trust = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--trust" ] error:NULL];
-    GHHarnessRequest *dump = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--dump" ] error:NULL];
-    GH_ASSERT_EQUAL_OBJECTS(trust.mode, GHHarnessModeTrust);
-    GH_ASSERT_EQUAL_OBJECTS(dump.mode, GHHarnessModeDump);
+    SBHarnessRequest *trust = [SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--trust" ] error:NULL];
+    SBHarnessRequest *dump = [SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--dump" ] error:NULL];
+    GH_ASSERT_EQUAL_OBJECTS(trust.mode, SBHarnessModeTrust);
+    GH_ASSERT_EQUAL_OBJECTS(dump.mode, SBHarnessModeDump);
 }
 
 GH_TEST(harness_next_is_a_read_only_mode) {
-    // --next asks what Ghost WOULD propose. It carries no count and no key: the harness can only ever post Tab,
+    // --next asks what Shabang WOULD propose. It carries no count and no key: the harness can only ever post Tab,
     // and this mode does not even do that.
     NSString *error = nil;
-    GHHarnessRequest *next = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--next", @"--frontmost", @"Safari" ] error:&error];
+    SBHarnessRequest *next = [SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--next", @"--frontmost", @"Safari" ] error:&error];
     GH_ASSERT(next != nil);
     GH_ASSERT(error == nil);
-    GH_ASSERT_EQUAL_OBJECTS(next.mode, GHHarnessModeNext);
+    GH_ASSERT_EQUAL_OBJECTS(next.mode, SBHarnessModeNext);
     GH_ASSERT_EQUAL_INT(next.count, 0);
     GH_ASSERT_EQUAL_OBJECTS(next.frontmost, @"Safari");
     // It pays for a capture plus the affordance walk, so its deadline is longer than a bare --trust.
-    GHHarnessRequest *trust = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--trust" ] error:NULL];
+    SBHarnessRequest *trust = [SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--trust" ] error:NULL];
     GH_ASSERT(next.deadline > trust.deadline);
     // It survives the round trip to a running agent unchanged.
-    GHHarnessRequest *again = [GHHarnessRequest requestWithData:next.data error:NULL];
-    GH_ASSERT_EQUAL_OBJECTS(again.mode, GHHarnessModeNext);
+    SBHarnessRequest *again = [SBHarnessRequest requestWithData:next.data error:NULL];
+    GH_ASSERT_EQUAL_OBJECTS(again.mode, SBHarnessModeNext);
     GH_ASSERT_EQUAL_OBJECTS(again.frontmost, @"Safari");
     // And it is still one mode at a time.
-    GH_ASSERT([GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--next", @"--dump" ] error:NULL] == nil);
+    GH_ASSERT([SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--next", @"--dump" ] error:NULL] == nil);
 }
 
 GH_TEST(harness_request_rejects_malformed_invocations) {
@@ -169,36 +169,36 @@ GH_TEST(harness_request_rejects_malformed_invocations) {
     ];
     for (NSArray<NSString *> *arguments in bad) {
         NSString *error = nil;
-        GHHarnessRequest *request = [GHHarnessRequest requestWithArguments:[@[ @"Ghost" ] arrayByAddingObjectsFromArray:arguments] error:&error];
+        SBHarnessRequest *request = [SBHarnessRequest requestWithArguments:[@[ @"Shabang" ] arrayByAddingObjectsFromArray:arguments] error:&error];
         GH_ASSERT_MSG(request == nil && error.length > 0, @"%@ should be rejected", [arguments componentsJoinedByString:@" "]);
     }
 }
 
 GH_TEST(harness_out_path_survives_a_malformed_invocation) {
-    GH_ASSERT_EQUAL_OBJECTS([GHHarnessRequest outPathInArguments:(@[ @"Ghost", @"--autotab", @"999", @"--out", HOut(@"e.json") ])], HOut(@"e.json"));
-    GH_ASSERT([GHHarnessRequest outPathInArguments:(@[ @"Ghost", @"--dump", @"--out", @"relative.json" ])] == nil);
-    GH_ASSERT([GHHarnessRequest outPathInArguments:(@[ @"Ghost", @"--dump", @"--out" ])] == nil);
+    GH_ASSERT_EQUAL_OBJECTS([SBHarnessRequest outPathInArguments:(@[ @"Shabang", @"--autotab", @"999", @"--out", HOut(@"e.json") ])], HOut(@"e.json"));
+    GH_ASSERT([SBHarnessRequest outPathInArguments:(@[ @"Shabang", @"--dump", @"--out", @"relative.json" ])] == nil);
+    GH_ASSERT([SBHarnessRequest outPathInArguments:(@[ @"Shabang", @"--dump", @"--out" ])] == nil);
 }
 
 #pragma mark - encoding
 
 GH_TEST(harness_request_round_trips_through_json) {
-    GHHarnessRequest *request = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--autotab", @"7", @"--interval", @"250", @"--delay", @"2",
+    SBHarnessRequest *request = [SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--autotab", @"7", @"--interval", @"250", @"--delay", @"2",
                                                                            @"--frontmost", @"com.apple.Safari", @"--out", HOut(@"r.json") ] error:NULL];
     NSString *error;
-    GHHarnessRequest *copy = [GHHarnessRequest requestWithData:[request data] error:&error];
+    SBHarnessRequest *copy = [SBHarnessRequest requestWithData:[request data] error:&error];
     GH_ASSERT_MSG(copy != nil, @"%@", error);
     GH_ASSERT_EQUAL_OBJECTS([copy dictionary], [request dictionary]);
     GH_ASSERT_EQUAL_OBJECTS(copy.identifier, request.identifier);
     GH_ASSERT_EQUAL_INT(copy.count, 7);
     // Only what the mode needs travels: a dump carries no count.
-    GHHarnessRequest *dump = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--dump" ] error:NULL];
+    SBHarnessRequest *dump = [SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--dump" ] error:NULL];
     GH_ASSERT([dump dictionary][@"count"] == nil && [dump dictionary][@"out"] == nil);
 }
 
 GH_TEST(harness_request_file_is_validated_like_argv) {
     NSDictionary *good = @{ @"id": @"abc-123", @"mode": @"autotab", @"count": @3 };
-    GH_ASSERT([GHHarnessRequest requestWithDictionary:good error:NULL] != nil);
+    GH_ASSERT([SBHarnessRequest requestWithDictionary:good error:NULL] != nil);
     NSArray<NSDictionary *> *bad = @[
         @{ @"id": @"../../etc/x", @"mode": @"dump" },              // the id becomes a file name
         @{ @"id": @"", @"mode": @"dump" }, @{ @"mode": @"dump" },
@@ -212,32 +212,32 @@ GH_TEST(harness_request_file_is_validated_like_argv) {
     ];
     for (NSDictionary *dictionary in bad) {
         NSString *error = nil;
-        GH_ASSERT_MSG([GHHarnessRequest requestWithDictionary:dictionary error:&error] == nil && error.length > 0, @"%@ should be rejected", dictionary);
+        GH_ASSERT_MSG([SBHarnessRequest requestWithDictionary:dictionary error:&error] == nil && error.length > 0, @"%@ should be rejected", dictionary);
     }
-    GH_ASSERT([GHHarnessRequest requestWithData:[@"not json" dataUsingEncoding:NSUTF8StringEncoding] error:NULL] == nil);
-    GH_ASSERT([GHHarnessRequest requestWithData:nil error:NULL] == nil);
-    GH_ASSERT([GHHarnessRequest requestWithDictionary:(id)@[ @"array" ] error:NULL] == nil);
+    GH_ASSERT([SBHarnessRequest requestWithData:[@"not json" dataUsingEncoding:NSUTF8StringEncoding] error:NULL] == nil);
+    GH_ASSERT([SBHarnessRequest requestWithData:nil error:NULL] == nil);
+    GH_ASSERT([SBHarnessRequest requestWithDictionary:(id)@[ @"array" ] error:NULL] == nil);
 }
 
 GH_TEST(harness_response_encoding) {
-    GH_ASSERT_EQUAL_OBJECTS(GHHarnessNotTrustedResponse(), (@{ @"error": @"not trusted", @"trusted": @NO }));
-    GH_ASSERT_EQUAL_OBJECTS(GHHarnessErrorResponse(@"timeout", nil), (@{ @"error": @"timeout" }));
-    GH_ASSERT_EQUAL_OBJECTS(GHHarnessErrorResponse(@"no-window", @"AXError -25204"), (@{ @"error": @"no-window", @"detail": @"AXError -25204" }));
-    NSString *text = [[NSString alloc] initWithData:GHHarnessEncodeResponse(GHHarnessNotTrustedResponse()) encoding:NSUTF8StringEncoding];
+    GH_ASSERT_EQUAL_OBJECTS(SBHarnessNotTrustedResponse(), (@{ @"error": @"not trusted", @"trusted": @NO }));
+    GH_ASSERT_EQUAL_OBJECTS(SBHarnessErrorResponse(@"timeout", nil), (@{ @"error": @"timeout" }));
+    GH_ASSERT_EQUAL_OBJECTS(SBHarnessErrorResponse(@"no-window", @"AXError -25204"), (@{ @"error": @"no-window", @"detail": @"AXError -25204" }));
+    NSString *text = [[NSString alloc] initWithData:SBHarnessEncodeResponse(SBHarnessNotTrustedResponse()) encoding:NSUTF8StringEncoding];
     // shabangctl decides its exit status on this exact shape: a top-level "error" key, two spaces in.
     GH_ASSERT([text containsString:@"\n  \"error\" : \"not trusted\""]);
     GH_ASSERT([text hasSuffix:@"}\n"]);
-    GH_ASSERT_EQUAL_OBJECTS([NSJSONSerialization JSONObjectWithData:[text dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL], GHHarnessNotTrustedResponse());
+    GH_ASSERT_EQUAL_OBJECTS([NSJSONSerialization JSONObjectWithData:[text dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL], SBHarnessNotTrustedResponse());
     // Something that is not JSON must not crash the agent.
-    NSDictionary *decoded = [NSJSONSerialization JSONObjectWithData:GHHarnessEncodeResponse(@{ @"when": NSDate.date }) options:0 error:NULL];
+    NSDictionary *decoded = [NSJSONSerialization JSONObjectWithData:SBHarnessEncodeResponse(@{ @"when": NSDate.date }) options:0 error:NULL];
     GH_ASSERT_EQUAL_OBJECTS(decoded[@"error"], @"encoding-failed");
 }
 
 GH_TEST(harness_response_is_written_whole_and_private) {
-    NSString *directory = GHTestTempDirectory();
+    NSString *directory = SBTestTempDirectory();
     NSString *path = [directory stringByAppendingPathComponent:@"out.json"];
     [@"old answer" writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    GH_ASSERT(GHHarnessWriteResponse(@{ @"trusted": @YES, @"fields": @[] }, path));
+    GH_ASSERT(SBHarnessWriteResponse(@{ @"trusted": @YES, @"fields": @[] }, path));
     NSDictionary *read = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:path] options:0 error:NULL];
     GH_ASSERT_EQUAL_OBJECTS(read, (@{ @"trusted": @YES, @"fields": @[] }));
     NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:NULL];
@@ -246,68 +246,68 @@ GH_TEST(harness_response_is_written_whole_and_private) {
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:directory error:NULL]) GH_ASSERT_FALSE([name hasPrefix:@".ghost-answer"]);
     // It never creates directories.
     NSString *deep = [[directory stringByAppendingPathComponent:@"deep/er"] stringByAppendingPathComponent:@"out.json"];
-    GH_ASSERT_FALSE(GHHarnessWriteResponse(@{ @"trusted": @YES }, deep));
+    GH_ASSERT_FALSE(SBHarnessWriteResponse(@{ @"trusted": @YES }, deep));
     GH_ASSERT_FALSE([NSFileManager.defaultManager fileExistsAtPath:[directory stringByAppendingPathComponent:@"deep"]]);
 }
 
 GH_TEST(harness_out_never_deletes_or_follows_anything_but_a_plain_answer_file) {
-    NSString *directory = GHTestTempDirectory();
+    NSString *directory = SBTestTempDirectory();
     // A directory named like an answer (a typo, or a hostile request): refused, never removed, never recursed into.
     NSString *folder = [directory stringByAppendingPathComponent:@"Projects.json"];
     [NSFileManager.defaultManager createDirectoryAtPath:[folder stringByAppendingPathComponent:@"src"] withIntermediateDirectories:YES attributes:nil error:NULL];
     [@"precious" writeToFile:[folder stringByAppendingPathComponent:@"src/main.m"] atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    GH_ASSERT(GHHarnessProblemWithOutPath(folder) != nil);
-    GH_ASSERT_FALSE(GHHarnessRemoveOldAnswer(folder));
-    GH_ASSERT_FALSE(GHHarnessWriteResponse(@{ @"trusted": @YES }, folder));
+    GH_ASSERT(SBHarnessProblemWithOutPath(folder) != nil);
+    GH_ASSERT_FALSE(SBHarnessRemoveOldAnswer(folder));
+    GH_ASSERT_FALSE(SBHarnessWriteResponse(@{ @"trusted": @YES }, folder));
     GH_ASSERT([[NSString stringWithContentsOfFile:[folder stringByAppendingPathComponent:@"src/main.m"] encoding:NSUTF8StringEncoding error:NULL] isEqualToString:@"precious"]);
     NSString *error = nil;
-    GH_ASSERT([GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--trust", @"--out", folder ] error:&error] == nil);
+    GH_ASSERT([SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--trust", @"--out", folder ] error:&error] == nil);
     GH_ASSERT(error.length > 0);
     // A link: never followed, never removed through.
     NSString *target = [directory stringByAppendingPathComponent:@"target.txt"];
     [@"keep" writeToFile:target atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     NSString *link = [directory stringByAppendingPathComponent:@"link.json"];
     [NSFileManager.defaultManager createSymbolicLinkAtPath:link withDestinationPath:target error:NULL];
-    GH_ASSERT(GHHarnessProblemWithOutPath(link) != nil);
-    GH_ASSERT_FALSE(GHHarnessRemoveOldAnswer(link));
+    GH_ASSERT(SBHarnessProblemWithOutPath(link) != nil);
+    GH_ASSERT_FALSE(SBHarnessRemoveOldAnswer(link));
     GH_ASSERT([[NSString stringWithContentsOfFile:target encoding:NSUTF8StringEncoding error:NULL] isEqualToString:@"keep"]);
     // Not a .json name, a relative path, "..", a directory that does not exist or is not the user's: refused.
     for (NSString *bad in @[ [directory stringByAppendingPathComponent:@"answer.txt"], @"answer.json",
                              [directory stringByAppendingPathComponent:@"../x.json"], [directory stringByAppendingPathComponent:@"missing/x.json"],
                              @"/private/tmp/ghost-shared.json", @"/tmp/ghost-shared.json" ]) {
-        GH_ASSERT_MSG(GHHarnessProblemWithOutPath(bad) != nil, @"%@ should be refused", bad);
+        GH_ASSERT_MSG(SBHarnessProblemWithOutPath(bad) != nil, @"%@ should be refused", bad);
     }
     // A plain old answer is replaced.
     NSString *answer = [directory stringByAppendingPathComponent:@"answer.json"];
     [@"old" writeToFile:answer atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    GH_ASSERT(GHHarnessProblemWithOutPath(answer) == nil);
-    GH_ASSERT(GHHarnessRemoveOldAnswer(answer));
+    GH_ASSERT(SBHarnessProblemWithOutPath(answer) == nil);
+    GH_ASSERT(SBHarnessRemoveOldAnswer(answer));
     GH_ASSERT_FALSE([NSFileManager.defaultManager fileExistsAtPath:answer]);
-    GH_ASSERT(GHHarnessRemoveOldAnswer(answer));                          // nothing there is fine too
+    GH_ASSERT(SBHarnessRemoveOldAnswer(answer));                          // nothing there is fine too
 }
 
 #pragma mark - untrusted
 
 GH_TEST(harness_untrusted_answers_at_once_in_every_mode) {
-    [GHHarness setTrustProbe:^BOOL { return NO; }];
+    [SBHarness setTrustProbe:^BOOL { return NO; }];
     for (NSArray<NSString *> *arguments in @[ @[ @"--dump", @"--delay", @"30" ], @[ @"--dump-tree", @"--frontmost", @"Safari" ], @[ @"--autotab", @"5" ] ]) {
-        GHHarnessRequest *request = [GHHarnessRequest requestWithArguments:[@[ @"Ghost" ] arrayByAddingObjectsFromArray:arguments] error:NULL];
+        SBHarnessRequest *request = [SBHarnessRequest requestWithArguments:[@[ @"Shabang" ] arrayByAddingObjectsFromArray:arguments] error:NULL];
         __block NSDictionary *response = nil;
-        [GHHarness performRequest:request controller:nil completion:^(NSDictionary<NSString *, id> *answer) { response = answer; }];
+        [SBHarness performRequest:request controller:nil completion:^(NSDictionary<NSString *, id> *answer) { response = answer; }];
         // Synchronously: no delay is waited out, no app is brought forward, nothing is posted.
-        if (![response isEqual:GHHarnessNotTrustedResponse()]) { [GHHarness setTrustProbe:nil]; GH_FAIL(@"%@ answered %@", request.mode, response); }
+        if (![response isEqual:SBHarnessNotTrustedResponse()]) { [SBHarness setTrustProbe:nil]; GH_FAIL(@"%@ answered %@", request.mode, response); }
     }
-    NSDictionary *trust = [GHHarness trustResponse];
-    [GHHarness setTrustProbe:nil];
+    NSDictionary *trust = [SBHarness trustResponse];
+    [SBHarness setTrustProbe:nil];
     GH_ASSERT_EQUAL_OBJECTS(trust[@"trusted"], @NO);
     GH_ASSERT_EQUAL_OBJECTS(trust[@"error"], @"not trusted");
     GH_ASSERT([trust[@"pid"] intValue] == getpid());
 }
 
 GH_TEST(harness_trusted_trust_response_has_no_error) {
-    [GHHarness setTrustProbe:^BOOL { return YES; }];
-    NSDictionary *trust = [GHHarness trustResponse];
-    [GHHarness setTrustProbe:nil];
+    [SBHarness setTrustProbe:^BOOL { return YES; }];
+    NSDictionary *trust = [SBHarness trustResponse];
+    [SBHarness setTrustProbe:nil];
     GH_ASSERT_EQUAL_OBJECTS(trust[@"trusted"], @YES);
     GH_ASSERT(trust[@"error"] == nil);
     GH_ASSERT([trust[@"library"] length] > 0);
@@ -315,17 +315,17 @@ GH_TEST(harness_trusted_trust_response_has_no_error) {
 
 #pragma mark - channel
 
-static GHHarnessRequest *DumpRequest(void) {
-    return [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--dump", @"--out", HOut(@"ghost-test-out.json") ] error:NULL];
+static SBHarnessRequest *DumpRequest(void) {
+    return [SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--dump", @"--out", HOut(@"ghost-test-out.json") ] error:NULL];
 }
 
 GH_TEST(harness_channel_send_claim_once) {
-    GHHarnessChannel *channel = [[GHHarnessChannel alloc] initWithDirectory:GHTestTempDirectory()];
-    GHHarnessRequest *request = DumpRequest();
+    SBHarnessChannel *channel = [[SBHarnessChannel alloc] initWithDirectory:SBTestTempDirectory()];
+    SBHarnessRequest *request = DumpRequest();
     GH_ASSERT_FALSE([channel requestIsPending:request.identifier]);
     GH_ASSERT([channel sendRequest:request]);
     GH_ASSERT([channel requestIsPending:request.identifier]);
-    NSArray<GHHarnessRequest *> *claimed = [channel claimPendingRequests];
+    NSArray<SBHarnessRequest *> *claimed = [channel claimPendingRequests];
     GH_ASSERT_EQUAL_INT(claimed.count, 1);
     GH_ASSERT_EQUAL_OBJECTS([claimed.firstObject dictionary], [request dictionary]);
     GH_ASSERT_FALSE([channel requestIsPending:request.identifier]);      // claimed = gone
@@ -333,15 +333,15 @@ GH_TEST(harness_channel_send_claim_once) {
 }
 
 GH_TEST(harness_channel_withdraw) {
-    GHHarnessChannel *channel = [[GHHarnessChannel alloc] initWithDirectory:GHTestTempDirectory()];
-    GHHarnessRequest *request = DumpRequest();
+    SBHarnessChannel *channel = [[SBHarnessChannel alloc] initWithDirectory:SBTestTempDirectory()];
+    SBHarnessRequest *request = DumpRequest();
     [channel sendRequest:request];
     [channel withdrawRequest:request.identifier];
     GH_ASSERT_EQUAL_INT([channel claimPendingRequests].count, 0);
 }
 
 GH_TEST(harness_channel_drops_malformed_stale_and_misnamed_requests) {
-    GHHarnessChannel *channel = [[GHHarnessChannel alloc] initWithDirectory:GHTestTempDirectory()];
+    SBHarnessChannel *channel = [[SBHarnessChannel alloc] initWithDirectory:SBTestTempDirectory()];
     NSString *requests = channel.requestsDirectory;
     [@"{ not json" writeToFile:[requests stringByAppendingPathComponent:@"junk.json"] atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     NSData *stale = [NSJSONSerialization dataWithJSONObject:@{ @"id": @"old", @"mode": @"autotab", @"count": @50, @"createdAt": @(NSDate.date.timeIntervalSince1970 - 3600) } options:0 error:NULL];
@@ -349,10 +349,10 @@ GH_TEST(harness_channel_drops_malformed_stale_and_misnamed_requests) {
     NSData *misnamed = [NSJSONSerialization dataWithJSONObject:@{ @"id": @"someone-else", @"mode": @"dump" } options:0 error:NULL];
     [misnamed writeToFile:[requests stringByAppendingPathComponent:@"mine.json"] atomically:YES];
     [@"ignored" writeToFile:[requests stringByAppendingPathComponent:@"notes.txt"] atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    GHHarnessRequest *good = DumpRequest();
+    SBHarnessRequest *good = DumpRequest();
     [channel sendRequest:good];
 
-    NSArray<GHHarnessRequest *> *claimed = [channel claimPendingRequests];
+    NSArray<SBHarnessRequest *> *claimed = [channel claimPendingRequests];
     GH_ASSERT_EQUAL_INT(claimed.count, 1);
     GH_ASSERT_EQUAL_OBJECTS(claimed.firstObject.identifier, good.identifier);
     // An hour-old autotab must never start pressing keys now; the bad files are gone rather than re-read forever.
@@ -361,9 +361,9 @@ GH_TEST(harness_channel_drops_malformed_stale_and_misnamed_requests) {
 }
 
 GH_TEST(harness_channel_agent_lock) {
-    NSString *directory = GHTestTempDirectory();
-    GHHarnessChannel *agent = [[GHHarnessChannel alloc] initWithDirectory:directory];
-    GHHarnessChannel *launched = [[GHHarnessChannel alloc] initWithDirectory:directory];
+    NSString *directory = SBTestTempDirectory();
+    SBHarnessChannel *agent = [[SBHarnessChannel alloc] initWithDirectory:directory];
+    SBHarnessChannel *launched = [[SBHarnessChannel alloc] initWithDirectory:directory];
     GH_ASSERT_FALSE([launched agentIsRunning]);
     GH_ASSERT([agent acquireAgentLock]);
     GH_ASSERT([agent acquireAgentLock]);                 // idempotent
@@ -378,18 +378,18 @@ GH_TEST(harness_channel_agent_lock) {
 #pragma mark - server
 
 GH_TEST(harness_server_runs_one_request_at_a_time_and_writes_out) {
-    NSString *directory = GHTestTempDirectory();
-    GHHarnessChannel *channel = [[GHHarnessChannel alloc] initWithDirectory:directory];
-    GHHarnessServer *server = [[GHHarnessServer alloc] initWithChannel:channel controller:^GHController *{ return nil; }];
+    NSString *directory = SBTestTempDirectory();
+    SBHarnessChannel *channel = [[SBHarnessChannel alloc] initWithDirectory:directory];
+    SBHarnessServer *server = [[SBHarnessServer alloc] initWithChannel:channel controller:^SBController *{ return nil; }];
     NSMutableArray<NSString *> *started = [NSMutableArray array];
     NSMutableArray<void (^)(NSDictionary *)> *completions = [NSMutableArray array];
-    server.perform = ^(GHHarnessRequest *request, void (^completion)(NSDictionary<NSString *, id> *)) {
+    server.perform = ^(SBHarnessRequest *request, void (^completion)(NSDictionary<NSString *, id> *)) {
         [started addObject:request.mode];
         [completions addObject:[completion copy]];
     };
     NSString *firstOut = [directory stringByAppendingPathComponent:@"first.json"], *secondOut = [directory stringByAppendingPathComponent:@"second.json"];
-    GHHarnessRequest *first = [GHHarnessRequest requestWithDictionary:@{ @"id": @"first", @"mode": @"autotab", @"count": @2, @"out": firstOut, @"createdAt": @(NSDate.date.timeIntervalSince1970 - 1) } error:NULL];
-    GHHarnessRequest *second = [GHHarnessRequest requestWithDictionary:@{ @"id": @"second", @"mode": @"dump", @"out": secondOut } error:NULL];
+    SBHarnessRequest *first = [SBHarnessRequest requestWithDictionary:@{ @"id": @"first", @"mode": @"autotab", @"count": @2, @"out": firstOut, @"createdAt": @(NSDate.date.timeIntervalSince1970 - 1) } error:NULL];
+    SBHarnessRequest *second = [SBHarnessRequest requestWithDictionary:@{ @"id": @"second", @"mode": @"dump", @"out": secondOut } error:NULL];
     [channel sendRequest:first];
     [channel sendRequest:second];
 
@@ -398,7 +398,7 @@ GH_TEST(harness_server_runs_one_request_at_a_time_and_writes_out) {
     GH_ASSERT_FALSE([NSFileManager.defaultManager fileExistsAtPath:firstOut]);
     completions[0](@{ @"stopped": @"locked", @"posted": @2 });
     GH_ASSERT_EQUAL_OBJECTS(started, (@[ @"autotab", @"dump" ]));
-    completions[1](GHHarnessNotTrustedResponse());
+    completions[1](SBHarnessNotTrustedResponse());
     GH_ASSERT_EQUAL_INT(server.servedCount, 2);
 
     NSDictionary *a = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:firstOut] options:0 error:NULL];
@@ -411,10 +411,10 @@ GH_TEST(harness_server_runs_one_request_at_a_time_and_writes_out) {
 }
 
 GH_TEST(harness_server_answers_into_the_channel_without_out) {
-    GHHarnessChannel *channel = [[GHHarnessChannel alloc] initWithDirectory:GHTestTempDirectory()];
-    GHHarnessServer *server = [[GHHarnessServer alloc] initWithChannel:channel controller:^GHController *{ return nil; }];
-    server.perform = ^(GHHarnessRequest *request, void (^completion)(NSDictionary<NSString *, id> *)) { completion(@{ @"trusted": @YES }); };
-    GHHarnessRequest *request = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--dump" ] error:NULL];
+    SBHarnessChannel *channel = [[SBHarnessChannel alloc] initWithDirectory:SBTestTempDirectory()];
+    SBHarnessServer *server = [[SBHarnessServer alloc] initWithChannel:channel controller:^SBController *{ return nil; }];
+    server.perform = ^(SBHarnessRequest *request, void (^completion)(NSDictionary<NSString *, id> *)) { completion(@{ @"trusted": @YES }); };
+    SBHarnessRequest *request = [SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--dump" ] error:NULL];
     [channel sendRequest:request];
     [server drain];
     NSData *data = [NSData dataWithContentsOfFile:[channel responsePathForIdentifier:request.identifier]];
@@ -424,7 +424,7 @@ GH_TEST(harness_server_answers_into_the_channel_without_out) {
 #pragma mark - --dump-tree redaction
 
 static NSString *TreeJSON(NSDictionary *tree) {
-    return [[NSString alloc] initWithData:GHHarnessEncodeResponse(tree) encoding:NSUTF8StringEncoding];
+    return [[NSString alloc] initWithData:SBHarnessEncodeResponse(tree) encoding:NSUTF8StringEncoding];
 }
 
 static NSDictionary *ChildWithRole(NSDictionary *tree, NSString *role, NSString *title) {
@@ -435,24 +435,24 @@ static NSDictionary *ChildWithRole(NSDictionary *tree, NSString *role, NSString 
 }
 
 GH_TEST(harness_tree_reduces_values_to_their_length) {
-    GHFakeAXNode *window = [GHFakeAXNode nodeWithRole:@"AXWindow" title:@"Apply" frame:CGRectMake(0, 0, 800, 600)];
-    GHFakeAXNode *name = [window addChild:[GHFakeAXNode nodeWithRole:@"AXTextField" title:@"First name" frame:CGRectMake(40, 40, 300, 28)]];
+    SBFakeAXNode *window = [SBFakeAXNode nodeWithRole:@"AXWindow" title:@"Apply" frame:CGRectMake(0, 0, 800, 600)];
+    SBFakeAXNode *name = [window addChild:[SBFakeAXNode nodeWithRole:@"AXTextField" title:@"First name" frame:CGRectMake(40, 40, 300, 28)]];
     name.value = @"Alexandria-Typed-Value";
     name.placeholder = @"Your first name";
     name.identifier = @"first_name";
     name.domClassList = @[ @"input", @"input--text" ];
     name.required = YES;
     name.isFocused = YES;
-    GHFakeAXNode *essay = [window addChild:[GHFakeAXNode nodeWithRole:@"AXTextArea" title:@"Why us?" frame:CGRectMake(40, 80, 300, 90)]];
+    SBFakeAXNode *essay = [window addChild:[SBFakeAXNode nodeWithRole:@"AXTextArea" title:@"Why us?" frame:CGRectMake(40, 80, 300, 90)]];
     essay.value = @"A long private answer nobody should see in a dump file.";
-    GHFakeAXNode *checkbox = [window addChild:[GHFakeAXNode nodeWithRole:@"AXCheckBox" title:@"Remote" frame:CGRectMake(40, 180, 20, 20)]];
+    SBFakeAXNode *checkbox = [window addChild:[SBFakeAXNode nodeWithRole:@"AXCheckBox" title:@"Remote" frame:CGRectMake(40, 180, 20, 20)]];
     checkbox.value = @"1";
-    [window addChild:[GHFakeAXNode staticText:@"Tell us about yourself" frame:CGRectMake(40, 10, 300, 20)]];
+    [window addChild:[SBFakeAXNode staticText:@"Tell us about yourself" frame:CGRectMake(40, 10, 300, 20)]];
 
     NSUInteger visited = 0;
     BOOL truncated = YES;
-    NSDictionary *tree = [GHHarnessTree treeFromNode:window maxDepth:60 maxNodes:GHHarnessMaxTreeNodes
-                                             actions:^NSArray<NSString *> *(id<GHAXNode> node) { return [node.role isEqualToString:@"AXCheckBox"] ? @[ @"AXPress" ] : nil; }
+    NSDictionary *tree = [SBHarnessTree treeFromNode:window maxDepth:60 maxNodes:SBHarnessMaxTreeNodes
+                                             actions:^NSArray<NSString *> *(id<SBAXNode> node) { return [node.role isEqualToString:@"AXCheckBox"] ? @[ @"AXPress" ] : nil; }
                                              visited:&visited truncated:&truncated];
     GH_ASSERT_EQUAL_INT(visited, 5);
     GH_ASSERT_FALSE(truncated);
@@ -477,22 +477,22 @@ GH_TEST(harness_tree_reduces_values_to_their_length) {
 }
 
 GH_TEST(harness_tree_says_nothing_about_secure_and_sensitive_fields) {
-    GHFakeAXNode *window = [GHFakeAXNode nodeWithRole:@"AXWindow"];
-    GHFakeAXNode *password = [window addChild:[GHFakeAXNode nodeWithRole:@"AXSecureTextField" title:@"Password" frame:CGRectMake(0, 0, 200, 28)]];
+    SBFakeAXNode *window = [SBFakeAXNode nodeWithRole:@"AXWindow"];
+    SBFakeAXNode *password = [window addChild:[SBFakeAXNode nodeWithRole:@"AXSecureTextField" title:@"Password" frame:CGRectMake(0, 0, 200, 28)]];
     password.value = @"hunter2-secret";
-    GHFakeAXNode *subroled = [window addChild:[GHFakeAXNode nodeWithRole:@"AXTextField" title:@"Login" frame:CGRectMake(0, 40, 200, 28)]];
+    SBFakeAXNode *subroled = [window addChild:[SBFakeAXNode nodeWithRole:@"AXTextField" title:@"Login" frame:CGRectMake(0, 40, 200, 28)]];
     subroled.subrole = @"AXSecureTextField";
     subroled.value = @"another-secret";
-    GHFakeAXNode *card = [window addChild:[GHFakeAXNode nodeWithRole:@"AXTextField" title:@"Card number" frame:CGRectMake(0, 80, 200, 28)]];
+    SBFakeAXNode *card = [window addChild:[SBFakeAXNode nodeWithRole:@"AXTextField" title:@"Card number" frame:CGRectMake(0, 80, 200, 28)]];
     card.value = @"4111111111111111";
-    GHFakeAXNode *sin = [window addChild:[GHFakeAXNode nodeWithRole:@"AXTextField" title:@"" frame:CGRectMake(0, 120, 200, 28)]];
+    SBFakeAXNode *sin = [window addChild:[SBFakeAXNode nodeWithRole:@"AXTextField" title:@"" frame:CGRectMake(0, 120, 200, 28)]];
     sin.placeholder = @"Social Insurance Number";
     sin.value = @"046454286";
-    GHFakeAXNode *labelled = [window addChild:[GHFakeAXNode nodeWithRole:@"AXTextField" title:@"" frame:CGRectMake(0, 160, 200, 28)]];
-    labelled.titleUIElement = [GHFakeAXNode staticText:@"Passport number" frame:CGRectMake(0, 150, 200, 10)];
+    SBFakeAXNode *labelled = [window addChild:[SBFakeAXNode nodeWithRole:@"AXTextField" title:@"" frame:CGRectMake(0, 160, 200, 28)]];
+    labelled.titleUIElement = [SBFakeAXNode staticText:@"Passport number" frame:CGRectMake(0, 150, 200, 10)];
     labelled.value = @"X1234567";
 
-    NSDictionary *tree = [GHHarnessTree treeFromNode:window maxDepth:60 maxNodes:100 actions:nil visited:NULL truncated:NULL];
+    NSDictionary *tree = [SBHarnessTree treeFromNode:window maxDepth:60 maxNodes:100 actions:nil visited:NULL truncated:NULL];
     NSArray<NSDictionary *> *children = tree[@"children"];
     GH_ASSERT_EQUAL_INT(children.count, 5);
     for (NSDictionary *child in children) {
@@ -512,29 +512,29 @@ GH_TEST(harness_tree_says_nothing_about_secure_and_sensitive_fields) {
 
 GH_TEST(harness_tree_never_writes_tab_window_or_document_titles_nor_input_inside_controls) {
     // Safari: window > split group > outer tab group (tab bar items + the page) > ... > web area.
-    GHFakeAXNode *window = [GHFakeAXNode nodeWithRole:@"AXWindow" title:@"Private tab title - Bank statement" frame:CGRectMake(0, 0, 900, 700)];
-    GHFakeAXNode *toolbar = [window addChild:[GHFakeAXNode nodeWithRole:@"AXToolbar"]];
-    GHFakeAXNode *address = [toolbar addChild:[GHFakeAXNode nodeWithRole:@"AXTextField" title:nil frame:CGRectZero]];
+    SBFakeAXNode *window = [SBFakeAXNode nodeWithRole:@"AXWindow" title:@"Private tab title - Bank statement" frame:CGRectMake(0, 0, 900, 700)];
+    SBFakeAXNode *toolbar = [window addChild:[SBFakeAXNode nodeWithRole:@"AXToolbar"]];
+    SBFakeAXNode *address = [toolbar addChild:[SBFakeAXNode nodeWithRole:@"AXTextField" title:nil frame:CGRectZero]];
     address.value = @"https://bank.example/statement";
-    GHFakeAXNode *split = [window addChild:[GHFakeAXNode nodeWithRole:@"AXSplitGroup"]];
-    GHFakeAXNode *tabs = [split addChild:[GHFakeAXNode nodeWithRole:@"AXTabGroup" title:@"Another private tab" frame:CGRectZero]];
-    GHFakeAXNode *otherTab = [tabs addChild:[GHFakeAXNode nodeWithRole:@"AXRadioButton" title:@"Medical results - Clinic" frame:CGRectZero]];
+    SBFakeAXNode *split = [window addChild:[SBFakeAXNode nodeWithRole:@"AXSplitGroup"]];
+    SBFakeAXNode *tabs = [split addChild:[SBFakeAXNode nodeWithRole:@"AXTabGroup" title:@"Another private tab" frame:CGRectZero]];
+    SBFakeAXNode *otherTab = [tabs addChild:[SBFakeAXNode nodeWithRole:@"AXRadioButton" title:@"Medical results - Clinic" frame:CGRectZero]];
     otherTab.subrole = @"AXTabButton";
-    [otherTab addChild:[GHFakeAXNode staticText:@"Medical results - Clinic" frame:CGRectZero]];
-    GHFakeAXNode *web = [[tabs addChild:[GHFakeAXNode nodeWithRole:@"AXGroup"]] addChild:[GHFakeAXNode nodeWithRole:@"AXWebArea"]];
+    [otherTab addChild:[SBFakeAXNode staticText:@"Medical results - Clinic" frame:CGRectZero]];
+    SBFakeAXNode *web = [[tabs addChild:[SBFakeAXNode nodeWithRole:@"AXGroup"]] addChild:[SBFakeAXNode nodeWithRole:@"AXWebArea"]];
     web.axDescription = @"Job Application for Robotics Intern at Acme";
     web.title = @"Job Application for Robotics Intern at Acme";
-    [web addChild:[GHFakeAXNode staticText:@"First Name" frame:CGRectZero]];
-    GHFakeAXNode *editor = [web addChild:[GHFakeAXNode nodeWithRole:@"AXTextArea" title:@"Cover letter" frame:CGRectZero]];
-    [editor addChild:[GHFakeAXNode staticText:@"Dear team, my private essay" frame:CGRectZero]];
-    GHFakeAXNode *chosen = [web addChild:[GHFakeAXNode nodeWithRole:@"AXGroup"]];
+    [web addChild:[SBFakeAXNode staticText:@"First Name" frame:CGRectZero]];
+    SBFakeAXNode *editor = [web addChild:[SBFakeAXNode nodeWithRole:@"AXTextArea" title:@"Cover letter" frame:CGRectZero]];
+    [editor addChild:[SBFakeAXNode staticText:@"Dear team, my private essay" frame:CGRectZero]];
+    SBFakeAXNode *chosen = [web addChild:[SBFakeAXNode nodeWithRole:@"AXGroup"]];
     chosen.domClassList = @[ @"select__single-value" ];
-    [chosen addChild:[GHFakeAXNode staticText:@"Female" frame:CGRectZero]];
+    [chosen addChild:[SBFakeAXNode staticText:@"Female" frame:CGRectZero]];
     // Inside the page the same roles are content: an ARIA tab list is walked.
-    GHFakeAXNode *pageTabs = [web addChild:[GHFakeAXNode nodeWithRole:@"AXToolbar"]];
-    [pageTabs addChild:[GHFakeAXNode nodeWithRole:@"AXButton" title:@"Bold" frame:CGRectZero]];
+    SBFakeAXNode *pageTabs = [web addChild:[SBFakeAXNode nodeWithRole:@"AXToolbar"]];
+    [pageTabs addChild:[SBFakeAXNode nodeWithRole:@"AXButton" title:@"Bold" frame:CGRectZero]];
 
-    NSDictionary *tree = [GHHarnessTree treeFromNode:window maxDepth:60 maxNodes:100 actions:nil visited:NULL truncated:NULL];
+    NSDictionary *tree = [SBHarnessTree treeFromNode:window maxDepth:60 maxNodes:100 actions:nil visited:NULL truncated:NULL];
     NSString *json = TreeJSON(tree);
     for (NSString *secret in @[ @"Bank statement", @"bank.example", @"Another private tab", @"Medical results", @"Job Application for",
                                 @"private essay", @"Female" ]) {
@@ -551,54 +551,54 @@ GH_TEST(harness_tree_never_writes_tab_window_or_document_titles_nor_input_inside
 }
 
 GH_TEST(harness_look_honours_the_users_own_pause_list) {
-    [GHHarness setPauseCheck:nil];
-    GH_ASSERT([GHHarness bundleIdentifierIsPaused:nil]);                       // unknown app: never looked at
-    GH_ASSERT([GHHarness bundleIdentifierIsPaused:@"com.1password.1password"] || [GHHarness bundleIdentifierIsPaused:@"com.agilebits.onepassword7"]);
+    [SBHarness setPauseCheck:nil];
+    GH_ASSERT([SBHarness bundleIdentifierIsPaused:nil]);                       // unknown app: never looked at
+    GH_ASSERT([SBHarness bundleIdentifierIsPaused:@"com.1password.1password"] || [SBHarness bundleIdentifierIsPaused:@"com.agilebits.onepassword7"]);
     __block NSString *asked = nil;
-    [GHHarness setPauseCheck:^BOOL(NSString *bundleId) { asked = bundleId; return [bundleId isEqualToString:@"com.apple.MobileSMS"]; }];
-    GH_ASSERT([GHHarness bundleIdentifierIsPaused:@"com.apple.MobileSMS"]);
+    [SBHarness setPauseCheck:^BOOL(NSString *bundleId) { asked = bundleId; return [bundleId isEqualToString:@"com.apple.MobileSMS"]; }];
+    GH_ASSERT([SBHarness bundleIdentifierIsPaused:@"com.apple.MobileSMS"]);
     GH_ASSERT_EQUAL_OBJECTS(asked, @"com.apple.MobileSMS");
-    GH_ASSERT_FALSE([GHHarness bundleIdentifierIsPaused:@"com.apple.Safari"]);
-    [GHHarness setPauseCheck:nil];
+    GH_ASSERT_FALSE([SBHarness bundleIdentifierIsPaused:@"com.apple.Safari"]);
+    [SBHarness setPauseCheck:nil];
 }
 
 GH_TEST(harness_tree_redacts_contact_data_and_cuts_long_text) {
-    GH_ASSERT_EQUAL_OBJECTS([GHHarnessTree safeText:@"  Submit\n application  "], @"Submit application");
-    GH_ASSERT([GHHarnessTree safeText:@""] == nil && [GHHarnessTree safeText:@" \n "] == nil && [GHHarnessTree safeText:nil] == nil);
-    GH_ASSERT_EQUAL_OBJECTS([GHHarnessTree safeText:@"Signed in as alex.chen@example.com"], @"[redacted:34]");
-    GH_ASSERT_EQUAL_OBJECTS([GHHarnessTree safeText:@"Call +1 (416) 555-0199"], @"[redacted:22]");
-    GH_ASSERT_EQUAL_OBJECTS([GHHarnessTree safeText:@"Step 2 of 5"], @"Step 2 of 5");
+    GH_ASSERT_EQUAL_OBJECTS([SBHarnessTree safeText:@"  Submit\n application  "], @"Submit application");
+    GH_ASSERT([SBHarnessTree safeText:@""] == nil && [SBHarnessTree safeText:@" \n "] == nil && [SBHarnessTree safeText:nil] == nil);
+    GH_ASSERT_EQUAL_OBJECTS([SBHarnessTree safeText:@"Signed in as alex.chen@example.com"], @"[redacted:34]");
+    GH_ASSERT_EQUAL_OBJECTS([SBHarnessTree safeText:@"Call +1 (416) 555-0199"], @"[redacted:22]");
+    GH_ASSERT_EQUAL_OBJECTS([SBHarnessTree safeText:@"Step 2 of 5"], @"Step 2 of 5");
     NSString *longText = [@"" stringByPaddingToLength:400 withString:@"lorem ipsum " startingAtIndex:0];
-    NSString *cut = [GHHarnessTree safeText:longText];
-    GH_ASSERT_EQUAL_INT(cut.length, GHHarnessMaxTextLength + 3);
+    NSString *cut = [SBHarnessTree safeText:longText];
+    GH_ASSERT_EQUAL_INT(cut.length, SBHarnessMaxTextLength + 3);
     GH_ASSERT([cut hasSuffix:@"..."]);
 
-    GHFakeAXNode *window = [GHFakeAXNode nodeWithRole:@"AXWindow" title:@"Inbox (alex.chen@example.com)" frame:CGRectZero];
-    [window addChild:[GHFakeAXNode staticText:@"Reach me at 416-555-0199" frame:CGRectZero]];
-    NSString *json = TreeJSON([GHHarnessTree treeFromNode:window maxDepth:5 maxNodes:10 actions:nil visited:NULL truncated:NULL]);
+    SBFakeAXNode *window = [SBFakeAXNode nodeWithRole:@"AXWindow" title:@"Inbox (alex.chen@example.com)" frame:CGRectZero];
+    [window addChild:[SBFakeAXNode staticText:@"Reach me at 416-555-0199" frame:CGRectZero]];
+    NSString *json = TreeJSON([SBHarnessTree treeFromNode:window maxDepth:5 maxNodes:10 actions:nil visited:NULL truncated:NULL]);
     GH_ASSERT_FALSE([json containsString:@"example.com"]);
     GH_ASSERT_FALSE([json containsString:@"555-0199"]);
 }
 
 GH_TEST(harness_tree_respects_depth_and_node_limits) {
-    GHFakeAXNode *root = [GHFakeAXNode nodeWithRole:@"AXWindow"];
-    GHFakeAXNode *level1 = [root addChild:[GHFakeAXNode nodeWithRole:@"AXGroup"]];
-    GHFakeAXNode *level2 = [level1 addChild:[GHFakeAXNode nodeWithRole:@"AXGroup"]];
-    [level2 addChild:[GHFakeAXNode nodeWithRole:@"AXButton"]];
-    [level2 addChild:[GHFakeAXNode nodeWithRole:@"AXButton"]];
+    SBFakeAXNode *root = [SBFakeAXNode nodeWithRole:@"AXWindow"];
+    SBFakeAXNode *level1 = [root addChild:[SBFakeAXNode nodeWithRole:@"AXGroup"]];
+    SBFakeAXNode *level2 = [level1 addChild:[SBFakeAXNode nodeWithRole:@"AXGroup"]];
+    [level2 addChild:[SBFakeAXNode nodeWithRole:@"AXButton"]];
+    [level2 addChild:[SBFakeAXNode nodeWithRole:@"AXButton"]];
 
     NSUInteger visited = 0;
     BOOL truncated = NO;
-    NSDictionary *shallow = [GHHarnessTree treeFromNode:root maxDepth:2 maxNodes:100 actions:nil visited:&visited truncated:&truncated];
+    NSDictionary *shallow = [SBHarnessTree treeFromNode:root maxDepth:2 maxNodes:100 actions:nil visited:&visited truncated:&truncated];
     GH_ASSERT_EQUAL_INT(visited, 3);
     GH_ASSERT(truncated);
     NSDictionary *deepest = [shallow[@"children"][0][@"children"] firstObject];
     GH_ASSERT_EQUAL_OBJECTS(deepest[@"childrenOmitted"], @2);
     GH_ASSERT(deepest[@"children"] == nil);
 
-    GHFakeAXNode *wide = [GHFakeAXNode nodeWithRole:@"AXWindow"];
-    for (int i = 0; i < 50; i++) [wide addChild:[GHFakeAXNode nodeWithRole:@"AXButton"]];
-    NSDictionary *capped = [GHHarnessTree treeFromNode:wide maxDepth:60 maxNodes:10 actions:nil visited:&visited truncated:&truncated];
+    SBFakeAXNode *wide = [SBFakeAXNode nodeWithRole:@"AXWindow"];
+    for (int i = 0; i < 50; i++) [wide addChild:[SBFakeAXNode nodeWithRole:@"AXButton"]];
+    NSDictionary *capped = [SBHarnessTree treeFromNode:wide maxDepth:60 maxNodes:10 actions:nil visited:&visited truncated:&truncated];
     GH_ASSERT_EQUAL_INT(visited, 10);
     GH_ASSERT(truncated);
     GH_ASSERT_EQUAL_INT([capped[@"children"] count], 9);
@@ -608,8 +608,8 @@ GH_TEST(harness_tree_respects_depth_and_node_limits) {
 #pragma mark - --autotab
 
 GH_TEST(harness_autotab_stops_at_the_lock_and_never_presses_it) {
-    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"First name", NO), Ghost(@"Email", NO), Ghost(@"Submit application", YES) ]);
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    SBFakeAutotabSubject *subject = Subject(@[ Shabang(@"First name", NO), Shabang(@"Email", NO), Shabang(@"Submit application", YES) ]);
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
     NSDictionary *report = RunAutotab(subject, poster, 30, nil);
     GH_ASSERT(report != nil);
     GH_ASSERT_EQUAL_OBJECTS(report[@"stopped"], @"locked");
@@ -633,8 +633,8 @@ GH_TEST(harness_autotab_stops_at_the_lock_and_never_presses_it) {
 }
 
 GH_TEST(harness_autotab_refuses_the_very_first_press_on_a_locked_ghost) {
-    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"Place order", YES) ]);
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    SBFakeAutotabSubject *subject = Subject(@[ Shabang(@"Place order", YES) ]);
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
     NSDictionary *report = RunAutotab(subject, poster, 5, nil);
     GH_ASSERT_EQUAL_OBJECTS(report[@"stopped"], @"locked");
     GH_ASSERT_EQUAL_OBJECTS(report[@"lockedLabel"], @"Place order");
@@ -644,16 +644,16 @@ GH_TEST(harness_autotab_refuses_the_very_first_press_on_a_locked_ghost) {
 
 GH_TEST(harness_autotab_lock_wins_over_the_count) {
     // Exactly as many presses as fields: the run still reports where it ended, parked at the lock.
-    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"City", NO), Ghost(@"Send", YES) ]);
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    SBFakeAutotabSubject *subject = Subject(@[ Shabang(@"City", NO), Shabang(@"Send", YES) ]);
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
     NSDictionary *report = RunAutotab(subject, poster, 1, nil);
     GH_ASSERT_EQUAL_OBJECTS(report[@"stopped"], @"locked");
     GH_ASSERT_EQUAL_INT(poster.posted, 1);
 }
 
 GH_TEST(harness_autotab_stops_after_count_presses) {
-    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"A", NO), Ghost(@"B", NO), Ghost(@"C", NO), Ghost(@"D", NO) ]);
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    SBFakeAutotabSubject *subject = Subject(@[ Shabang(@"A", NO), Shabang(@"B", NO), Shabang(@"C", NO), Shabang(@"D", NO) ]);
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
     NSDictionary *report = RunAutotab(subject, poster, 2, nil);
     GH_ASSERT_EQUAL_OBJECTS(report[@"stopped"], @"count");
     GH_ASSERT_EQUAL_INT(poster.posted, 2);
@@ -661,28 +661,28 @@ GH_TEST(harness_autotab_stops_after_count_presses) {
 }
 
 GH_TEST(harness_autotab_presses_nothing_when_ghost_is_inactive_or_has_no_ghost) {
-    GHFakeAutotabSubject *paused = Subject(@[ Ghost(@"A", NO) ]);
+    SBFakeAutotabSubject *paused = Subject(@[ Shabang(@"A", NO) ]);
     paused.active = NO;
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
     GH_ASSERT_EQUAL_OBJECTS(RunAutotab(paused, poster, 5, nil)[@"stopped"], @"inactive");
     GH_ASSERT_EQUAL_INT(poster.posted, 0);
 
-    GHFakeTabPoster *second = [[GHFakeTabPoster alloc] init];
+    SBFakeTabPoster *second = [[SBFakeTabPoster alloc] init];
     GH_ASSERT_EQUAL_OBJECTS(RunAutotab(Subject(@[]), second, 5, nil)[@"stopped"], @"no-ghost");
     GH_ASSERT_EQUAL_INT(second.posted, 0);
 
     // The walk runs out half way: the run ends there instead of tabbing on through the page.
-    GHFakeTabPoster *third = [[GHFakeTabPoster alloc] init];
-    NSDictionary *report = RunAutotab(Subject(@[ Ghost(@"Only", NO) ]), third, 9, nil);
+    SBFakeTabPoster *third = [[SBFakeTabPoster alloc] init];
+    NSDictionary *report = RunAutotab(Subject(@[ Shabang(@"Only", NO) ]), third, 9, nil);
     GH_ASSERT_EQUAL_OBJECTS(report[@"stopped"], @"no-ghost");
     GH_ASSERT_EQUAL_INT(third.posted, 1);
 }
 
 GH_TEST(harness_autotab_gives_up_when_ghost_stops_consuming) {
-    NSMutableDictionary *native = [Ghost(@"Elsewhere", NO) mutableCopy];
+    NSMutableDictionary *native = [Shabang(@"Elsewhere", NO) mutableCopy];
     native[@"consumes"] = @NO;
-    GHFakeAutotabSubject *subject = Subject(@[ native ]);
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    SBFakeAutotabSubject *subject = Subject(@[ native ]);
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
     NSDictionary *report = RunAutotab(subject, poster, 50, nil);
     GH_ASSERT_EQUAL_OBJECTS(report[@"stopped"], @"stalled");
     GH_ASSERT_EQUAL_INT(poster.posted, 3);
@@ -693,10 +693,10 @@ GH_TEST(harness_autotab_gives_up_when_ghost_stops_consuming) {
 }
 
 GH_TEST(harness_autotab_records_a_failed_write_as_unverified) {
-    NSMutableDictionary *stubborn = [Ghost(@"Phone", NO) mutableCopy];
+    NSMutableDictionary *stubborn = [Shabang(@"Phone", NO) mutableCopy];
     stubborn[@"outcome"] = @"failed";
-    GHFakeAutotabSubject *subject = Subject(@[ stubborn ]);
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    SBFakeAutotabSubject *subject = Subject(@[ stubborn ]);
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
     NSDictionary *report = RunAutotab(subject, poster, 1, nil);
     NSDictionary *step = [report[@"steps"] firstObject];
     GH_ASSERT_EQUAL_OBJECTS(step[@"consumed"], @YES);
@@ -705,8 +705,8 @@ GH_TEST(harness_autotab_records_a_failed_write_as_unverified) {
 }
 
 GH_TEST(harness_autotab_reports_a_press_that_could_not_be_posted) {
-    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"A", NO) ]);
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    SBFakeAutotabSubject *subject = Subject(@[ Shabang(@"A", NO) ]);
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
     poster.fails = YES;
     NSDictionary *report = RunAutotab(subject, poster, 3, nil);
     GH_ASSERT_EQUAL_OBJECTS(report[@"stopped"], @"post-failed");
@@ -714,10 +714,10 @@ GH_TEST(harness_autotab_reports_a_press_that_could_not_be_posted) {
 }
 
 GH_TEST(harness_autotab_waits_for_a_busy_step_but_not_forever) {
-    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"Essay", NO), Ghost(@"Next", NO) ]);
+    SBFakeAutotabSubject *subject = Subject(@[ Shabang(@"Essay", NO), Shabang(@"Next", NO) ]);
     subject.busy = YES;   // a draft that never arrives
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
-    NSDictionary *report = RunAutotab(subject, poster, 1, ^(GHAutotabRunner *runner) { runner.maxSettle = 1.0; });
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
+    NSDictionary *report = RunAutotab(subject, poster, 1, ^(SBAutotabRunner *runner) { runner.maxSettle = 1.0; });
     GH_ASSERT(report != nil);
     NSDictionary *step = [report[@"steps"] firstObject];
     GH_ASSERT([step[@"ms"] doubleValue] >= 1100);        // interval + maxSettle, then recorded as it is
@@ -725,22 +725,22 @@ GH_TEST(harness_autotab_waits_for_a_busy_step_but_not_forever) {
 }
 
 GH_TEST(harness_autotab_respects_its_time_budget) {
-    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"A", NO), Ghost(@"B", NO), Ghost(@"C", NO), Ghost(@"D", NO), Ghost(@"E", NO) ]);
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
-    NSDictionary *report = RunAutotab(subject, poster, 5, ^(GHAutotabRunner *runner) { runner.maxDuration = 0.25; });
+    SBFakeAutotabSubject *subject = Subject(@[ Shabang(@"A", NO), Shabang(@"B", NO), Shabang(@"C", NO), Shabang(@"D", NO), Shabang(@"E", NO) ]);
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
+    NSDictionary *report = RunAutotab(subject, poster, 5, ^(SBAutotabRunner *runner) { runner.maxDuration = 0.25; });
     GH_ASSERT_EQUAL_OBJECTS(report[@"stopped"], @"timeout");
     GH_ASSERT_EQUAL_INT(poster.posted, 3);               // presses at 0, 0.1 and 0.2 s; over budget at 0.3 s
 }
 
 GH_TEST(harness_can_only_ever_post_tab) {
-    GH_ASSERT_EQUAL_OBJECTS([GHHarnessTabPoster postableKeyCodes], (@[ @48 ]));
+    GH_ASSERT_EQUAL_OBJECTS([SBHarnessTabPoster postableKeyCodes], (@[ @48 ]));
     for (NSNumber *forbidden in @[ @36 /* Return */, @76 /* Enter */, @49 /* Space */ ]) {
-        GH_ASSERT_FALSE([[GHHarnessTabPoster postableKeyCodes] containsObject:forbidden]);
+        GH_ASSERT_FALSE([[SBHarnessTabPoster postableKeyCodes] containsObject:forbidden]);
     }
     // The protocol is the whole keyboard surface of the harness: one method, and it is Tab.
     unsigned int required = 0, optional = 0;
-    struct objc_method_description *methods = protocol_copyMethodDescriptionList(@protocol(GHAutotabKeyPosting), YES, YES, &required);
-    struct objc_method_description *optionals = protocol_copyMethodDescriptionList(@protocol(GHAutotabKeyPosting), NO, YES, &optional);
+    struct objc_method_description *methods = protocol_copyMethodDescriptionList(@protocol(SBAutotabKeyPosting), YES, YES, &required);
+    struct objc_method_description *optionals = protocol_copyMethodDescriptionList(@protocol(SBAutotabKeyPosting), NO, YES, &optional);
     NSString *only = required == 1 ? NSStringFromSelector(methods[0].name) : nil;
     free(methods);
     free(optionals);
@@ -753,51 +753,51 @@ GH_TEST(harness_can_only_ever_post_tab) {
 
 GH_TEST(harness_request_parses_expect_field) {
     NSString *error;
-    GHHarnessRequest *request = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--autotab", @"9", @"--frontmost", @"Safari",
+    SBHarnessRequest *request = [SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--autotab", @"9", @"--frontmost", @"Safari",
                                                                            @"--expect-field", @"First Name" ] error:&error];
     GH_ASSERT_MSG(request != nil, @"%@", error);
     GH_ASSERT_EQUAL_OBJECTS(request.expectField, @"First Name");
     // It survives the trip to a running agent, or the guard would silently vanish on the way.
-    GHHarnessRequest *again = [GHHarnessRequest requestWithData:request.data error:&error];
+    SBHarnessRequest *again = [SBHarnessRequest requestWithData:request.data error:&error];
     GH_ASSERT_MSG(again != nil, @"%@", error);
     GH_ASSERT_EQUAL_OBJECTS(again.expectField, @"First Name");
     // And the run is given time to pay for one capture per press.
-    GHHarnessRequest *plain = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--autotab", @"9" ] error:NULL];
+    SBHarnessRequest *plain = [SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--autotab", @"9" ] error:NULL];
     GH_ASSERT(request.autotabBudget > plain.autotabBudget);
 }
 
 GH_TEST(harness_request_rejects_an_unusable_expect_field) {
     NSString *error = nil;
-    GH_ASSERT([GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--dump", @"--expect-field", @"a\nb" ] error:&error] == nil);
+    GH_ASSERT([SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--dump", @"--expect-field", @"a\nb" ] error:&error] == nil);
     GH_ASSERT(error.length > 0);
     error = nil;
-    GH_ASSERT([GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--dump", @"--expect-field" ] error:&error] == nil);
+    GH_ASSERT([SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--dump", @"--expect-field" ] error:&error] == nil);
     GH_ASSERT(error.length > 0);
-    NSMutableDictionary *wire = [[[GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--dump" ] error:NULL] dictionary] mutableCopy];
+    NSMutableDictionary *wire = [[[SBHarnessRequest requestWithArguments:@[ @"Shabang", @"--dump" ] error:NULL] dictionary] mutableCopy];
     wire[@"expectField"] = @[ @"not a string" ];
-    GH_ASSERT([GHHarnessRequest requestWithDictionary:wire error:NULL] == nil);
+    GH_ASSERT([SBHarnessRequest requestWithDictionary:wire error:NULL] == nil);
 }
 
 GH_TEST(harness_expectation_matches_a_decorated_label) {
     NSArray<NSString *> *greenhouse = @[ @"First Name *", @"Last Name *", @"Email *", @"Resume/CV" ];
-    GH_ASSERT(GHHarnessLabelsMeetExpectation(greenhouse, @"First Name"));
-    GH_ASSERT(GHHarnessLabelsMeetExpectation(greenhouse, @"first name"));       // case
-    GH_ASSERT(GHHarnessLabelsMeetExpectation(@[ @"First  Name\t*" ], @"First Name"));   // nbsp + runs of space
-    GH_ASSERT(GHHarnessLabelsMeetExpectation(@[ @"Prénom" ], @"prenom"));       // diacritics
-    GH_ASSERT(GHHarnessLabelsMeetExpectation(greenhouse, @"  "));               // no guard asked for
-    GH_ASSERT_FALSE(GHHarnessLabelsMeetExpectation(greenhouse, @"Card Number"));
-    GH_ASSERT_FALSE(GHHarnessLabelsMeetExpectation(@[ @"Search", @"Inbox" ], @"First Name"));
+    GH_ASSERT(SBHarnessLabelsMeetExpectation(greenhouse, @"First Name"));
+    GH_ASSERT(SBHarnessLabelsMeetExpectation(greenhouse, @"first name"));       // case
+    GH_ASSERT(SBHarnessLabelsMeetExpectation(@[ @"First  Name\t*" ], @"First Name"));   // nbsp + runs of space
+    GH_ASSERT(SBHarnessLabelsMeetExpectation(@[ @"Prénom" ], @"prenom"));       // diacritics
+    GH_ASSERT(SBHarnessLabelsMeetExpectation(greenhouse, @"  "));               // no guard asked for
+    GH_ASSERT_FALSE(SBHarnessLabelsMeetExpectation(greenhouse, @"Card Number"));
+    GH_ASSERT_FALSE(SBHarnessLabelsMeetExpectation(@[ @"Search", @"Inbox" ], @"First Name"));
     // A page that captured nothing is the case the guard exists for: it never counts as a match.
-    GH_ASSERT_FALSE(GHHarnessLabelsMeetExpectation(@[], @"First Name"));
-    GH_ASSERT_FALSE(GHHarnessLabelsMeetExpectation(nil, @"First Name"));
-    GH_ASSERT_FALSE(GHHarnessLabelsMeetExpectation((id)@"First Name", @"First Name"));   // not even an array
+    GH_ASSERT_FALSE(SBHarnessLabelsMeetExpectation(@[], @"First Name"));
+    GH_ASSERT_FALSE(SBHarnessLabelsMeetExpectation(nil, @"First Name"));
+    GH_ASSERT_FALSE(SBHarnessLabelsMeetExpectation((id)@"First Name", @"First Name"));   // not even an array
 }
 
 GH_TEST(harness_autotab_presses_nothing_when_the_page_is_not_the_expected_one) {
-    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"First Name", NO), Ghost(@"Last Name", NO), Ghost(@"Submit application", YES) ]);
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    SBFakeAutotabSubject *subject = Subject(@[ Shabang(@"First Name", NO), Shabang(@"Last Name", NO), Shabang(@"Submit application", YES) ]);
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
     __block NSUInteger asked = 0;
-    NSDictionary *report = RunAutotab(subject, poster, 5, ^(GHAutotabRunner *runner) {
+    NSDictionary *report = RunAutotab(subject, poster, 5, ^(SBAutotabRunner *runner) {
         runner.expectField = @"First Name";
         runner.precondition = ^(void (^allow)(NSString *problem)) { asked++; allow(@"expect-field-missing"); };
     });
@@ -811,10 +811,10 @@ GH_TEST(harness_autotab_presses_nothing_when_the_page_is_not_the_expected_one) {
 }
 
 GH_TEST(harness_autotab_stops_the_moment_the_page_changes_under_it) {
-    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"First Name", NO), Ghost(@"Last Name", NO), Ghost(@"Email", NO), Ghost(@"Phone", NO) ]);
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    SBFakeAutotabSubject *subject = Subject(@[ Shabang(@"First Name", NO), Shabang(@"Last Name", NO), Shabang(@"Email", NO), Shabang(@"Phone", NO) ]);
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
     __block NSUInteger asked = 0;
-    NSDictionary *report = RunAutotab(subject, poster, 4, ^(GHAutotabRunner *runner) {
+    NSDictionary *report = RunAutotab(subject, poster, 4, ^(SBAutotabRunner *runner) {
         runner.expectField = @"First Name";
         // The tab is switched away after two presses.
         runner.precondition = ^(void (^allow)(NSString *problem)) { asked++; allow(asked > 2 ? @"expect-field-missing" : nil); };
@@ -827,10 +827,10 @@ GH_TEST(harness_autotab_stops_the_moment_the_page_changes_under_it) {
 }
 
 GH_TEST(harness_autotab_guard_runs_before_every_press_and_only_then) {
-    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"First Name", NO), Ghost(@"Last Name", NO), Ghost(@"Submit application", YES) ]);
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    SBFakeAutotabSubject *subject = Subject(@[ Shabang(@"First Name", NO), Shabang(@"Last Name", NO), Shabang(@"Submit application", YES) ]);
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
     __block NSUInteger asked = 0;
-    NSDictionary *report = RunAutotab(subject, poster, 9, ^(GHAutotabRunner *runner) {
+    NSDictionary *report = RunAutotab(subject, poster, 9, ^(SBAutotabRunner *runner) {
         runner.expectField = @"First Name";
         runner.precondition = ^(void (^allow)(NSString *problem)) { asked++; allow(nil); };
     });
@@ -842,12 +842,12 @@ GH_TEST(harness_autotab_guard_runs_before_every_press_and_only_then) {
 }
 
 GH_TEST(harness_autotab_guard_may_answer_late_and_only_once) {
-    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"First Name", NO), Ghost(@"Last Name", NO) ]);
-    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    SBFakeAutotabSubject *subject = Subject(@[ Shabang(@"First Name", NO), Shabang(@"Last Name", NO) ]);
+    SBFakeTabPoster *poster = [[SBFakeTabPoster alloc] init];
     // The live guard answers on the main queue after an AX walk: the answer arrives later than the call.
     NSMutableArray<void (^)(NSString *)> *pending = [NSMutableArray array];
     poster.subject = subject;
-    GHAutotabRunner *runner = [[GHAutotabRunner alloc] initWithSubject:subject poster:poster];
+    SBAutotabRunner *runner = [[SBAutotabRunner alloc] initWithSubject:subject poster:poster];
     NSMutableArray<dispatch_block_t> *timers = [NSMutableArray array];
     __block NSTimeInterval now = 1000;
     runner.after = ^(NSTimeInterval delay, dispatch_block_t block) { now += delay; [timers addObject:[block copy]]; };

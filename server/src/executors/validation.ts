@@ -1,4 +1,4 @@
-import { isSensitive, type FactLocator, type FieldKind, type LoopIterator, type StepPage, type StepTarget } from "@ghost/shared";
+import { isSensitive, type FactLocator, type FieldKind, type LoopIterator, type StepPage, type StepTarget } from "@shabang/shared";
 import { LOOP_TRANSFORMS, type LoopTransform, type ServerLoopProgram as LoopProgram, type ServerLoopStep as LoopStep } from "../loop/transforms";
 import { isRecord } from "../providers/errors";
 import { BadRequest, stripQuery } from "../providers/validation";
@@ -121,7 +121,7 @@ function parseStep(raw: unknown, path: string): LoopStep {
     }
     case "fill": {
       const target = parseTarget(step.target, `${path}.target`);
-      if (isSensitive({ label: target.label })) throw new BadRequest(`${path}.target.label looks sensitive; Ghost never fills sensitive fields`);
+      if (isSensitive({ label: target.label })) throw new BadRequest(`${path}.target.label looks sensitive; Shabang never fills sensitive fields`);
       if (target.kind === "button" || target.kind === "link" || target.kind === "file") throw new BadRequest(`${path}.target.kind cannot be filled`);
       const value = object(step.value, `${path}.value`);
       const parsed = typeof value.const === "string" ? { const: value.const.slice(0, EXECUTE_LIMITS.varValue) } : { var: varName(value.var, `${path}.value.var`) };

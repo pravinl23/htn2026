@@ -1,5 +1,5 @@
 // Ways the answer engine broke its own promises (docs/answers.md section 7). Each case here produced a
-// proposal Ghost must never make: a flattering legal declaration, a claim about a protected characteristic,
+// proposal Shabang must never make: a flattering legal declaration, a claim about a protected characteristic,
 // or a learned answer replayed onto the opposite question.
 import { describe, expect, it } from "vitest";
 import {

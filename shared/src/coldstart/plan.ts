@@ -24,7 +24,7 @@ export type ColdStartSourceKind =
 /**
  * The sources that describe WHAT THIS PERSON USES rather than who they are (docs/knowledge.md section 3). They are
  * the cheap half of tier 0: names and counts the machine already keeps, no dialog, nothing opened that is not a
- * list of application names. They are what makes a first run useful on a surface Ghost has never seen.
+ * list of application names. They are what makes a first run useful on a surface Shabang has never seen.
  */
 export const SURFACE_SOURCES: readonly ColdStartSourceKind[] = [
   "dock",
@@ -145,7 +145,7 @@ const READS: Record<ColdStartSourceKind, string> = {
   "login-items": "Reads which applications start when you log in, by name.",
   "recent-apps": "Counts how recently and how often you used each application. Opens nothing.",
   "recent-docs": "Counts what KIND of document you opened recently (text, picture, sound). No names, no contents.",
-  "app-inventory": "Lists the applications installed on this Mac by name, so one Ghost has never seen is still yours.",
+  "app-inventory": "Lists the applications installed on this Mac by name, so one Shabang has never seen is still yours.",
   contacts: "Reads only your own contact card: name, emails, phones, addresses, employer and job title.",
   resume: "Opens up to 25 résumé-shaped documents and reads their text to find your education, work history and links.",
   "browser-history": "Copies your browser history, counts visits per site and time of day, then deletes the copy. No page titles or addresses are kept.",
@@ -160,7 +160,7 @@ const YIELDS: Record<ColdStartSourceKind, string> = {
   "login-items": "The places your day starts in",
   "recent-apps": "Which places you actually use, and how recently",
   "recent-docs": "What kind of screen you spend your time on",
-  "app-inventory": "Places Ghost can recognise the first time you open them",
+  "app-inventory": "Places Shabang can recognise the first time you open them",
   contacts: "Name, emails, phones, addresses, employer, job title",
   resume: "Education, work history, links, skills",
   "browser-history": "Habits: which sites, in what order, at what hours",
@@ -179,13 +179,13 @@ const PERMISSION_ACTION: Record<ColdStartSourceKind, string> = {
   "recent-apps": "",
   "recent-docs": "",
   "app-inventory": "",
-  contacts: "Contacts — System Settings › Privacy & Security › Contacts, then Ghost",
-  resume: "Files and Folders — System Settings › Privacy & Security › Files and Folders, then Ghost",
+  contacts: "Contacts — System Settings › Privacy & Security › Contacts, then Shabang",
+  resume: "Files and Folders — System Settings › Privacy & Security › Files and Folders, then Shabang",
   // Chromium profiles sit under Application Support (Files and Folders); only Safari's history needs Full Disk Access.
   "browser-history": "Files and Folders for Chrome, Arc or Brave — or Full Disk Access for Safari — in System Settings › Privacy & Security",
-  calendar: "Calendars — System Settings › Privacy & Security › Calendars, then Ghost",
+  calendar: "Calendars — System Settings › Privacy & Security › Calendars, then Shabang",
   mail: "Full Disk Access (or connect a mail account) — System Settings › Privacy & Security › Full Disk Access",
-  projects: "Files and Folders — System Settings › Privacy & Security › Files and Folders, then Ghost",
+  projects: "Files and Folders — System Settings › Privacy & Security › Files and Folders, then Shabang",
 };
 
 /** Shown once, above the switches: the things cold start never reads, whatever is switched on. */
@@ -325,7 +325,7 @@ export function buildConsentPlan(descriptors: readonly SourceDescriptor[], optio
     };
 
     // The sentence is attached whenever the grant is missing, whatever the STATUS is. A source that is switched
-    // off, or that Ghost has no reader for yet, still has to say what the user would have to click — otherwise
+    // off, or that Shabang has no reader for yet, still has to say what the user would have to click — otherwise
     // "off" quietly hides a permission problem, which is exactly the silent skip docs/cold-start.md forbids.
     if (!permitted(permission)) {
       const sentence = needsPermissionText(kind);

@@ -19,11 +19,11 @@ BASETEN_SAMPLES=             # K, default 3 (1..8)
 BASETEN_HEDGE=               # H, default 1 (0..4). One decision costs K + H requests
 BASETEN_DECISION_MODEL_URL=  # optional: a dedicated deployment for decisions (see Stretch)
 BASETEN_LOGPROBS=            # optional: 1 = ask for logprobs and use them if they ever come back
-GHOST_WARMUP=                # 0 = skip the one warm-up request at server start
-GHOST_DECISION_PROVIDER=baseten / GHOST_TEXT_PROVIDER=baseten   # force Baseten when a higher-precedence key exists
+SHABANG_WARMUP=                # 0 = skip the one warm-up request at server start
+SHABANG_DECISION_PROVIDER=baseten / SHABANG_TEXT_PROVIDER=baseten   # force Baseten when a higher-precedence key exists
 ```
 
-Decision precedence is typesafe, jev-gateway, **baseten**, llm (OpenAI / xAI), heuristic. Text precedence is **baseten**, openai, xai, template. `GET /v1/health` reports the provider, both models and the sampling plan. `pnpm --filter @ghost/server baseten:models` lists the live catalog with the thinking switch the server would use for each model (no inference).
+Decision precedence is typesafe, jev-gateway, **baseten**, llm (OpenAI / xAI), heuristic. Text precedence is **baseten**, openai, xai, template. `GET /v1/health` reports the provider, both models and the sampling plan. `pnpm --filter @shabang/server baseten:models` lists the live catalog with the thinking switch the server would use for each model (no inference).
 
 ## The design
 
@@ -32,7 +32,7 @@ Decision precedence is typesafe, jev-gateway, **baseten**, llm (OpenAI / xAI), h
 3. **Self-consistency as a logprob-free confidence signal.** The Model APIs accept `logprobs` and return none, and `n` must be 1. So the same request is fired K times in parallel at temperature 0.7 and the answers are voted on per question (`consensus.ts`). Probabilities are vote fractions with one pseudo-vote shared by the offered options (they sum to 1; 3 of 3 on a 13-option question is 0.77, never 1.0). A tie answers `none`. Codes that were never offered are discarded per question, not per sample. This mirrors TypeSafe's own self-consistency cookbook. It is a ranking signal, not an audited calibration, so the provider reports `calibrated: false`.
 4. **Hedged requests for the tail.** K + H identical requests go out at once. The decision resolves with the first K valid samples and aborts the stragglers (`hedge.ts`). One slow replica cannot hold a form hostage. At the 2.3 s deadline a partial vote still answers, with every confidence scaled by `votes / K`, which drops it under the gate; zero samples throws and the heuristic takes over.
 5. **Session affinity.** Every request of one schema carries `x-session-affinity: ghost-<hash of model + schema>`, so repeated forms land where the grammar and the prompt prefix are warm. Text requests share one affinity value for their common system prompt.
-6. **Warm-up.** On server start, when Baseten is the active decision provider, ONE request with `max_tokens: 1` makes the standard form schema compile before the first real form. Never sent under Vitest; `GHOST_WARMUP=0` disables it.
+6. **Warm-up.** On server start, when Baseten is the active decision provider, ONE request with `max_tokens: 1` makes the standard form schema compile before the first real form. Never sent under Vitest; `SHABANG_WARMUP=0` disables it.
 7. **A rate budget, because K + H multiplies requests.** The provider reads `x-ratelimit-remaining-requests` and `x-ratelimit-limit-requests`, models the refill between forms, and never fans out further than the estimate (the hedge is dropped first, then samples, which lowers confidence instead of failing). A 429 burst is not retried. `401` / `403` pauses the provider for 60 s and logs one line without the key.
 8. **Streamed, speculative ghost text.** Essay fields go through the same OpenAI-compatible client with thinking off. The extension starts drafting every essay field on the first scan of the form (`extension/src/content/freeText.ts`), so by the time the user Tabs to it the stream is usually done. `firstTokenMs` and `latencyMs` are measured per draft, returned in the final stream event and logged per call; total draft latency goes into the server's metrics.
 
@@ -89,7 +89,7 @@ Baseten's first valid sample arrived at 604 ms p50 and the K-th at 1050 ms p50 (
 
 Why this matters for gating: the xAI adapter reports a flat 0.90 whether it is right or wrong, so the gate cannot do its job and all 16 wrong answers would have been shown as ghosts. The vote's one wrong answer came with a split vote (0.52) and was gated off. **Caveats, stated plainly:** (a) 4 decisions per provider is tiny; (b) the Baseten system prompt contains one rule ("an option must fit exactly ... answer none") that was written after seeing this kind of mistake on a similar form, so this is not a blind test for Baseten, while the Jev and xAI requests use the generic form questions with no such tuning; (c) a systematic error (every sample wrong the same way) gets full confidence from a vote. Self-consistency catches uncertainty, not bias. A comment in `baseten.ts` records an earlier session's experiment (8-field form, K = 5, not re-measured here): the prompt rule took wrong answers from 4 to 2, and "Emergency contact phone" still went to `phone` in 5 of 5 samples, an error no amount of voting removes.
 
-**Streamed ghost text** (at most 360 characters, 4 drafts each through `POST /v1/ghost-text`):
+**Streamed ghost text** (at most 360 characters, 4 drafts each through `POST /v1/shabang-text`):
 
 | text provider | TTFT p50 | TTFT slowest | total p50 | chars/s p50 | reasoning leaked |
 | --- | ---: | ---: | ---: | ---: | ---: |

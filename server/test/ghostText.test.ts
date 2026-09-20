@@ -1,4 +1,4 @@
-import { DEMO_PROFILE } from "@ghost/shared";
+import { DEMO_PROFILE } from "@shabang/shared";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config";
@@ -25,7 +25,7 @@ function appWith(responder: Responder, env: Record<string, string> = { XAI_API_K
   const config = loadConfig(env);
   registerTextRoutes(app, config, { fetch: fake.fetch });
   const post = (body: unknown, query = ""): Promise<Response> =>
-    Promise.resolve(app.request(`/v1/ghost-text${query}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: typeof body === "string" ? body : JSON.stringify(body) }));
+    Promise.resolve(app.request(`/v1/shabang-text${query}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: typeof body === "string" ? body : JSON.stringify(body) }));
   return { post, calls: fake.calls, metrics: getMetrics(config) };
 }
 
@@ -37,7 +37,7 @@ async function readEvents(res: Response): Promise<SseEvent[]> {
   });
 }
 
-describe("POST /v1/ghost-text (streaming)", () => {
+describe("POST /v1/shabang-text (streaming)", () => {
   it("streams deltas then one final done event with the full text and timings", async () => {
     const { post, calls } = appWith(() => streamResponse(chatStreamText(DRAFT), 13));
     const res = await post(BODY);
@@ -188,14 +188,14 @@ describe("POST /v1/ghost-text (streaming)", () => {
     expect(events[1]?.fallbackFrom).toBeUndefined();
   });
 
-  it("honours GHOST_TEXT_PROVIDER=template even when a key is present", async () => {
-    const { post, calls } = appWith(() => new Response("unused"), { XAI_API_KEY: FAKE_KEY, GHOST_TEXT_PROVIDER: "template" });
+  it("honours SHABANG_TEXT_PROVIDER=template even when a key is present", async () => {
+    const { post, calls } = appWith(() => new Response("unused"), { XAI_API_KEY: FAKE_KEY, SHABANG_TEXT_PROVIDER: "template" });
     expect((await readEvents(await post(BODY))).pop()).toMatchObject({ provider: "template" });
     expect(calls).toHaveLength(0);
   });
 });
 
-describe("POST /v1/ghost-text?stream=0", () => {
+describe("POST /v1/shabang-text?stream=0", () => {
   it("returns JSON with the text, provider and timings", async () => {
     const { post } = appWith(() => streamResponse(chatStreamText(DRAFT)), { OPENAI_API_KEY: FAKE_KEY });
     const res = await post(BODY, "?stream=0");
@@ -213,7 +213,7 @@ describe("POST /v1/ghost-text?stream=0", () => {
   });
 });
 
-describe("POST /v1/ghost-text validation", () => {
+describe("POST /v1/shabang-text validation", () => {
   const { post, calls } = appWith(() => streamResponse(chatStreamText(DRAFT)));
 
   it.each([

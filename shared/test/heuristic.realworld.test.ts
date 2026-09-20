@@ -11,7 +11,7 @@ const GRAPH = demoGraph();
 /**
  * The labels that map DIFFERENTLY once the graph holds what a résumé never did: an address, an employer,
  * a job title, a work inbox, a shirt size. Every one of these used to be a "look-alike that maps to
- * nothing" purely because Ghost had no such fact, which is exactly the gap the graph closes. Everything
+ * nothing" purely because Shabang had no such fact, which is exactly the gap the graph closes. Everything
  * not listed here maps identically with or without the graph.
  */
 const WITH_GRAPH: Record<string, string> = {

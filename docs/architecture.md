@@ -10,7 +10,7 @@ The browser extension implements the complete assisted form walk, server predict
 
 | Package | Role |
 | --- | --- |
-| `shared/` (`@ghost/shared`) | Types and pure logic used by both the extension and the server: `CapturedField`, `Shabang`, `Profile`, the Jev-shaped decision interface, the redacted walk outcome/replay contract and its evaluator, heuristic field mapping (`mapFieldToFact`), value resolution (`resolveFieldValue`), and the safety rules (`isSensitive`, `isLockedAction`). No DOM, no Node APIs. |
+| `shared/` (`@shabang/shared`) | Types and pure logic used by both the extension and the server: `CapturedField`, `Shabang`, `Profile`, the Jev-shaped decision interface, the redacted walk outcome/replay contract and its evaluator, heuristic field mapping (`mapFieldToFact`), value resolution (`resolveFieldValue`), and the safety rules (`isSensitive`, `isLockedAction`). No DOM, no Node APIs. |
 | `extension/` | Chrome MV3 extension built with esbuild (`node build.mjs`) into `extension/dist`. |
 | `server/` | Hono prediction service on `http://localhost:8787`. Keys live here, never in the extension. |
 | `demo/` | Vite + React demo sites on `http://localhost:5173`. `demo/public/apply-plain/index.html` is framework-free. |
@@ -52,7 +52,7 @@ export function ghostsFromAssignments(fields: CapturedField[], assignments: Fiel
 export function isPlaceholderChoice(value: string, label: string): boolean;   // "" or "Select an option" style entries
 ```
 
-- Uses `mapFormHeuristically` + `resolveFieldValue` from `@ghost/shared`.
+- Uses `mapFormHeuristically` + `resolveFieldValue` from `@shabang/shared`.
 - Drops ghosts below `settings.confidenceThreshold` (confidence = assignment confidence x `confidenceFactor`).
 - Never proposes a value for a field that already has a non-empty value (select: non-placeholder option chosen; radio: one checked). "Non-empty" is `value !== ""`, the same test the controller runs right before a write: whitespace counts as a value, so predict never offers a ghost the controller would refuse.
 - A `check` ghost only ever ticks a box. Unticking would undo a choice the page or the user made.
@@ -221,7 +221,7 @@ Tabs (`index.ts`): Profile, Import resume, Metrics, Settings. A section is `{ id
 - Tests wait for `#ghost-overlay-host[data-ghost-state="ready"]` instead of sleeping.
 - Tests must assert that Submit/Send was NOT triggered: demo pages set `window.__submitted = true` and render `data-testid="submitted"` on submit.
 - Never touch a non-localhost URL.
-- Prediction server: `playwright.config.ts` starts a second `webServer`, the keyless server on `http://127.0.0.1:8788` (`KEYLESS_SERVER_ENV`: `GHOST_DECISION_PROVIDER=heuristic`, `GHOST_TEXT_PROVIDER=template`, every key blanked), with `reuseExistingServer: false`. Never 8787, never a reused process: a developer server may hold real keys. A busy 8788 fails the run.
+- Prediction server: `playwright.config.ts` starts a second `webServer`, the keyless server on `http://127.0.0.1:8788` (`KEYLESS_SERVER_ENV`: `SHABANG_DECISION_PROVIDER=heuristic`, `SHABANG_TEXT_PROVIDER=template`, every key blanked), with `reuseExistingServer: false`. Never 8787, never a reused process: a developer server may hold real keys. A busy 8788 fails the run.
 - The `context` fixture writes `ghost.settings` from the service worker BEFORE any page loads, and only once install seeding has created the key (`saveSettings({})` is a read-modify-write and would otherwise put the default URL back). Two fixture options feed it: `serverUrl` (default `OFFLINE_SERVER_URL`, `http://127.0.0.1:9`: an unsafe port in Chromium, so the fetch fails at once and no server on the machine can ever be reached) and `settings` (any other `GhostSettings` patch). Specs that want the server say `test.use({ serverUrl: E2E_SERVER_URL })`. `patchSettings`, `readStorage`, `writeStorage`, `removeStorage` and `readAllStorage` go through the `worker` fixture.
 - Shabang counts depend on whether a prediction server answers. Without one (every spec that does not opt in: Stage 1, hardening) essay textareas get no ghost and `/apply` shows 14 + the locked Submit = 15 (`OFFLINE_GHOSTS`). With one, `#why-northwind` and `#project` get draft ghosts: 17 ghosts (`SERVER_GHOSTS`), 16 Tab presses to the lock. `e2e/apply.ts` holds the form helpers the server specs share; `stage1-form.spec.ts` keeps its own copies as the offline oracle.
 - The closed shadow root is read through the DevTools protocol, not through page-readable hooks: `overlayEval(page, fn)` (`DOM.getDocument` with `pierce`, then `Runtime.callFunctionOn` on the shadow root) backs `readHud`, `readGhostText` and `readToast`. Page script still cannot do this, and `extension-loads.spec.ts` keeps proving it.
@@ -311,7 +311,7 @@ Subscribe with `ghostEvents.on(...)` instead of editing `controller.ts`. `user:i
 
 ## Stage 3: free-text drafts
 
-Data flow: `planForm` names the essay fields -> `DraftScheduler` (content) opens one `ghost:text` port per field, three at a time -> `textStream.ts` (worker) POSTs `/v1/ghost-text` and relays the SSE deltas -> the controller grows an `llm` fill ghost in place -> the overlay draws it multi-line inside the textarea -> Tab writes the whole draft. The template provider (no key) streams through exactly the same path.
+Data flow: `planForm` names the essay fields -> `DraftScheduler` (content) opens one `ghost:text` port per field, three at a time -> `textStream.ts` (worker) POSTs `/v1/shabang-text` and relays the SSE deltas -> the controller grows an `llm` fill ghost in place -> the overlay draws it multi-line inside the textarea -> Tab writes the whole draft. The template provider (no key) streams through exactly the same path.
 
 ### `src/lib/messages.ts` (text)
 

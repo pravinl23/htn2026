@@ -1,4 +1,4 @@
-import type { Answers, DecisionProvider, DecisionResult, Questions } from "@ghost/shared";
+import type { Answers, DecisionProvider, DecisionResult, Questions } from "@shabang/shared";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { COMMAND_TIMEOUT_MS, type CommandPrediction, type CommandState } from "../src/command/predict";
@@ -165,10 +165,10 @@ describe("POST /v1/predict/command", () => {
 
   it("without a Jev key the heuristic answers and nothing is called", async () => {
     expect(commandProvider(loadConfig({})).name).toBe("heuristic");
-    expect(commandProvider(loadConfig({ GHOST_PROVIDER: "heuristic", TYPESAFE_API_KEY: FAKE_KEY })).name).toBe("heuristic");
+    expect(commandProvider(loadConfig({ SHABANG_PROVIDER: "heuristic", TYPESAFE_API_KEY: FAKE_KEY })).name).toBe("heuristic");
     expect(commandProvider(loadConfig({ TYPESAFE_API_KEY: FAKE_KEY })).name).toBe("typesafe");
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    const app = createApp(loadConfig({ GHOST_PROVIDER: "heuristic" }));
+    const app = createApp(loadConfig({ SHABANG_PROVIDER: "heuristic" }));
     const res = await app.request("/v1/predict/command", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(SESSION) });
     expect(await res.json()).toMatchObject({ command: 'git commit -m ""', provider: "heuristic", calibrated: false, cache: "miss" });
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -176,7 +176,7 @@ describe("POST /v1/predict/command", () => {
   });
 
   it("only Jev answers terminal requests: rate-limited or slow providers get the heuristic", () => {
-    expect(commandProvider(loadConfig({ BASETEN_API_KEY: FAKE_KEY, GHOST_TEXT_PROVIDER: "template" })).name).toBe("heuristic");
+    expect(commandProvider(loadConfig({ BASETEN_API_KEY: FAKE_KEY, SHABANG_TEXT_PROVIDER: "template" })).name).toBe("heuristic");
     expect(commandProvider(loadConfig({ OPENAI_API_KEY: FAKE_KEY })).name).toBe("heuristic");
   });
 });
@@ -268,7 +268,7 @@ describe("validation and access rules", () => {
   });
 
   it("goes through the same guards as every route: JSON only, local Host, no foreign Origin, 32 KB", async () => {
-    const app = createApp(loadConfig({ GHOST_PROVIDER: "heuristic" }));
+    const app = createApp(loadConfig({ SHABANG_PROVIDER: "heuristic" }));
     const body = JSON.stringify(SESSION);
     const call = (headers: Record<string, string>, payload = body, url = "http://localhost/v1/predict/command") => app.request(url, { method: "POST", headers, body: payload });
     expect((await call({ "Content-Type": "text/plain" })).status).toBe(415);

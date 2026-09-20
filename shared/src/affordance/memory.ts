@@ -1,6 +1,6 @@
 // Role-keyed memory (docs/anywhere.md sections 3 and 6). The episodic store in ../memory/episodic.ts remembers
 // exact repeats on one page, keyed by a state summary. This second key is `(page kind, previous role, role)`, which
-// is what makes "I always go fullscreen after starting a video" transfer to a video Ghost has never seen, and
+// is what makes "I always go fullscreen after starting a video" transfer to a video Shabang has never seen, and
 // "I always open the cart after adding something" transfer between shops. Nothing here holds a label or a value.
 import { classifyAffordance, lockedForRole } from "./roles";
 import type { Affordance, AffordanceCandidate, AffordanceContext, AffordanceEvidence, AffordanceRole } from "./roles";

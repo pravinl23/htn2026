@@ -1,4 +1,4 @@
-// Synthetic pages for the "Ghost anywhere" tests. Every label here is generic UI English: no site, product or
+// Synthetic pages for the "Shabang anywhere" tests. Every label here is generic UI English: no site, product or
 // brand name appears in any fixture, because no rule in shared/src/affordance may depend on one.
 import type { AffordanceCandidate, PageSignals } from "../../src";
 
@@ -146,7 +146,7 @@ export function mailItem(): Page {
   );
 }
 
-/** Something Ghost cannot place: generic controls, no list, no media, no prices, no fields. */
+/** Something Shabang cannot place: generic controls, no list, no media, no prices, no fields. */
 export function unknownApp(): Page {
   return page(
     [

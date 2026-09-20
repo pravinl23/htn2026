@@ -1,5 +1,5 @@
 // The before-and-after benchmark (docs/knowledge.md section 6). This table is the deliverable: proof that the
-// knowledge layer changes what Ghost proposes on any screen, and that it does it by learning ONE PERSON rather
+// knowledge layer changes what Shabang proposes on any screen, and that it does it by learning ONE PERSON rather
 // than by knowing any place.
 //
 // The harness (./knowledgeBenchmark.ts) holds the sixteen screens, the scripted sessions and the three

@@ -62,6 +62,6 @@ export const FACT_DESCRIPTIONS: Record<string, string> = {
 /**
  * The same demo profile as a fact graph: the résumé keys keep their names and gain a category, a label
  * and the phrasings a form might use, so the mapper can match them the way it matches any other fact.
- * The 19 keys are now one corner of an open graph, not the whole of what Ghost knows.
+ * The 19 keys are now one corner of an open graph, not the whole of what Shabang knows.
  */
 export const DEMO_FACT_GRAPH: FactGraph = profileToGraph(DEMO_PROFILE, { kind: "user" }, "2026-01-01T00:00:00.000Z");

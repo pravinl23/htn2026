@@ -77,7 +77,7 @@ describe("seeding the graph from a scan", () => {
     expect(graph.habits.surface(SCAN_SURFACE)).toBeNull();
   });
 
-  it("makes a screen Ghost has never seen useful on the first visit", () => {
+  it("makes a screen Shabang has never seen useful on the first visit", () => {
     const { graph } = seeded();
     const fixture = videoPlayer();
     const context = webContext({

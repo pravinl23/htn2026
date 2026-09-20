@@ -1,6 +1,6 @@
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { isSensitive, type PastAnswer } from "@ghost/shared";
+import { isSensitive, type PastAnswer } from "@shabang/shared";
 import type { LlmConfig, ServerConfig } from "../config";
 import { getMetrics } from "../lib/metrics";
 import { sseResponse } from "../lib/sse";
@@ -15,7 +15,7 @@ export interface TextRouteDeps {
   fetch?: typeof fetch;
 }
 
-const GHOST_TEXT = "/v1/ghost-text";
+const SHABANG_TEXT = "/v1/shabang-text";
 const EXTRACT = "/v1/profile/extract";
 const LIMITS = { label: 300, signature: 500, name: 200, description: 2000, facts: 50, factKey: 64, factValue: 500, pastAnswers: 3, answer: 2000, resume: 20_000, minMaxChars: 20, maxMaxChars: 5000, messages: 20, messageText: 400 };
 
@@ -35,17 +35,17 @@ export function registerTextRoutes(app: Hono, config: ServerConfig, deps: TextRo
     if (result.provider !== "template" && result.provider !== "regex") logCall(route, result);
   };
 
-  app.post(GHOST_TEXT, bodyLimit({ maxSize: 64 * 1024, onError: tooLarge }), async (c) => {
+  app.post(SHABANG_TEXT, bodyLimit({ maxSize: 64 * 1024, onError: tooLarge }), async (c) => {
     const input = await readBody(c, parseGhostTextBody);
     if (input instanceof Response) return input;
     if (c.req.query("stream") === "0") {
       const result = await ghostText.draft(input);
-      record(GHOST_TEXT, result);
+      record(SHABANG_TEXT, result);
       return c.json(result);
     }
     return sseResponse(async (send, signal) => {
       const result = await ghostText.draft(input, (delta) => send({ delta }), signal);
-      record(GHOST_TEXT, result);
+      record(SHABANG_TEXT, result);
       send({ done: true, ...result });
     });
   });
@@ -84,7 +84,7 @@ async function readBody<T>(c: Context, parse: (body: unknown) => T): Promise<T |
 function parseGhostTextBody(body: unknown): DraftInput {
   const b = asRecord(body, "body");
   const fieldLabel = requiredString(b.fieldLabel, "fieldLabel", LIMITS.label);
-  if (isSensitive({ label: fieldLabel })) throw new BadRequest("fieldLabel looks sensitive; Ghost never drafts text for sensitive fields");
+  if (isSensitive({ label: fieldLabel })) throw new BadRequest("fieldLabel looks sensitive; Shabang never drafts text for sensitive fields");
   if (b.fieldSignature !== undefined) requiredString(b.fieldSignature, "fieldSignature", LIMITS.signature);
   const page = b.pageContext === undefined ? {} : asRecord(b.pageContext, "pageContext");
   return {

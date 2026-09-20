@@ -1,4 +1,4 @@
-import { isSensitive } from "@ghost/shared";
+import { isSensitive } from "@shabang/shared";
 import type { ServerLoopProgram as LoopProgram, ServerLoopStep as LoopStep } from "../loop/transforms";
 import { runPool } from "./pool";
 import { assertConfirmed, isIrreversibleStep, ownVar, report, skippedResult, stopReasonOf, stoppedMessage, type FillStep } from "./steps";

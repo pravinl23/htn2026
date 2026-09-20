@@ -1,4 +1,4 @@
-import type { Answers, CapturedField, DecisionProvider, DecisionResult, FieldKind, Questions } from "@ghost/shared";
+import type { Answers, CapturedField, DecisionProvider, DecisionResult, FieldKind, Questions } from "@shabang/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
 import { loadConfig } from "../src/config";
@@ -172,8 +172,8 @@ describe("no SENTRY_DSN is a complete no-op", () => {
     expect(isEnabled()).toBe(false);
   });
 
-  it("reads GHOST_ENV for the environment", async () => {
-    expect(await initObservability({ GHOST_ENV: "demo" })).toMatchObject({ environment: "demo" });
+  it("reads SHABANG_ENV for the environment", async () => {
+    expect(await initObservability({ SHABANG_ENV: "demo" })).toMatchObject({ environment: "demo" });
   });
 
   it("adds no middleware, no wrappers and no dependencies to the app", () => {
@@ -478,7 +478,7 @@ describe("a whole request, end to end, through the app", () => {
 
   it("produces one transaction with the route's work inside it, and no value anywhere", async () => {
     const sentry = fakeSentry();
-    const app = createApp(loadConfig({ GHOST_PROVIDER: "heuristic" }));
+    const app = createApp(loadConfig({ SHABANG_PROVIDER: "heuristic" }));
     const res = await app.request("/v1/predict/form", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(HOSTILE_FORM) });
     expect(res.status).toBe(200);
 
@@ -506,7 +506,7 @@ describe("a whole request, end to end, through the app", () => {
 
   it("names a request to an unknown path after the route it is not, and still traces it", async () => {
     const sentry = fakeSentry();
-    const app = createApp(loadConfig({ GHOST_PROVIDER: "heuristic" }));
+    const app = createApp(loadConfig({ SHABANG_PROVIDER: "heuristic" }));
     await app.request(`/v1/${HOSTILE.email}`, { method: "GET" });
     expect(sentry.find(`GET ${UNKNOWN_ROUTE}`)).toBeDefined();
     expectNoValues(sentry.everything());
@@ -514,7 +514,7 @@ describe("a whole request, end to end, through the app", () => {
 
   it("forwards the client's own counters as proposed / accepted / corrected", async () => {
     const sentry = fakeSentry();
-    const app = createApp(loadConfig({ GHOST_PROVIDER: "heuristic" }));
+    const app = createApp(loadConfig({ SHABANG_PROVIDER: "heuristic" }));
     const res = await app.request("/v1/metrics/event", {
       method: "POST",
       headers: JSON_HEADERS,
@@ -535,15 +535,15 @@ describe("a whole request, end to end, through the app", () => {
 
   it("keeps a streamed answer's transaction open until the last token, and still delivers the stream", async () => {
     const sentry = fakeSentry();
-    const app = createApp(loadConfig({ GHOST_PROVIDER: "heuristic" }));
-    const res = await app.request("/v1/ghost-text", {
+    const app = createApp(loadConfig({ SHABANG_PROVIDER: "heuristic" }));
+    const res = await app.request("/v1/shabang-text", {
       method: "POST",
       headers: JSON_HEADERS,
       body: JSON.stringify({ fieldLabel: "Why do you want to work here?", facts: { firstName: "Alex" }, pageContext: { company: "Northwind" } }),
     });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/event-stream");
-    const transaction = sentry.find("POST /v1/ghost-text");
+    const transaction = sentry.find("POST /v1/shabang-text");
     // The headers are out, but the model is still writing: ending here would cut the trace at a few milliseconds.
     expect(transaction?.ended).toBe(false);
     const body = await res.text();
@@ -556,7 +556,7 @@ describe("a whole request, end to end, through the app", () => {
 
   it("captures an unhandled route error as an event, marks the transaction failed, and still lets it through", async () => {
     const sentry = fakeSentry();
-    const app = createApp(loadConfig({ GHOST_PROVIDER: "heuristic" }));
+    const app = createApp(loadConfig({ SHABANG_PROVIDER: "heuristic" }));
     app.get("/v1/boom", () => {
       throw new Error("boom");
     });

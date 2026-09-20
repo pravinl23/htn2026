@@ -59,7 +59,7 @@ describe("detectLoop", () => {
     expect(detectLoop(slow.events(), slow.now, { windowMs: 3 * LOOP_WINDOW_MS })?.length).toBe(10);
   });
 
-  it("ignores Ghost's own synthetic events", () => {
+  it("ignores Shabang's own synthetic events", () => {
     const tb = new TraceBuilder().navigate("/invoices");
     handleInvoice(tb, 0);
     const mine = tb.events();
@@ -71,7 +71,7 @@ describe("detectLoop", () => {
 
   it("ignores synthetic events that interleave with a real loop", () => {
     const tb = new TraceBuilder().navigate("/invoices");
-    handleInvoice(tb, 0).synthetic().click("Ghost HUD").navigate("/invoices");
+    handleInvoice(tb, 0).synthetic().click("Shabang HUD").navigate("/invoices");
     handleInvoice(tb, 1);
     expect(detectLoop(tb.events(), tb.now)?.length).toBe(10);
   });

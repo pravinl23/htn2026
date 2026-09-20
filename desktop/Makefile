@@ -4,7 +4,7 @@
 #   build/Shabang.app        the HOST: host/main.m only (dlopen + GhostMain). Built and signed ONCE, then never touched.
 #   build/libshabang.dylib   everything else (src/*.m), OUTSIDE the bundle. Rebuild it as often as you like.
 #
-#   make core         bundle @ghost/shared into build/shabang-core.js (fails loudly on a missing export)
+#   make core         bundle @shabang/shared into build/shabang-core.js (fails loudly on a missing export)
 #   make host         build + ad-hoc sign build/Shabang.app, ONLY when it does not exist yet
 #   make host-force   rebuild the host anyway. This INVALIDATES the Accessibility grant.
 #   make lib          build/libshabang.dylib (shabang-core.js sits beside it, which is where the library looks first)
@@ -52,11 +52,11 @@ $(BUILD)/obj/%.o: src/%.m
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# GHCore.m carries the SHA-256 of the shabang-core.js built with it: Ghost only loads that exact bundle (the core holds
+# SBCore.m carries the SHA-256 of the shabang-core.js built with it: Ghost only loads that exact bundle (the core holds
 # the fact allowlist and the wire filters). Read at recipe time, after `make core`, never at parse time.
-$(BUILD)/obj/GHCore.o: src/GHCore.m $(CORE_JS)
+$(BUILD)/obj/SBCore.o: src/SBCore.m $(CORE_JS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -DGHOST_CORE_SHA256=\"$$(shasum -a 256 $(CORE_JS) | cut -d' ' -f1)\" -c $< -o $@
+	$(CC) $(CFLAGS) -DSHABANG_CORE_SHA256=\"$$(shasum -a 256 $(CORE_JS) | cut -d' ' -f1)\" -c $< -o $@
 
 $(BUILD)/testobj/%.o: tests/%.m
 	@mkdir -p $(dir $@)
@@ -90,6 +90,8 @@ host-force:
 	@mkdir -p $(APP)/Contents/MacOS
 	$(CC) $(HOST_CFLAGS) host/main.m -framework AppKit -o $(EXE)
 	cp Info.plist $(APP)/Contents/Info.plist
+	@mkdir -p $(APP)/Contents/Resources
+	cp assets/Shabang.icns $(APP)/Contents/Resources/Shabang.icns
 	codesign -s - --force $(APP)
 	@codesign -dv --verbose=4 $(APP) 2>&1 | grep '^CDHash=' | sed 's/^/host: /'
 
@@ -105,7 +107,7 @@ $(LIB): $(LIB_OBJ) $(CORE_JS)
 app: core host lib
 
 # ---------- the installed library: no harness ----------
-# What the background agent and a Shabang.app started without SHABANG_LIB load. Built with GHOST_NO_HARNESS: no
+# What the background agent and a Shabang.app started without SHABANG_LIB load. Built with SHABANG_NO_HARNESS: no
 # --dump / --dump-tree / --autotab, no request folder, so no other process can borrow Ghost's Accessibility grant
 # through it. The developer library (make lib, used with SHABANG_LIB and tools/shabangctl) keeps the harness.
 RELEASE     := $(BUILD)/release
@@ -114,11 +116,11 @@ RELEASE_OBJ := $(patsubst src/%.m,$(RELEASE)/obj/%.o,$(SRC))
 
 $(RELEASE)/obj/%.o: src/%.m
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -DGHOST_NO_HARNESS=1 -c $< -o $@
+	$(CC) $(CFLAGS) -DSHABANG_NO_HARNESS=1 -c $< -o $@
 
-$(RELEASE)/obj/GHCore.o: src/GHCore.m $(CORE_JS)
+$(RELEASE)/obj/SBCore.o: src/SBCore.m $(CORE_JS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -DGHOST_NO_HARNESS=1 -DGHOST_CORE_SHA256=\"$$(shasum -a 256 $(CORE_JS) | cut -d' ' -f1)\" -c $< -o $@
+	$(CC) $(CFLAGS) -DSHABANG_NO_HARNESS=1 -DSHABANG_CORE_SHA256=\"$$(shasum -a 256 $(CORE_JS) | cut -d' ' -f1)\" -c $< -o $@
 
 $(RELEASE_LIB): $(RELEASE_OBJ) $(CORE_JS)
 	$(CC) -dynamiclib -install_name @rpath/libshabang.dylib $(RELEASE_OBJ) $(FRAMEWORKS) -o $(RELEASE_LIB)

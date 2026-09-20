@@ -220,7 +220,7 @@ async function ghostText(step, fieldLabel, company, role) {
   const started = performance.now();
   let response;
   try {
-    response = await fetch(`${BASE}/v1/ghost-text`, {
+    response = await fetch(`${BASE}/v1/shabang-text`, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "text/event-stream" },
       body: JSON.stringify({
@@ -233,8 +233,8 @@ async function ghostText(step, fieldLabel, company, role) {
       }),
     });
   } catch (err) {
-    results.push({ step, method: "POST", path: "/v1/ghost-text", status: 0, expected: 200, clientMs: Math.round(performance.now() - started), ok: false, error: String(err) });
-    line(`FAIL POST /v1/ghost-text -> ${err}`);
+    results.push({ step, method: "POST", path: "/v1/shabang-text", status: 0, expected: 200, clientMs: Math.round(performance.now() - started), ok: false, error: String(err) });
+    line(`FAIL POST /v1/shabang-text -> ${err}`);
     return undefined;
   }
   let firstDeltaMs;
@@ -265,9 +265,9 @@ async function ghostText(step, fieldLabel, company, role) {
   }
   const clientMs = Math.round(performance.now() - started);
   // The draft itself is never printed: it is model-written prose about a fictional person, and it has no place in a log.
-  const summary = { step, method: "POST", path: "/v1/ghost-text", status: response.status, expected: 200, clientMs, ok: response.status === 200, provider: done?.provider, serverLatencyMs: done?.latencyMs, serverFirstTokenMs: done?.firstTokenMs, clientFirstDeltaMs: firstDeltaMs, chars };
+  const summary = { step, method: "POST", path: "/v1/shabang-text", status: response.status, expected: 200, clientMs, ok: response.status === 200, provider: done?.provider, serverLatencyMs: done?.latencyMs, serverFirstTokenMs: done?.firstTokenMs, clientFirstDeltaMs: firstDeltaMs, chars };
   results.push(summary);
-  line(`ok   POST /v1/ghost-text -> 200 in ${ms(clientMs)} (provider=${done?.provider} firstToken=${done?.firstTokenMs ?? "?"}ms server=${done?.latencyMs ?? "?"}ms chars=${chars})`);
+  line(`ok   POST /v1/shabang-text -> 200 in ${ms(clientMs)} (provider=${done?.provider} firstToken=${done?.firstTokenMs ?? "?"}ms server=${done?.latencyMs ?? "?"}ms chars=${chars})`);
   return summary;
 }
 

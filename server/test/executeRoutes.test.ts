@@ -16,7 +16,7 @@ const OTHER_EXTENSION = "chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba";
 const EXECUTE_TOKEN = "per-install-secret-0123456789";
 const BB_ENV = { BROWSERBASE_API_KEY: "bb-test-key", BROWSERBASE_PROJECT_ID: "proj-1", SHABANG_PUBLIC_DEMO_URL: PUBLIC_DEMO };
 const COMPOSIO_ENV = { COMPOSIO_API_KEY: "cmp-test-key", COMPOSIO_SPREADSHEET_ID: "sheet-123" };
-const PINNED = { GHOST_EXTENSION_ID: EXTENSION_ID };
+const PINNED = { SHABANG_EXTENSION_ID: EXTENSION_ID };
 const noNetwork = (() => Promise.reject(new Error("the network must not be touched"))) as unknown as typeof fetch;
 
 type Body = Record<string, unknown>;
@@ -83,16 +83,16 @@ describe("GET /v1/executors and POST /v1/loop/compile", () => {
     expect((await list({ ...keys, ...PINNED }, { Origin: GHOST_ORIGIN })).slice(2)).toEqual(real(true));
     expect((await list({ ...keys, ...PINNED }, { Origin: OTHER_EXTENSION })).slice(2)).toEqual(real(false));
     expect((await list({ ...keys, ...PINNED }, { Origin: "http://localhost:5173" })).slice(2)).toEqual(real(false));
-    expect((await list({ ...keys, GHOST_EXECUTE_TOKEN: EXECUTE_TOKEN }, { "X-Ghost-Token": EXECUTE_TOKEN })).slice(2)).toEqual(real(true));
+    expect((await list({ ...keys, SHABANG_EXECUTE_TOKEN: EXECUTE_TOKEN }, { "X-Shabang-Token": EXECUTE_TOKEN })).slice(2)).toEqual(real(true));
   });
 
-  it("answers the CORS preflight of the pinned extension for DELETE and for the X-Ghost-Token header", async () => {
+  it("answers the CORS preflight of the pinned extension for DELETE and for the X-Shabang-Token header", async () => {
     const hono = createApp(loadConfig(PINNED));
-    const preflight = await hono.request("/v1/loop/execute/some-run", { method: "OPTIONS", headers: { Origin: GHOST_ORIGIN, "Access-Control-Request-Method": "DELETE", "Access-Control-Request-Headers": "content-type,x-ghost-token" } });
+    const preflight = await hono.request("/v1/loop/execute/some-run", { method: "OPTIONS", headers: { Origin: GHOST_ORIGIN, "Access-Control-Request-Method": "DELETE", "Access-Control-Request-Headers": "content-type,x-shabang-token" } });
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("access-control-allow-origin")).toBe(GHOST_ORIGIN);
     expect(preflight.headers.get("access-control-allow-methods")).toMatch(/DELETE/);
-    expect(preflight.headers.get("access-control-allow-headers")).toMatch(/x-ghost-token/i);
+    expect(preflight.headers.get("access-control-allow-headers")).toMatch(/x-shabang-token/i);
   });
 
   it("compiles a program, and is closed to web pages like the other loop execution routes", async () => {
@@ -119,13 +119,13 @@ describe("finding 1: who may run a batch, and what counts as a confirmation", ()
     expect(api.calls).toHaveLength(0);
   });
 
-  it("runs real executors only for a pinned caller: without GHOST_EXTENSION_ID or a token, any extension gets 403", async () => {
+  it("runs real executors only for a pinned caller: without SHABANG_EXTENSION_ID or a token, any extension gets 403", async () => {
     const api = composioOk();
     const unpinned = appWith(COMPOSIO_ENV, { fetch: api.fetch });
     for (const headers of [{ Origin: GHOST_ORIGIN }, { Origin: OTHER_EXTENSION }, {}] as Record<string, string>[]) {
       const res = await call(unpinned, "POST", "/v1/loop/preview", mailBody(), headers);
       expect(res.status).toBe(403);
-      expect(res.json.error).toMatch(/GHOST_EXTENSION_ID/);
+      expect(res.json.error).toMatch(/SHABANG_EXTENSION_ID/);
     }
     expect(api.calls).toHaveLength(0);
 
@@ -136,15 +136,15 @@ describe("finding 1: who may run a batch, and what counts as a confirmation", ()
 
   it("accepts the per-install secret from a caller without an Origin (the desktop daemon), and rejects a wrong one", async () => {
     const api = composioOk();
-    const hono = appWith({ ...COMPOSIO_ENV, GHOST_EXECUTE_TOKEN: EXECUTE_TOKEN }, { fetch: api.fetch });
-    expect((await call(hono, "POST", "/v1/loop/preview", mailBody(), { "X-Ghost-Token": "wrong-secret-0123456789" })).status).toBe(401);
+    const hono = appWith({ ...COMPOSIO_ENV, SHABANG_EXECUTE_TOKEN: EXECUTE_TOKEN }, { fetch: api.fetch });
+    expect((await call(hono, "POST", "/v1/loop/preview", mailBody(), { "X-Shabang-Token": "wrong-secret-0123456789" })).status).toBe(401);
     expect((await call(hono, "POST", "/v1/loop/preview", mailBody())).status).toBe(403);
-    const run = await previewAndRun(hono, mailBody(), { "X-Ghost-Token": EXECUTE_TOKEN });
+    const run = await previewAndRun(hono, mailBody(), { "X-Shabang-Token": EXECUTE_TOKEN });
     expect(run.status).toBe(200);
     expect(api.calls).toHaveLength(1);
     // A short secret is not a secret: it is ignored, so it can never make a caller trusted.
-    expect(loadConfig({ GHOST_EXECUTE_TOKEN: "short" }).executeToken).toBeUndefined();
-    expect(loadConfig({ GHOST_EXTENSION_ID: "not-an-id" }).extensionId).toBeUndefined();
+    expect(loadConfig({ SHABANG_EXECUTE_TOKEN: "short" }).executeToken).toBeUndefined();
+    expect(loadConfig({ SHABANG_EXTENSION_ID: "not-an-id" }).extensionId).toBeUndefined();
   });
 
   it("ignores a caller-asserted confirmIrreversible: only a preview token confirms a batch", async () => {

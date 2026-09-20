@@ -164,7 +164,7 @@ export type BusyPart = "only" | "start" | "middle" | "end";
 
 /**
  * Every row has one cell per day (no rowspans): the table stays a regular grid, so a cell's column index
- * always matches its day header for assistive tech and for Ghost's table detection.
+ * always matches its day header for assistive tech and for Shabang's table detection.
  */
 export type GridCell =
   | { kind: "free"; slot: PickedSlot }

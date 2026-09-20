@@ -1,8 +1,8 @@
 {
-  "schemaVersion": "ghost.walk-replay.v1",
+  "schemaVersion": "shabang.walk-replay.v1",
   "caseId": "9f3c1d2e-7a54-4b1c-9d80-4e6f2a3b5c71",
   "observed": {
-    "schemaVersion": "ghost.walk-outcome.v1",
+    "schemaVersion": "shabang.walk-outcome.v1",
     "runId": "9f3c1d2e-7a54-4b1c-9d80-4e6f2a3b5c71",
     "state": "parked",
     "reason": "locked-action",

@@ -1,5 +1,5 @@
 // Cold start, the SURFACE half (docs/knowledge.md sections 1 and 3). The résumé half of cold start answers "who is
-// this person"; this answers "what does this person use", which is the half that makes Ghost useful on a screen it
+// this person"; this answers "what does this person use", which is the half that makes Shabang useful on a screen it
 // has never seen — a feed, a player, a settings pane, a board, a native window, anything.
 //
 // The rule that matters most here: a surface is an OPAQUE ID. Nothing in this file parses one, matches one against
@@ -35,7 +35,7 @@ export interface SurfaceObservation {
   actions?: readonly HistoryAction[];
   /**
    * The source knows this place EXISTS but not that it is used (an installed application). It becomes a surface
-   * Ghost can recognise, and never a habit: a thing you own is not a thing you do.
+   * Shabang can recognise, and never a habit: a thing you own is not a thing you do.
    */
   installedOnly?: boolean;
 }
@@ -369,7 +369,7 @@ const KIND_PHRASE: Record<PageKind, string> = {
   mail: "places you write to people in",
   form: "things you fill in",
   app: "applications",
-  unknown: "places Ghost cannot place yet",
+  unknown: "places Shabang cannot place yet",
 };
 
 /**
@@ -383,7 +383,7 @@ function summarizeSurfaces(
   const lines: string[] = [];
   const used = surfaces.filter((s) => !s.installedOnly);
   const owned = surfaces.length - used.length;
-  if (used.length > 0) lines.push(`Ghost knows ${used.length} place${used.length === 1 ? "" : "s"} you actually use.`);
+  if (used.length > 0) lines.push(`Shabang knows ${used.length} place${used.length === 1 ? "" : "s"} you actually use.`);
   if (owned > 0) lines.push(`It can also recognise ${owned} more you have but has not seen you in.`);
   for (const kind of kinds.slice(0, 2)) {
     if (kind.kind === "unknown" || kind.visits === 0) continue;

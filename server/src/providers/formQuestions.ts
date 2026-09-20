@@ -8,7 +8,7 @@ import {
   type ChoiceQuestion,
   type FieldKind,
   type Questions,
-} from "@ghost/shared";
+} from "@shabang/shared";
 
 const MAX_OPTIONS = 12;
 const MAX_TEXT = 200;

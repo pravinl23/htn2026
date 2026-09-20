@@ -1,4 +1,4 @@
-import type { CapturedField, FieldKind, FormPredictRequest } from "@ghost/shared";
+import type { CapturedField, FieldKind, FormPredictRequest } from "@shabang/shared";
 
 /** A 12-field job application (fictional company) shared by the contract tests and `pnpm test:live`. No personal data. */
 const SAMPLE: [label: string, kind: FieldKind, extra?: Partial<CapturedField>][] = [

@@ -1,4 +1,4 @@
-import type { CapturedField } from "@ghost/shared";
+import type { CapturedField } from "@shabang/shared";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../src/config";
@@ -104,7 +104,7 @@ describe("TypeSafe (Jev) request contract", () => {
   it("the whole route makes ONE request for a 12-field form, with only known question fields", async () => {
     const names = Array.from({ length: 12 }, (_, i) => `f${i}`);
     const fetchMock = vi.fn(async () => typesafeAnswers(names));
-    const config = loadConfig({ TYPESAFE_API_KEY: FAKE_KEY, GHOST_FAST_PATH: "0" });
+    const config = loadConfig({ TYPESAFE_API_KEY: FAKE_KEY, SHABANG_FAST_PATH: "0" });
     const app = new Hono();
     registerPredictRoutes(app, config, { provider: createTypesafeProvider({ apiKey: FAKE_KEY, fetch: fetchMock as unknown as typeof fetch }), log: () => undefined });
 

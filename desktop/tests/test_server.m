@@ -1,12 +1,12 @@
-// GHServerClient tests against a stub NSURLProtocol: no socket is ever opened.
-#import "GHTest.h"
-#import "GHCore.h"
-#import "GHField.h"
-#import "GHServerClient.h"
+// SBServerClient tests against a stub NSURLProtocol: no socket is ever opened.
+#import "SBTest.h"
+#import "SBCore.h"
+#import "SBField.h"
+#import "SBServerClient.h"
 
 #pragma mark - stub protocol
 
-@interface GHStubReply : NSObject
+@interface SBStubReply : NSObject
 @property (nonatomic) NSInteger status;
 @property (nonatomic, copy) NSString *contentType;
 @property (nonatomic, copy) NSArray<NSData *> *chunks;
@@ -17,16 +17,16 @@
 + (instancetype)sse:(NSArray<NSString *> *)chunks;
 @end
 
-@implementation GHStubReply
+@implementation SBStubReply
 + (instancetype)json:(id)object status:(NSInteger)status {
-    GHStubReply *reply = [[GHStubReply alloc] init];
+    SBStubReply *reply = [[SBStubReply alloc] init];
     reply.status = status;
     reply.contentType = @"application/json";
     reply.chunks = @[ [NSJSONSerialization dataWithJSONObject:object options:0 error:NULL] ];
     return reply;
 }
 + (instancetype)sse:(NSArray<NSString *> *)chunks {
-    GHStubReply *reply = [[GHStubReply alloc] init];
+    SBStubReply *reply = [[SBStubReply alloc] init];
     reply.status = 200;
     reply.contentType = @"text/event-stream; charset=utf-8";
     NSMutableArray *data = [NSMutableArray array];
@@ -36,7 +36,7 @@
 }
 @end
 
-@interface GHStubRequest : NSObject
+@interface SBStubRequest : NSObject
 @property (nonatomic, copy) NSString *method;
 @property (nonatomic, copy) NSString *path;
 @property (nonatomic, copy) NSDictionary<NSString *, NSString *> *headers;
@@ -45,30 +45,30 @@
 @property (nonatomic, readonly) NSDictionary *bodyJSON;
 @end
 
-@implementation GHStubRequest
+@implementation SBStubRequest
 - (NSString *)bodyText { return [[NSString alloc] initWithData:self.body ?: [NSData data] encoding:NSUTF8StringEncoding]; }
 - (NSDictionary *)bodyJSON { return self.body.length ? [NSJSONSerialization JSONObjectWithData:self.body options:0 error:NULL] : nil; }
 @end
 
-@interface GHStubURLProtocol : NSURLProtocol
-+ (void)resetWithHandler:(GHStubReply * (^)(GHStubRequest *request))handler;
-+ (NSArray<GHStubRequest *> *)requests;
+@interface SBStubURLProtocol : NSURLProtocol
++ (void)resetWithHandler:(SBStubReply * (^)(SBStubRequest *request))handler;
++ (NSArray<SBStubRequest *> *)requests;
 @end
 
-static GHStubReply * (^gHandler)(GHStubRequest *);
-static NSMutableArray<GHStubRequest *> *gRequests;
+static SBStubReply * (^gHandler)(SBStubRequest *);
+static NSMutableArray<SBStubRequest *> *gRequests;
 
-@implementation GHStubURLProtocol
+@implementation SBStubURLProtocol
 
-+ (void)resetWithHandler:(GHStubReply * (^)(GHStubRequest *))handler {
-    @synchronized ([GHStubURLProtocol class]) {
++ (void)resetWithHandler:(SBStubReply * (^)(SBStubRequest *))handler {
+    @synchronized ([SBStubURLProtocol class]) {
         gHandler = [handler copy];
         gRequests = [NSMutableArray array];
     }
 }
 
-+ (NSArray<GHStubRequest *> *)requests {
-    @synchronized ([GHStubURLProtocol class]) { return [gRequests copy]; }
++ (NSArray<SBStubRequest *> *)requests {
+    @synchronized ([SBStubURLProtocol class]) { return [gRequests copy]; }
 }
 
 + (BOOL)canInitWithRequest:(NSURLRequest *)request { return YES; }
@@ -88,17 +88,17 @@ static NSData *ReadBody(NSURLRequest *request) {
 }
 
 - (void)startLoading {
-    GHStubRequest *seen = [[GHStubRequest alloc] init];
+    SBStubRequest *seen = [[SBStubRequest alloc] init];
     seen.method = self.request.HTTPMethod;
     seen.path = self.request.URL.path;
     seen.headers = self.request.allHTTPHeaderFields ?: @{};
     seen.body = ReadBody(self.request);
-    GHStubReply * (^handler)(GHStubRequest *);
-    @synchronized ([GHStubURLProtocol class]) {
+    SBStubReply * (^handler)(SBStubRequest *);
+    @synchronized ([SBStubURLProtocol class]) {
         [gRequests addObject:seen];
         handler = gHandler;
     }
-    GHStubReply *reply = handler ? handler(seen) : nil;
+    SBStubReply *reply = handler ? handler(seen) : nil;
     if (!reply || reply.error) {
         [self.client URLProtocol:self didFailWithError:reply.error ?: [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCannotConnectToHost userInfo:nil]];
         return;
@@ -116,28 +116,28 @@ static NSData *ReadBody(NSURLRequest *request) {
 
 #pragma mark - helpers
 
-static GHCore *ServerCore(void) {
-    static GHCore *core;
+static SBCore *ServerCore(void) {
+    static SBCore *core;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        NSString *path = [GHCore defaultBundlePath];
-        core = path ? [[GHCore alloc] initWithBundlePath:path error:NULL] : nil;
+        NSString *path = [SBCore defaultBundlePath];
+        core = path ? [[SBCore alloc] initWithBundlePath:path error:NULL] : nil;
     });
     return core;
 }
 
-static GHServerClient *Client(GHFormCache *cache) {
+static SBServerClient *Client(SBFormCache *cache) {
     NSURLSessionConfiguration *configuration = [NSURLSessionConfiguration ephemeralSessionConfiguration];
-    configuration.protocolClasses = @[ [GHStubURLProtocol class] ];
-    return [[GHServerClient alloc] initWithBaseURLString:@"http://127.0.0.1:8787/" core:ServerCore() configuration:configuration cache:cache];
+    configuration.protocolClasses = @[ [SBStubURLProtocol class] ];
+    return [[SBServerClient alloc] initWithBaseURLString:@"http://127.0.0.1:8787/" core:ServerCore() configuration:configuration cache:cache];
 }
 
-static NSArray<GHField *> *SampleFields(void) {
-    GHField *first = [GHField fieldWithSignature:@"txt|first" label:@"First name" kind:GHKindText];
-    GHField *email = [GHField fieldWithSignature:@"txt|email" label:@"Email" kind:GHKindEmail];
+static NSArray<SBField *> *SampleFields(void) {
+    SBField *first = [SBField fieldWithSignature:@"txt|first" label:@"First name" kind:SBKindText];
+    SBField *email = [SBField fieldWithSignature:@"txt|email" label:@"Email" kind:SBKindEmail];
     email.value = @"someone.typed@example.org";
-    GHField *card = [GHField fieldWithSignature:@"txt|card" label:@"Card number" kind:GHKindText];
-    GHField *submit = [GHField fieldWithSignature:@"btn|submit" label:@"Submit" kind:GHKindButton];
+    SBField *card = [SBField fieldWithSignature:@"txt|card" label:@"Card number" kind:SBKindText];
+    SBField *submit = [SBField fieldWithSignature:@"btn|submit" label:@"Submit" kind:SBKindButton];
     submit.locked = YES;
     return @[ first, email, card, submit ];
 }
@@ -151,15 +151,15 @@ static NSDictionary *PredictReply(void) {
 #pragma mark - predict/form
 
 GH_TEST(server_predict_sends_fact_keys_and_no_values) {
-    [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) { return [GHStubReply json:PredictReply() status:200]; }];
-    GHServerClient *client = Client(nil);
+    [SBStubURLProtocol resetWithHandler:^SBStubReply *(SBStubRequest *request) { return [SBStubReply json:PredictReply() status:200]; }];
+    SBServerClient *client = Client(nil);
     NSDictionary *profile = [ServerCore() demoProfile];
     NSArray *keys = [[profile[@"facts"] allKeys] sortedArrayUsingSelector:@selector(compare:)];
-    __block GHFormPrediction *prediction;
+    __block SBFormPrediction *prediction;
     __block BOOL done = NO;
     [client predictFormForFields:SampleFields() factKeys:keys origin:@"app://com.apple.Safari/jobs.example.com" formSignature:@"form-abc"
-                      completion:^(GHFormPrediction *result, NSString *errorCode) { prediction = result; done = YES; }];
-    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return done; }));
+                      completion:^(SBFormPrediction *result, NSString *errorCode) { prediction = result; done = YES; }];
+    GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return done; }));
     GH_ASSERT(prediction != nil);
     GH_ASSERT_EQUAL_OBJECTS(prediction.provider, @"jev-gateway");
     GH_ASSERT(prediction.calibrated);
@@ -170,9 +170,9 @@ GH_TEST(server_predict_sends_fact_keys_and_no_values) {
     GH_ASSERT(client.lastLatencyMs != nil);
     GH_ASSERT(client.lastErrorCode == nil);
 
-    NSArray<GHStubRequest *> *requests = [GHStubURLProtocol requests];
+    NSArray<SBStubRequest *> *requests = [SBStubURLProtocol requests];
     GH_ASSERT_EQUAL_INT(requests.count, 1); // ONE call for the whole form
-    GHStubRequest *request = requests[0];
+    SBStubRequest *request = requests[0];
     GH_ASSERT_EQUAL_OBJECTS(request.method, @"POST");
     GH_ASSERT_EQUAL_OBJECTS(request.path, @"/v1/predict/form");
     GH_ASSERT_EQUAL_OBJECTS(request.headers[@"Content-Type"], @"application/json");
@@ -195,18 +195,18 @@ GH_TEST(server_predict_sends_fact_keys_and_no_values) {
 }
 
 GH_TEST(server_predict_repeat_visit_makes_zero_calls) {
-    [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) { return [GHStubReply json:PredictReply() status:200]; }];
-    NSString *cachePath = [GHTestTempDirectory() stringByAppendingPathComponent:@"form-cache.json"];
-    GHServerClient *client = Client([[GHFormCache alloc] initWithPath:cachePath]);
+    [SBStubURLProtocol resetWithHandler:^SBStubReply *(SBStubRequest *request) { return [SBStubReply json:PredictReply() status:200]; }];
+    NSString *cachePath = [SBTestTempDirectory() stringByAppendingPathComponent:@"form-cache.json"];
+    SBServerClient *client = Client([[SBFormCache alloc] initWithPath:cachePath]);
     NSArray *keys = @[ @"firstName", @"email" ];
     __block int completions = 0;
-    __block GHFormPrediction *second;
-    [client predictFormForFields:SampleFields() factKeys:keys origin:@"app://x/host" formSignature:@"f1" completion:^(GHFormPrediction *result, NSString *code) { completions++; }];
-    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return completions == 1; }));
+    __block SBFormPrediction *second;
+    [client predictFormForFields:SampleFields() factKeys:keys origin:@"app://x/host" formSignature:@"f1" completion:^(SBFormPrediction *result, NSString *code) { completions++; }];
+    GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return completions == 1; }));
     [client predictFormForFields:SampleFields() factKeys:@[ @"email", @"firstName" ] origin:@"app://x/host" formSignature:@"f1"
-                      completion:^(GHFormPrediction *result, NSString *code) { second = result; completions++; }];
-    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return completions == 2; }));
-    GH_ASSERT_EQUAL_INT([GHStubURLProtocol requests].count, 1);
+                      completion:^(SBFormPrediction *result, NSString *code) { second = result; completions++; }];
+    GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return completions == 2; }));
+    GH_ASSERT_EQUAL_INT([SBStubURLProtocol requests].count, 1);
     GH_ASSERT(second.fromCache);
     GH_ASSERT_EQUAL_OBJECTS(second.ghostSource, @"cache");
     GH_ASSERT_EQUAL_OBJECTS(second.provider, @"jev-gateway");
@@ -220,7 +220,7 @@ GH_TEST(server_predict_repeat_visit_makes_zero_calls) {
     GH_ASSERT([onDisk containsString:@"firstName"]);
     GH_ASSERT_FALSE([onDisk containsString:@"Alex"]);
     GH_ASSERT_FALSE([onDisk containsString:@"app://x/host"]); // keys are hashed: the file does not list where the user has been
-    GHFormCache *reopened = [[GHFormCache alloc] initWithPath:cachePath];
+    SBFormCache *reopened = [[SBFormCache alloc] initWithPath:cachePath];
     GH_ASSERT([reopened entryForOrigin:@"app://x/host" formSignature:@"f1" factKeys:keys] != nil);
     GH_ASSERT([reopened entryForOrigin:@"app://x/host" formSignature:@"f1" factKeys:@[ @"firstName" ]] == nil); // profile shape changed: ask again
     GH_ASSERT([reopened entryForOrigin:@"app://y/host" formSignature:@"f1" factKeys:keys] == nil);
@@ -230,91 +230,91 @@ GH_TEST(server_predict_does_not_cache_fallback_answers) {
     NSMutableDictionary *reply = [PredictReply() mutableCopy];
     reply[@"fallbackFrom"] = @"jev-gateway";
     reply[@"provider"] = @"heuristic";
-    [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) { return [GHStubReply json:reply status:200]; }];
-    GHFormCache *cache = [[GHFormCache alloc] initWithPath:nil];
-    GHServerClient *client = Client(cache);
-    __block GHFormPrediction *prediction;
+    [SBStubURLProtocol resetWithHandler:^SBStubReply *(SBStubRequest *request) { return [SBStubReply json:reply status:200]; }];
+    SBFormCache *cache = [[SBFormCache alloc] initWithPath:nil];
+    SBServerClient *client = Client(cache);
+    __block SBFormPrediction *prediction;
     __block BOOL done = NO;
-    [client predictFormForFields:SampleFields() factKeys:@[ @"firstName" ] origin:@"o" formSignature:@"f" completion:^(GHFormPrediction *result, NSString *code) { prediction = result; done = YES; }];
-    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return done; }));
+    [client predictFormForFields:SampleFields() factKeys:@[ @"firstName" ] origin:@"o" formSignature:@"f" completion:^(SBFormPrediction *result, NSString *code) { prediction = result; done = YES; }];
+    GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return done; }));
     GH_ASSERT_EQUAL_OBJECTS(prediction.fallbackFrom, @"jev-gateway");
     GH_ASSERT_EQUAL_INT(cache.count, 0);
 }
 
 GH_TEST(server_errors_are_short_codes) {
-    GHServerClient *client = Client(nil);
+    SBServerClient *client = Client(nil);
     NSArray<NSArray *> *cases = @[
-        @[ [GHStubReply json:@{ @"error": @"boom with details" } status:500], @"http-500" ],
-        @[ [GHStubReply json:@[ @"not", @"an", @"object" ] status:200], @"bad-response" ],
-        @[ [GHStubReply json:@{ @"assignments": @"nope", @"provider": @"x" } status:200], @"bad-response" ],
-        @[ [GHStubReply json:@{ @"assignments": @[], @"provider": @"x" } status:200], @"empty" ],
+        @[ [SBStubReply json:@{ @"error": @"boom with details" } status:500], @"http-500" ],
+        @[ [SBStubReply json:@[ @"not", @"an", @"object" ] status:200], @"bad-response" ],
+        @[ [SBStubReply json:@{ @"assignments": @"nope", @"provider": @"x" } status:200], @"bad-response" ],
+        @[ [SBStubReply json:@{ @"assignments": @[], @"provider": @"x" } status:200], @"empty" ],
     ];
     for (NSArray *testCase in cases) {
-        [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) { return testCase[0]; }];
+        [SBStubURLProtocol resetWithHandler:^SBStubReply *(SBStubRequest *request) { return testCase[0]; }];
         __block NSString *code;
         __block BOOL done = NO;
-        [client predictFormForFields:SampleFields() factKeys:@[ @"firstName" ] origin:@"o" formSignature:@"f" completion:^(GHFormPrediction *result, NSString *errorCode) { code = errorCode; done = YES; }];
-        GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return done; }));
+        [client predictFormForFields:SampleFields() factKeys:@[ @"firstName" ] origin:@"o" formSignature:@"f" completion:^(SBFormPrediction *result, NSString *errorCode) { code = errorCode; done = YES; }];
+        GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return done; }));
         GH_ASSERT_EQUAL_OBJECTS(code, testCase[1]);
     }
-    GHStubReply *timeout = [[GHStubReply alloc] init];
+    SBStubReply *timeout = [[SBStubReply alloc] init];
     timeout.error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorTimedOut userInfo:nil];
-    [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) { return timeout; }];
+    [SBStubURLProtocol resetWithHandler:^SBStubReply *(SBStubRequest *request) { return timeout; }];
     __block NSString *code;
-    [client checkHealthWithCompletion:^(GHServerHealth *health, NSString *errorCode) { code = errorCode ?: @"ok"; }];
-    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return code != nil; }));
+    [client checkHealthWithCompletion:^(SBServerHealth *health, NSString *errorCode) { code = errorCode ?: @"ok"; }];
+    GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return code != nil; }));
     GH_ASSERT_EQUAL_OBJECTS(code, @"timeout");
     GH_ASSERT_EQUAL_OBJECTS(client.lastErrorCode, @"timeout");
 }
 
 GH_TEST(server_predict_with_nothing_to_ask_makes_no_call) {
-    [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) { return [GHStubReply json:PredictReply() status:200]; }];
-    GHServerClient *client = Client(nil);
-    GHField *card = [GHField fieldWithSignature:@"txt|card" label:@"Card number" kind:GHKindText];
+    [SBStubURLProtocol resetWithHandler:^SBStubReply *(SBStubRequest *request) { return [SBStubReply json:PredictReply() status:200]; }];
+    SBServerClient *client = Client(nil);
+    SBField *card = [SBField fieldWithSignature:@"txt|card" label:@"Card number" kind:SBKindText];
     __block NSString *code;
-    [client predictFormForFields:@[ card ] factKeys:@[ @"firstName" ] origin:@"o" formSignature:@"f" completion:^(GHFormPrediction *result, NSString *errorCode) { code = errorCode; }];
-    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return code != nil; }));
+    [client predictFormForFields:@[ card ] factKeys:@[ @"firstName" ] origin:@"o" formSignature:@"f" completion:^(SBFormPrediction *result, NSString *errorCode) { code = errorCode; }];
+    GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return code != nil; }));
     GH_ASSERT_EQUAL_OBJECTS(code, @"bad-request");
-    GH_ASSERT_EQUAL_INT([GHStubURLProtocol requests].count, 0);
+    GH_ASSERT_EQUAL_INT([SBStubURLProtocol requests].count, 0);
 }
 
 GH_TEST(server_invalid_url_never_leaves) {
-    GH_ASSERT_EQUAL_OBJECTS([GHServerClient normalizedServerURL:@" http://localhost:8787/// "], @"http://localhost:8787");
-    GH_ASSERT_EQUAL_OBJECTS([GHServerClient normalizedServerURL:@"https://ghost.example/api/"], @"https://ghost.example/api");
-    GH_ASSERT([GHServerClient normalizedServerURL:@"ftp://localhost"] == nil);
-    GH_ASSERT([GHServerClient normalizedServerURL:@"http://user:pw@localhost:8787"] == nil);
-    GH_ASSERT([GHServerClient normalizedServerURL:@"localhost:8787"] == nil);
-    [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) { return [GHStubReply json:@{} status:200]; }];
-    GHServerClient *client = Client(nil);
+    GH_ASSERT_EQUAL_OBJECTS([SBServerClient normalizedServerURL:@" http://localhost:8787/// "], @"http://localhost:8787");
+    GH_ASSERT_EQUAL_OBJECTS([SBServerClient normalizedServerURL:@"https://ghost.example/api/"], @"https://ghost.example/api");
+    GH_ASSERT([SBServerClient normalizedServerURL:@"ftp://localhost"] == nil);
+    GH_ASSERT([SBServerClient normalizedServerURL:@"http://user:pw@localhost:8787"] == nil);
+    GH_ASSERT([SBServerClient normalizedServerURL:@"localhost:8787"] == nil);
+    [SBStubURLProtocol resetWithHandler:^SBStubReply *(SBStubRequest *request) { return [SBStubReply json:@{} status:200]; }];
+    SBServerClient *client = Client(nil);
     client.baseURLString = @"file:///etc/passwd";
     __block NSString *code;
-    [client checkHealthWithCompletion:^(GHServerHealth *health, NSString *errorCode) { code = errorCode; }];
-    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return code != nil; }));
+    [client checkHealthWithCompletion:^(SBServerHealth *health, NSString *errorCode) { code = errorCode; }];
+    GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return code != nil; }));
     GH_ASSERT_EQUAL_OBJECTS(code, @"no-server-url");
-    GH_ASSERT_EQUAL_INT([GHStubURLProtocol requests].count, 0);
+    GH_ASSERT_EQUAL_INT([SBStubURLProtocol requests].count, 0);
 }
 
 #pragma mark - health, presence, origin
 
 GH_TEST(server_health_and_presence) {
-    [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) {
+    [SBStubURLProtocol resetWithHandler:^SBStubReply *(SBStubRequest *request) {
         if ([request.path isEqualToString:@"/v1/health"]) {
-            return [GHStubReply json:@{ @"ok": @YES, @"provider": @"heuristic", @"calibrated": @NO, @"textProvider": @"template", @"version": @"0.1.0" } status:200];
+            return [SBStubReply json:@{ @"ok": @YES, @"provider": @"heuristic", @"calibrated": @NO, @"textProvider": @"template", @"version": @"0.1.0" } status:200];
         }
-        return [GHStubReply json:@{ @"clients": @[ @{ @"client": @"extension", @"browser": @"Chrome", @"ageMs": @12000 },
+        return [SBStubReply json:@{ @"clients": @[ @{ @"client": @"extension", @"browser": @"Chrome", @"ageMs": @12000 },
                                                    @{ @"client": @"extension", @"browser": @"firefox", @"ageMs": @200000 },
                                                    @{ @"client": @"desktop", @"browser": @"arc", @"ageMs": @1 } ] } status:200];
     }];
-    GHServerClient *client = Client(nil);
-    __block GHServerHealth *health;
-    __block GHPresence *presence;
-    [client checkHealthWithCompletion:^(GHServerHealth *result, NSString *code) { health = result; }];
-    [client fetchPresenceWithCompletion:^(GHPresence *result, NSString *code) { presence = result; }];
-    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return health != nil && presence != nil; }));
+    SBServerClient *client = Client(nil);
+    __block SBServerHealth *health;
+    __block SBPresence *presence;
+    [client checkHealthWithCompletion:^(SBServerHealth *result, NSString *code) { health = result; }];
+    [client fetchPresenceWithCompletion:^(SBPresence *result, NSString *code) { presence = result; }];
+    GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return health != nil && presence != nil; }));
     GH_ASSERT_EQUAL_OBJECTS(health.provider, @"heuristic");
     GH_ASSERT_FALSE(health.calibrated);
     GH_ASSERT_EQUAL_OBJECTS(health.textProvider, @"template");
-    for (GHStubRequest *request in [GHStubURLProtocol requests]) {
+    for (SBStubRequest *request in [SBStubURLProtocol requests]) {
         GH_ASSERT_EQUAL_OBJECTS(request.method, @"GET");
         GH_ASSERT(request.headers[@"Origin"] == nil);
     }
@@ -328,7 +328,7 @@ GH_TEST(server_health_and_presence) {
 
 GH_TEST(server_presence_accepts_last_seen_and_ignores_junk) {
     NSDate *now = [NSDate dateWithTimeIntervalSince1970:2000000];
-    GHPresence *presence = [GHPresence presenceFromJSONObject:@{ @"clients": @[
+    SBPresence *presence = [SBPresence presenceFromJSONObject:@{ @"clients": @[
         @{ @"client": @"extension", @"browser": @"arc", @"lastSeen": @(2000000 * 1000.0 - 30000) },
         @{ @"client": @"extension", @"browser": @"edge", @"lastSeen": @(2000000 * 1000.0 + 600000) }, // from the future: proves nothing
         @{ @"client": @"extension", @"browser": @"brave" }, @"junk", @{ @"client": @"extension", @"browser": @7, @"ageMs": @1 } ] } now:now];
@@ -336,27 +336,27 @@ GH_TEST(server_presence_accepts_last_seen_and_ignores_junk) {
     GH_ASSERT([presence isExtensionActiveForBundleId:@"company.thebrowser.Browser"]);
     GH_ASSERT_FALSE([presence isExtensionActiveForBundleId:@"com.microsoft.edgemac"]);
     GH_ASSERT_FALSE([presence isExtensionActiveForBundleId:@"com.brave.Browser"]);
-    GH_ASSERT_EQUAL_INT([GHPresence presenceFromJSONObject:@"nope" now:now].extensionAges.count, 0);
+    GH_ASSERT_EQUAL_INT([SBPresence presenceFromJSONObject:@"nope" now:now].extensionAges.count, 0);
 }
 
 GH_TEST(server_origin_never_carries_path_or_query) {
-    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"com.apple.Safari" pageURL:@"https://Jobs.Example.com/apply/123?token=abc#frag" windowTitle:@"Apply"],
+    GH_ASSERT_EQUAL_OBJECTS([SBServerClient originForBundleId:@"com.apple.Safari" pageURL:@"https://Jobs.Example.com/apply/123?token=abc#frag" windowTitle:@"Apply"],
                             @"app://com.apple.Safari/jobs.example.com");
     // A window title never leaves: not a host-looking word in a tab title, a document name or a mailbox address.
-    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"org.mozilla.firefox" pageURL:nil windowTitle:@"Careers at acme.io - Mozilla Firefox"], @"app://org.mozilla.firefox");
-    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"com.google.Chrome" pageURL:nil windowTitle:@"localhost:5173/apply"], @"app://com.google.Chrome");
-    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"com.microsoft.Word" pageURL:nil windowTitle:@"Q3-layoffs.docx"], @"app://com.microsoft.Word");
-    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"com.apple.mail" pageURL:nil windowTitle:@"Inbox – alex.chen@gmail.com"], @"app://com.apple.mail");
-    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"com.apple.Safari" pageURL:@"about:blank" windowTitle:@"J.Smith offer"], @"app://com.apple.Safari");
-    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:@"com.apple.TextEdit" pageURL:nil windowTitle:@"Untitled"], @"app://com.apple.TextEdit");
-    GH_ASSERT_EQUAL_OBJECTS([GHServerClient originForBundleId:nil pageURL:nil windowTitle:nil], @"app://unknown");
+    GH_ASSERT_EQUAL_OBJECTS([SBServerClient originForBundleId:@"org.mozilla.firefox" pageURL:nil windowTitle:@"Careers at acme.io - Mozilla Firefox"], @"app://org.mozilla.firefox");
+    GH_ASSERT_EQUAL_OBJECTS([SBServerClient originForBundleId:@"com.google.Chrome" pageURL:nil windowTitle:@"localhost:5173/apply"], @"app://com.google.Chrome");
+    GH_ASSERT_EQUAL_OBJECTS([SBServerClient originForBundleId:@"com.microsoft.Word" pageURL:nil windowTitle:@"Q3-layoffs.docx"], @"app://com.microsoft.Word");
+    GH_ASSERT_EQUAL_OBJECTS([SBServerClient originForBundleId:@"com.apple.mail" pageURL:nil windowTitle:@"Inbox – alex.chen@gmail.com"], @"app://com.apple.mail");
+    GH_ASSERT_EQUAL_OBJECTS([SBServerClient originForBundleId:@"com.apple.Safari" pageURL:@"about:blank" windowTitle:@"J.Smith offer"], @"app://com.apple.Safari");
+    GH_ASSERT_EQUAL_OBJECTS([SBServerClient originForBundleId:@"com.apple.TextEdit" pageURL:nil windowTitle:@"Untitled"], @"app://com.apple.TextEdit");
+    GH_ASSERT_EQUAL_OBJECTS([SBServerClient originForBundleId:nil pageURL:nil windowTitle:nil], @"app://unknown");
 }
 
 #pragma mark - SSE
 
 static NSArray<NSString *> *ParseChunks(NSArray<NSData *> *chunks, BOOL finish) {
     NSMutableArray<NSString *> *events = [NSMutableArray array];
-    GHSSEParser *parser = [[GHSSEParser alloc] initWithHandler:^(NSString *data) { [events addObject:data]; }];
+    SBSSEParser *parser = [[SBSSEParser alloc] initWithHandler:^(NSString *data) { [events addObject:data]; }];
     for (NSData *chunk in chunks) [parser appendData:chunk];
     if (finish) [parser finish];
     return events;
@@ -387,7 +387,7 @@ GH_TEST(sse_flushes_last_event_without_blank_line) {
 
 #pragma mark - ghost-text
 
-@interface GHStreamRecorder : NSObject <GHGhostTextStreamDelegate>
+@interface SBStreamRecorder : NSObject <SBGhostTextStreamDelegate>
 @property (nonatomic, strong) NSMutableArray<NSString *> *deltas;
 @property (nonatomic, copy) NSString *finalText;
 @property (nonatomic, copy) NSString *provider;
@@ -395,18 +395,18 @@ GH_TEST(sse_flushes_last_event_without_blank_line) {
 @property (nonatomic) int terminalCalls;
 @end
 
-@implementation GHStreamRecorder
+@implementation SBStreamRecorder
 - (instancetype)init {
     if ((self = [super init])) _deltas = [NSMutableArray array];
     return self;
 }
-- (void)ghostTextStream:(GHGhostTextStream *)stream didReceiveDelta:(NSString *)delta { [self.deltas addObject:delta]; }
-- (void)ghostTextStream:(GHGhostTextStream *)stream didFinishWithText:(NSString *)text provider:(NSString *)provider latencyMs:(NSNumber *)latencyMs {
+- (void)ghostTextStream:(SBGhostTextStream *)stream didReceiveDelta:(NSString *)delta { [self.deltas addObject:delta]; }
+- (void)ghostTextStream:(SBGhostTextStream *)stream didFinishWithText:(NSString *)text provider:(NSString *)provider latencyMs:(NSNumber *)latencyMs {
     self.finalText = text;
     self.provider = provider;
     self.terminalCalls++;
 }
-- (void)ghostTextStream:(GHGhostTextStream *)stream didFailWithCode:(NSString *)code {
+- (void)ghostTextStream:(SBGhostTextStream *)stream didFailWithCode:(NSString *)code {
     self.failure = code;
     self.terminalCalls++;
 }
@@ -428,18 +428,18 @@ static NSDictionary *ProfileWithAnswers(void) {
 }
 
 GH_TEST(server_ghost_text_streams_deltas_and_filters_facts) {
-    [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) {
+    [SBStubURLProtocol resetWithHandler:^SBStubReply *(SBStubRequest *request) {
         // Chunk boundaries fall inside a line and inside the event separator.
-        return [GHStubReply sse:@[ @"data: {\"del", @"ta\":\"I build \"}\n", @"\ndata: {\"delta\":\"fast tools.\"}\n\ndata: {\"done\":true,\"text\":\"I build fast tools.\",",
+        return [SBStubReply sse:@[ @"data: {\"del", @"ta\":\"I build \"}\n", @"\ndata: {\"delta\":\"fast tools.\"}\n\ndata: {\"done\":true,\"text\":\"I build fast tools.\",",
                                    @"\"provider\":\"template\",\"latencyMs\":12}\n\n" ]];
     }];
-    GHServerClient *client = Client(nil);
-    GHStreamRecorder *recorder = [[GHStreamRecorder alloc] init];
-    GHGhostTextStream *stream = [client streamGhostTextForFieldLabel:@"Why do you want to work here?" fieldSignature:@"area|why"
+    SBServerClient *client = Client(nil);
+    SBStreamRecorder *recorder = [[SBStreamRecorder alloc] init];
+    SBGhostTextStream *stream = [client streamGhostTextForFieldLabel:@"Why do you want to work here?" fieldSignature:@"area|why"
                                                          pageContext:@{ @"company": @"Acme", @"role": @" Engineer ", @"junk": @"dropped" }
                                                                 conversation:nil profile:ProfileWithAnswers() maxChars:600 delegate:recorder];
     GH_ASSERT(stream != nil);
-    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return recorder.terminalCalls > 0; }));
+    GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return recorder.terminalCalls > 0; }));
     GH_ASSERT(recorder.failure == nil);
     GH_ASSERT_EQUAL_OBJECTS([recorder.deltas componentsJoinedByString:@""], @"I build fast tools.");
     GH_ASSERT_EQUAL_OBJECTS(recorder.finalText, @"I build fast tools.");
@@ -448,8 +448,8 @@ GH_TEST(server_ghost_text_streams_deltas_and_filters_facts) {
     GH_ASSERT(stream.finished);
     GH_ASSERT_EQUAL_INT(recorder.terminalCalls, 1);
 
-    GHStubRequest *request = [GHStubURLProtocol requests].firstObject;
-    GH_ASSERT_EQUAL_OBJECTS(request.path, @"/v1/ghost-text");
+    SBStubRequest *request = [SBStubURLProtocol requests].firstObject;
+    GH_ASSERT_EQUAL_OBJECTS(request.path, @"/v1/shabang-text");
     GH_ASSERT_EQUAL_OBJECTS(request.headers[@"Content-Type"], @"application/json");
     GH_ASSERT_EQUAL_OBJECTS(request.headers[@"Accept"], @"text/event-stream");
     GH_ASSERT(request.headers[@"Origin"] == nil);
@@ -476,28 +476,28 @@ GH_TEST(server_ghost_text_streams_deltas_and_filters_facts) {
 }
 
 GH_TEST(server_ghost_text_refuses_sensitive_labels_locally) {
-    [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) { return [GHStubReply sse:@[ @"data: {\"delta\":\"x\"}\n\n" ]]; }];
-    GHServerClient *client = Client(nil);
-    GHStreamRecorder *recorder = [[GHStreamRecorder alloc] init];
-    GHGhostTextStream *stream = [client streamGhostTextForFieldLabel:@"Security code" fieldSignature:@"txt|code" pageContext:nil conversation:nil profile:ProfileWithAnswers() maxChars:0 delegate:recorder];
+    [SBStubURLProtocol resetWithHandler:^SBStubReply *(SBStubRequest *request) { return [SBStubReply sse:@[ @"data: {\"delta\":\"x\"}\n\n" ]]; }];
+    SBServerClient *client = Client(nil);
+    SBStreamRecorder *recorder = [[SBStreamRecorder alloc] init];
+    SBGhostTextStream *stream = [client streamGhostTextForFieldLabel:@"Security code" fieldSignature:@"txt|code" pageContext:nil conversation:nil profile:ProfileWithAnswers() maxChars:0 delegate:recorder];
     GH_ASSERT(stream == nil);
-    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return recorder.terminalCalls > 0; }));
+    GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return recorder.terminalCalls > 0; }));
     GH_ASSERT_EQUAL_OBJECTS(recorder.failure, @"sensitive");
-    GH_ASSERT_EQUAL_INT([GHStubURLProtocol requests].count, 0);
+    GH_ASSERT_EQUAL_INT([SBStubURLProtocol requests].count, 0);
 }
 
 GH_TEST(server_ghost_text_failures) {
-    GHServerClient *client = Client(nil);
+    SBServerClient *client = Client(nil);
     NSArray<NSArray *> *cases = @[
-        @[ [GHStubReply json:@{ @"error": @"fieldLabel looks sensitive; details" } status:400], @"http-400" ],
-        @[ [GHStubReply sse:@[ @"data: {\"delta\":\"half a sen" ]], @"stream-ended-early" ],
-        @[ [GHStubReply sse:@[ @"data: {\"delta\":\"x\"}\n\ndata: {\"error\":\"model said: <prompt echo>\"}\n\n" ]], @"server-error" ],
+        @[ [SBStubReply json:@{ @"error": @"fieldLabel looks sensitive; details" } status:400], @"http-400" ],
+        @[ [SBStubReply sse:@[ @"data: {\"delta\":\"half a sen" ]], @"stream-ended-early" ],
+        @[ [SBStubReply sse:@[ @"data: {\"delta\":\"x\"}\n\ndata: {\"error\":\"model said: <prompt echo>\"}\n\n" ]], @"server-error" ],
     ];
     for (NSArray *testCase in cases) {
-        [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) { return testCase[0]; }];
-        GHStreamRecorder *recorder = [[GHStreamRecorder alloc] init];
+        [SBStubURLProtocol resetWithHandler:^SBStubReply *(SBStubRequest *request) { return testCase[0]; }];
+        SBStreamRecorder *recorder = [[SBStreamRecorder alloc] init];
         [client streamGhostTextForFieldLabel:@"Tell us about a project" fieldSignature:@"area|project" pageContext:nil conversation:nil profile:ProfileWithAnswers() maxChars:0 delegate:recorder];
-        GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return recorder.terminalCalls > 0; }));
+        GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return recorder.terminalCalls > 0; }));
         GH_ASSERT_EQUAL_OBJECTS(recorder.failure, testCase[1]);
         GH_ASSERT(recorder.finalText == nil);
         GH_ASSERT_EQUAL_INT(recorder.terminalCalls, 1);
@@ -505,17 +505,17 @@ GH_TEST(server_ghost_text_failures) {
 }
 
 GH_TEST(server_ghost_text_cancel_reports_aborted_once) {
-    GHStubReply *open = [GHStubReply sse:@[ @"data: {\"delta\":\"typing...\"}\n\n" ]];
+    SBStubReply *open = [SBStubReply sse:@[ @"data: {\"delta\":\"typing...\"}\n\n" ]];
     open.hang = YES;
-    [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) { return open; }];
-    GHServerClient *client = Client(nil);
-    GHStreamRecorder *recorder = [[GHStreamRecorder alloc] init];
-    GHGhostTextStream *stream = [client streamGhostTextForFieldLabel:@"Cover letter" fieldSignature:@"area|cover" pageContext:nil conversation:nil profile:ProfileWithAnswers() maxChars:0 delegate:recorder];
-    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return recorder.deltas.count == 1; }));
+    [SBStubURLProtocol resetWithHandler:^SBStubReply *(SBStubRequest *request) { return open; }];
+    SBServerClient *client = Client(nil);
+    SBStreamRecorder *recorder = [[SBStreamRecorder alloc] init];
+    SBGhostTextStream *stream = [client streamGhostTextForFieldLabel:@"Cover letter" fieldSignature:@"area|cover" pageContext:nil conversation:nil profile:ProfileWithAnswers() maxChars:0 delegate:recorder];
+    GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return recorder.deltas.count == 1; }));
     [stream cancel];
     [stream cancel];
-    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return recorder.terminalCalls > 0; }));
-    GHTestWaitUntil(0.2, ^BOOL { return NO; }); // let the cancelled task complete: it must not report twice
+    GH_ASSERT(SBTestWaitUntil(5.0, ^BOOL { return recorder.terminalCalls > 0; }));
+    SBTestWaitUntil(0.2, ^BOOL { return NO; }); // let the cancelled task complete: it must not report twice
     GH_ASSERT_EQUAL_OBJECTS(recorder.failure, @"aborted");
     GH_ASSERT_EQUAL_INT(recorder.terminalCalls, 1);
 }

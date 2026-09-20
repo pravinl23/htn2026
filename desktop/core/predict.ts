@@ -4,7 +4,7 @@
 // (desktop/tests/test_core.m) pins every rule below through JavaScriptCore.
 //
 // Since the answer engine landed, the decision "what does this question get answered with" is NOT made here:
-// it is `proposeAnswer` from `@ghost/shared` (docs/answers.md), the same call the extension makes, so both
+// it is `proposeAnswer` from `@shabang/shared` (docs/answers.md), the same call the extension makes, so both
 // clients answer a form identically. What stays here is what only the desktop has:
 // - file fields: a resume / cover-letter upload maps to the `resumePath` / `coverLetterPath` fact and yields an
 //   `upload` ghost whose value is the absolute path and whose displayText is the file name only;
@@ -30,7 +30,7 @@ import {
   parseIsoDate,
   proposeAnswer,
   skipGhost,
-} from "@ghost/shared";
+} from "@shabang/shared";
 import type {
   AnswerProposal,
   AnswerSettings,
@@ -38,7 +38,7 @@ import type {
   FieldAssignment,
   FieldOption,
   GateGhost,
-  Ghost,
+  Shabang,
   GhostAction,
   GhostSettings,
   GhostSource,
@@ -47,7 +47,7 @@ import type {
   Profile,
   SkipReason,
   WalkGate,
-} from "@ghost/shared";
+} from "@shabang/shared";
 
 export interface PredictDeps {
   profile: Profile;
@@ -72,7 +72,7 @@ export interface ServedAssignment extends FieldAssignment {
   calibrated?: boolean;
 }
 
-/** What native capture adds to CapturedField (GHField `uploadKind`, `lazyOptions`). */
+/** What native capture adds to CapturedField (SBField `uploadKind`, `lazyOptions`). */
 export interface DesktopField extends CapturedField {
   uploadKind?: string;
   lazyOptions?: boolean;
@@ -83,8 +83,8 @@ export type DesktopGhostAction = GhostAction | "upload";
 /** How a lazy select's answer is matched against the options once the list opens. */
 export type LazyMatch = "text" | "decline" | "neutral";
 
-/** A Ghost, plus the Desktop-only `upload` action and the `lazy` marker of a select answered before its options exist. */
-export interface DesktopGhost extends Omit<Ghost, "action"> {
+/** A Shabang, plus the Desktop-only `upload` action and the `lazy` marker of a select answered before its options exist. */
+export interface DesktopGhost extends Omit<Shabang, "action"> {
   action: DesktopGhostAction;
   lazy?: boolean;
   /** Lazy selects only: "decline" means "whichever option means *prefer not to answer*", not this exact text. */
@@ -128,7 +128,7 @@ function tier(ghost: DesktopGhost, deps: PredictDeps): DesktopGhost {
   return ghost;
 }
 
-/** The page offered nothing to answer, so Ghost offers the first thing the user could act on at all. */
+/** The page offered nothing to answer, so Shabang offers the first thing the user could act on at all. */
 const LAST_RESORT_CONFIDENCE = 0.4;
 
 /** Controls the last resort may land on: focusing or opening one commits nothing. */
@@ -138,7 +138,7 @@ const FOCUSABLE_KINDS: ReadonlySet<string> = new Set([
 
 /**
  * Silence is only correct when there is nothing on screen to act on (docs/always-propose.md). With nothing
- * answered and no terminal action to park on, Ghost proposes the first control the user could act on at all,
+ * answered and no terminal action to park on, Shabang proposes the first control the user could act on at all,
  * as a long shot that focuses it -- exactly where the next Tab would have gone anyway.
  */
 export function lastResort(fields: DesktopField[], deps: PredictDeps, source: GhostSource): DesktopGhost | null {
@@ -155,7 +155,7 @@ export function lastResort(fields: DesktopField[], deps: PredictDeps, source: Gh
     source,
     guess: true,
     needsReview: true,
-    reason: "nothing on this screen matches what Ghost knows yet: this is where it would start",
+    reason: "nothing on this screen matches what Shabang knows yet: this is where it would start",
   }, deps);
 }
 
@@ -213,7 +213,7 @@ function fileName(path: string): string {
 
 // ---------- what the server is never asked about ----------
 //
-// Ghost ANSWERS protected questions now (with the form's own "prefer not to answer"), but it still never
+// Shabang ANSWERS protected questions now (with the form's own "prefer not to answer"), but it still never
 // mentions them to a server and never offers a demographic fact as a possible answer: the decision is local.
 
 /**
@@ -230,7 +230,7 @@ export function isProtectedFactKey(factKey: string): boolean {
 // Option text that only ever appears in a demographic answer set. The shared classifier calls a question
 // protected when such options sit next to a DECLINE option (an EEO scale); this is the belt for the set that
 // has no decline option at all ("How do you identify?" -> Man / Woman / Non-binary). It does not change what
-// Ghost answers -- the shared engine decides that -- only what Ghost is willing to mention to a server.
+// Shabang answers -- the shared engine decides that -- only what Shabang is willing to mention to a server.
 const DEMOGRAPHIC_OPTION_WORDS =
   /\b(hispanic|latin[oax]|non ?binary|genderqueer|genderfluid|agender|transgender|cisgender|veterans?|disabilit\w*|pacific islander|alaska native|american indian|african american|two or more races|heterosexual|bisexual|gay|lesbian|pronouns?)\b/;
 const DEMOGRAPHIC_OPTION_EXACT: ReadonlySet<string> = new Set([
@@ -283,7 +283,7 @@ export function mapFormForDesktop(fields: DesktopField[], factKeys: string[]): F
   });
 }
 
-/** The instant pass: keyword mapping from `@ghost/shared`, no network. */
+/** The instant pass: keyword mapping from `@shabang/shared`, no network. */
 export function buildGhostsOffline(fields: DesktopField[], deps: PredictDeps): DesktopGhost[] {
   const assignments = mapFormForDesktop(fields, usableFactKeys(deps.profile));
   return withLastResort(ghostsFromAssignments(fields, assignments, deps, "offline"), fields, deps, "offline");
@@ -354,8 +354,8 @@ export function planFields(
     if (lock) ghosts.push(lockGhost(lock, source));
   }
   // The gate has the last word: a terminal action with a required field still empty before it is not proposed.
-  // `upload` is a desktop action the shared Ghost union does not know; the gate only ever reads `signature`.
-  const gated = applyGate(ghosts as unknown as Ghost[], gateForFields(fields, ghosts, deps.accepted)) as unknown as DesktopGhost[];
+  // `upload` is a desktop action the shared Shabang union does not know; the gate only ever reads `signature`.
+  const gated = applyGate(ghosts as unknown as Shabang[], gateForFields(fields, ghosts, deps.accepted)) as unknown as DesktopGhost[];
   return { ghosts: gated, skips };
 }
 

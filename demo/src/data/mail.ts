@@ -1,6 +1,6 @@
 /**
  * The fictional inbox shown on /mail. Every person, company, and address is invented (example.com only).
- * Subjects double as link names that Ghost reads, so they avoid words its lock rules treat as irreversible
+ * Subjects double as link names that Shabang reads, so they avoid words its lock rules treat as irreversible
  * ("send", "submit", "confirm", "delete"...): opening an email must never look like a locked action.
  */
 export interface MailPerson {
@@ -9,7 +9,7 @@ export interface MailPerson {
 }
 
 export interface MailMessage {
-  /** Contains digits so Ghost generalizes /mail/msg-1001 to /mail/:id. */
+  /** Contains digits so Shabang generalizes /mail/msg-1001 to /mail/:id. */
   id: string;
   from: MailPerson;
   subject: string;

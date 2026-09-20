@@ -1,4 +1,4 @@
-import type { Questions } from "@ghost/shared";
+import type { Questions } from "@shabang/shared";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
@@ -74,7 +74,7 @@ describe("config: BASETEN_*", () => {
       BASETEN_HEDGE: "2",
       BASETEN_DECISION_MODEL_URL: "https://model-abc.api.baseten.co/environments/production/sync/v1",
       BASETEN_LOGPROBS: "1",
-      GHOST_WARMUP: "0",
+      SHABANG_WARMUP: "0",
     }).baseten;
     expect(config).toMatchObject({ baseUrl: "https://example.test/v1", decisionModel: "deepseek-ai/DeepSeek-V4.1-Flash", textModel: "zai-org/GLM-4.7", samples: 5, hedge: 2, logprobs: true, warmup: false });
     expect(config?.decisionBaseUrl).toContain("model-abc");
@@ -103,21 +103,21 @@ describe("config: BASETEN_*", () => {
     expect(loadConfig({}).textProvider).toBe("template");
   });
 
-  it("GHOST_DECISION_PROVIDER / GHOST_TEXT_PROVIDER accept baseten, and degrade without a key", () => {
-    const forced = loadConfig({ TYPESAFE_API_KEY: FAKE_KEY, OPENAI_API_KEY: FAKE_KEY, BASETEN_API_KEY: FAKE_KEY, GHOST_DECISION_PROVIDER: "baseten", GHOST_TEXT_PROVIDER: "baseten" });
+  it("SHABANG_DECISION_PROVIDER / SHABANG_TEXT_PROVIDER accept baseten, and degrade without a key", () => {
+    const forced = loadConfig({ TYPESAFE_API_KEY: FAKE_KEY, OPENAI_API_KEY: FAKE_KEY, BASETEN_API_KEY: FAKE_KEY, SHABANG_DECISION_PROVIDER: "baseten", SHABANG_TEXT_PROVIDER: "baseten" });
     expect(forced).toMatchObject({ decisionProvider: "baseten", textProvider: "baseten" });
     expect(createDecisionProvider(forced).name).toBe("baseten");
-    const keyless = loadConfig({ OPENAI_API_KEY: FAKE_KEY, GHOST_DECISION_PROVIDER: "baseten", GHOST_TEXT_PROVIDER: "baseten" });
+    const keyless = loadConfig({ OPENAI_API_KEY: FAKE_KEY, SHABANG_DECISION_PROVIDER: "baseten", SHABANG_TEXT_PROVIDER: "baseten" });
     expect(createDecisionProvider(keyless).name).toBe("heuristic");
     expect(keyless.textProvider).toBe("template");
     expect(keyless.baseten).toBeUndefined();
   });
 
   it("keeps the Baseten config only while Baseten is an active provider", () => {
-    expect(loadConfig({ BASETEN_API_KEY: FAKE_KEY, GHOST_DECISION_PROVIDER: "heuristic" }).baseten).toBeDefined(); // still drafts text
-    expect(loadConfig({ BASETEN_API_KEY: FAKE_KEY, GHOST_DECISION_PROVIDER: "heuristic", GHOST_TEXT_PROVIDER: "template" }).baseten).toBeUndefined();
-    expect(loadConfig({ BASETEN_API_KEY: FAKE_KEY, GHOST_PROVIDER: "heuristic" })).toMatchObject({ decisionProvider: "heuristic", textProvider: "template", baseten: undefined });
-    expect(loadConfig({ BASETEN_API_KEY: FAKE_KEY, TYPESAFE_API_KEY: FAKE_KEY, OPENAI_API_KEY: FAKE_KEY, GHOST_TEXT_PROVIDER: "openai" }).baseten).toBeUndefined();
+    expect(loadConfig({ BASETEN_API_KEY: FAKE_KEY, SHABANG_DECISION_PROVIDER: "heuristic" }).baseten).toBeDefined(); // still drafts text
+    expect(loadConfig({ BASETEN_API_KEY: FAKE_KEY, SHABANG_DECISION_PROVIDER: "heuristic", SHABANG_TEXT_PROVIDER: "template" }).baseten).toBeUndefined();
+    expect(loadConfig({ BASETEN_API_KEY: FAKE_KEY, SHABANG_PROVIDER: "heuristic" })).toMatchObject({ decisionProvider: "heuristic", textProvider: "template", baseten: undefined });
+    expect(loadConfig({ BASETEN_API_KEY: FAKE_KEY, TYPESAFE_API_KEY: FAKE_KEY, OPENAI_API_KEY: FAKE_KEY, SHABANG_TEXT_PROVIDER: "openai" }).baseten).toBeUndefined();
   });
 
   it("forcing heuristic + template guarantees ZERO network, whatever keys exist", async () => {
@@ -128,10 +128,10 @@ describe("config: BASETEN_*", () => {
       throw new Error("network is not allowed");
     }) as typeof fetch;
     try {
-      const app = createApp(loadConfig({ BASETEN_API_KEY: FAKE_KEY, XAI_API_KEY: FAKE_KEY, GHOST_DECISION_PROVIDER: "heuristic", GHOST_TEXT_PROVIDER: "template" }));
+      const app = createApp(loadConfig({ BASETEN_API_KEY: FAKE_KEY, XAI_API_KEY: FAKE_KEY, SHABANG_DECISION_PROVIDER: "heuristic", SHABANG_TEXT_PROVIDER: "template" }));
       const post = (path: string, body: unknown) => app.request(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const form = (await (await post("/v1/predict/form", sampleFormRequest())).json()) as { provider: string };
-      const text = (await (await post("/v1/ghost-text?stream=0", { fieldLabel: "Why us?", pageContext: {}, facts: { school: "Waterloo" }, pastAnswers: [] })).json()) as { provider: string };
+      const text = (await (await post("/v1/shabang-text?stream=0", { fieldLabel: "Why us?", pageContext: {}, facts: { school: "Waterloo" }, pastAnswers: [] })).json()) as { provider: string };
       expect(form.provider).toBe("heuristic");
       expect(text.provider).toBe("template");
       expect(calls).toBe(0);
@@ -557,7 +557,7 @@ describe("POST /v1/predict/form through Baseten", () => {
   const EXPECTED = ["firstName", "lastName", "email", "phone", "linkedin", "github", "website", "school", "degree", "graduationDate", "referralSource", "needs_text"];
 
   function appWith(respond: (call: FakeCall) => Response | Promise<Response>, timeoutMs?: number) {
-    const config = loadConfig({ BASETEN_API_KEY: FAKE_KEY, GHOST_FAST_PATH: "0" });
+    const config = loadConfig({ BASETEN_API_KEY: FAKE_KEY, SHABANG_FAST_PATH: "0" });
     const fake = fakeFetch(respond);
     const app = new Hono();
     registerPredictRoutes(app, config, { provider: createDecisionProvider(config, { fetch: fake.fetch }), timeoutMs, log: () => undefined });

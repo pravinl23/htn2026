@@ -8,7 +8,7 @@ import {
   type DecisionState,
   type Question,
   type Questions,
-} from "@ghost/shared";
+} from "@shabang/shared";
 import { DecisionProviderError, isRecord } from "./errors";
 import { maxProbability } from "./probabilities";
 import { DECISION_TIMEOUT_MS, sleep, withDeadline } from "./timeout";

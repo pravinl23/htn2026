@@ -89,7 +89,7 @@ export class LabelCache {
   }
 }
 
-/** GHOST_VISION_CACHE: a whole number of pages to remember, 0 switches the cache off. Anything unreadable: the default. */
+/** SHABANG_VISION_CACHE: a whole number of pages to remember, 0 switches the cache off. Anything unreadable: the default. */
 export function cacheLimitFrom(raw: string | undefined): number {
   const n = Number(raw);
   if (raw === undefined || raw.trim() === "" || !Number.isInteger(n) || n < 0) return DEFAULT_CACHE_ENTRIES;

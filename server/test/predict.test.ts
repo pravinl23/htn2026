@@ -1,4 +1,4 @@
-import type { Answers, CapturedField, DecisionProvider, DecisionResult, FieldKind, Questions } from "@ghost/shared";
+import type { Answers, CapturedField, DecisionProvider, DecisionResult, FieldKind, Questions } from "@shabang/shared";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
@@ -64,7 +64,7 @@ const MIXED_FORM = {
 describe("POST /v1/predict/form", () => {
   it("makes ONE decision call for the whole form and never sends buttons, links or file inputs", async () => {
     const { provider, decide } = mockProvider({ f0: "firstName", f1: "email", f2: "website" });
-    const { post } = appWith(provider, { GHOST_FAST_PATH: "0" });
+    const { post } = appWith(provider, { SHABANG_FAST_PATH: "0" });
     const res = await post("/v1/predict/form", MIXED_FORM);
     expect(res.status).toBe(200);
     expect(decide).toHaveBeenCalledTimes(1);
@@ -259,7 +259,7 @@ describe("POST /v1/predict/form", () => {
 
   it("never sends a sensitive field to the model, even if the client captured one by mistake", async () => {
     const { provider, decide } = mockProvider();
-    const { post } = appWith(provider, { GHOST_FAST_PATH: "0" });
+    const { post } = appWith(provider, { SHABANG_FAST_PATH: "0" });
     const body = await formBody(
       post("/v1/predict/form", {
         ...MIXED_FORM,

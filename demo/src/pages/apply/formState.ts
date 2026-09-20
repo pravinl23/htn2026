@@ -19,7 +19,7 @@ export interface ApplyValues {
   /** File name only: the upload is a stub. */
   resume: string;
   consent: boolean;
-  /** Sensitive trap fields. Ghost must never fill these. */
+  /** Sensitive trap fields. Shabang must never fill these. */
   sin: string;
   payrollPassword: string;
 }

@@ -1,4 +1,4 @@
-import { FACT_DESCRIPTIONS, isSensitive } from "@ghost/shared";
+import { FACT_DESCRIPTIONS, isSensitive } from "@shabang/shared";
 import { extractFactsByRegex, toYearMonth } from "../lib/resumeRegex";
 import { LlmError, type LlmClient } from "./client";
 import { extractMessages } from "./prompts";

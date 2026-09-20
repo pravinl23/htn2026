@@ -1,4 +1,4 @@
-import { detectLoop, synthesizeProgram, type LoopProgram } from "@ghost/shared";
+import { detectLoop, synthesizeProgram, type LoopProgram } from "@shabang/shared";
 import { describe, expect, it } from "vitest";
 import { invoiceFactsByUrl, invoiceSession } from "../../shared/test/helpers/traceBuilder";
 import { loadConfig } from "../src/config";
@@ -64,7 +64,7 @@ describe("precedence", () => {
   });
 
   it("stays simulated in offline (e2e) mode even when keys exist", () => {
-    const executors = createExecutors(loadConfig({ ...BB_ENV, COMPOSIO_API_KEY: "k", GHOST_PROVIDER: "heuristic" }));
+    const executors = createExecutors(loadConfig({ ...BB_ENV, COMPOSIO_API_KEY: "k", SHABANG_PROVIDER: "heuristic" }));
     expect([executors.parallel.available, executors.api.available]).toEqual([false, false]);
   });
 

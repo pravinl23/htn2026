@@ -3,7 +3,7 @@ import {
   type FieldKind,
   type FieldOption,
   type FormPredictRequest,
-} from "@ghost/shared";
+} from "@shabang/shared";
 import { COUNTER_NAMES, type CalibrationPair, type Counters } from "../lib/metrics";
 import { isRecord } from "./errors";
 import type { EpisodicPair, NextCandidate, NextPredictRequest, TraceEvent } from "./nextQuestions";

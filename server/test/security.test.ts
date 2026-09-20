@@ -13,7 +13,7 @@ const EVENT = JSON.stringify({ counters: { ghostsShown: 1_000_000 } });
 describe("listen address", () => {
   it("binds loopback by default, never the wildcard address", async () => {
     expect(loadConfig({}).host).toBe("127.0.0.1");
-    expect(loadConfig({ GHOST_HOST: "0.0.0.0" }).host).toBe("0.0.0.0");
+    expect(loadConfig({ SHABANG_HOST: "0.0.0.0" }).host).toBe("0.0.0.0");
     const server = startServer(loadConfig({ PORT: "0" }));
     await new Promise((resolve) => server.once("listening", resolve));
     const address = server.address() as AddressInfo;
@@ -36,7 +36,7 @@ describe("cross-site and rebinding protection", () => {
 
   it("requires application/json on POST, so a cross-site 'simple' request can never reach a handler", async () => {
     const hono = app();
-    const bodies: [string, string][] = [["/v1/predict/form", JSON.stringify(sampleFormRequest())], ["/v1/metrics/event", EVENT], ["/v1/ghost-text?stream=0", JSON.stringify({ fieldLabel: "Why us?" })]];
+    const bodies: [string, string][] = [["/v1/predict/form", JSON.stringify(sampleFormRequest())], ["/v1/metrics/event", EVENT], ["/v1/shabang-text?stream=0", JSON.stringify({ fieldLabel: "Why us?" })]];
     for (const [path, body] of bodies) {
       const wrong: Record<string, string>[] = [{}, { "Content-Type": "text/plain" }, { "Content-Type": "application/x-www-form-urlencoded" }];
       for (const headers of wrong) {

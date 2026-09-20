@@ -1,4 +1,4 @@
-// What Ghost proposes for a question, and what it learns when the user corrects it. See docs/answers.md 1-4 and 6.
+// What Shabang proposes for a question, and what it learns when the user corrects it. See docs/answers.md 1-4 and 6.
 //
 // Three promises, in this order of priority:
 //   1. Never invent a protected characteristic, and never sign a legal declaration the profile does not support.
@@ -21,7 +21,7 @@ import {
 import { questionSignature, usableOptions, type SignatureOptions } from "./signature";
 import { fieldLooksSensitive, learnedConfidence, type LearnResult, type LearnedAnswer, type LearnedAnswerStore } from "./store";
 
-/** Where a proposal came from. "none" means Ghost deliberately proposes nothing. */
+/** Where a proposal came from. "none" means Shabang deliberately proposes nothing. */
 export type AnswerSource = "fact" | "learned" | "guess" | "none";
 
 /** A fact answers it outright. */
@@ -30,7 +30,7 @@ export const FACT_CONFIDENCE = 0.95;
 export const OWN_COUNTRY_FACT_CONFIDENCE = 0.85;
 /** The form's own "prefer not to answer" option, proposed only when the user turned that setting on. */
 export const DECLINE_CONFIDENCE = 0.8;
-/** The cap on anything Ghost guessed: always under a fact, always above the default threshold so it is visible. */
+/** The cap on anything Shabang guessed: always under a fact, always above the default threshold so it is visible. */
 export const GUESS_CONFIDENCE = 0.72;
 /** A legal declaration inferred rather than known: the most conservative answer, always flagged. */
 export const DECLARATION_GUESS_CONFIDENCE = 0.7;
@@ -46,7 +46,7 @@ export interface AnswerSettings {
    * Answer protected questions with the form's OWN "prefer not to answer" option. ON by default, which is what
    * `DEFAULT_SETTINGS` ships and what docs/answers.md section 1 describes: declining is a true answer for
    * anyone, it completes the form, and one correction turns it into a disclosure if the user wants one.
-   * Turning it off leaves every protected question to the user. Ghost never invents a characteristic either way.
+   * Turning it off leaves every protected question to the user. Shabang never invents a characteristic either way.
    */
   answerProtectedWithDecline?: boolean;
 }
@@ -135,7 +135,7 @@ const NEGATED_QUESTION = /\bwithout\b|\bnot\b|\bunable\b|\bineligible\b|\bnever\
 /**
  * A subordinate clause qualifies the noun in front of it, never the question's own predicate. In
  * "a felony THAT HAS NOT been expunged" the negation belongs to the expunging, and reading it as the
- * question's would answer "Yes, I have been convicted" -- a self-incriminating statement Ghost invented.
+ * question's would answer "Yes, I have been convicted" -- a self-incriminating statement Shabang invented.
  * Only the head clause is read for negation.
  */
 const SUBORDINATE_CLAUSE = /\b(?:that|which|who|whom|whose|where|when|unless|except|other than|apart from|aside from|besides)\b/;
@@ -301,7 +301,7 @@ export function neutralOption(options: readonly FieldOption[] | undefined): Fiel
   return best?.option ?? null;
 }
 
-/** The option that means "I am not answering this". The first answer Ghost gives to a protected question. */
+/** The option that means "I am not answering this". The first answer Shabang gives to a protected question. */
 export function declineOption(options: readonly FieldOption[] | undefined): FieldOption | null {
   return usableOptions(options).find((o) => isDeclineOption(o.label)) ?? null;
 }
@@ -422,7 +422,7 @@ function guessProtected(field: QuestionField, ctx: AnswerContext, skeleton: Skel
       "declined by setting",
     );
   }
-  // No way to decline at all, which is rare. Ghost still proposes (docs/answers.md section 1, and
+  // No way to decline at all, which is rare. Shabang still proposes (docs/answers.md section 1, and
   // docs/always-propose.md): flagged, drawn as a long shot, one keystroke to correct. An empty field here is
   // a form nobody can submit, which helps the user less than a guess they can see.
   const options = usableOptions(field.options);
@@ -442,8 +442,8 @@ function guessProtected(field: QuestionField, ctx: AnswerContext, skeleton: Skel
 function guessDeclaration(field: QuestionField, classification: Classification, skeleton: Skeleton): AnswerProposal {
   const topic = classification.topic;
   // A consent to be screened is a permission the applicant GRANTS, not a fact about them, and an unticked box
-  // is already an answer -- there is no empty state for Ghost to fill, exactly as for the bare consent box in
-  // `guessOrdinary`. So Ghost does not tick "I consent to a credit check" or "I agree to a drug screen" on
+  // is already an answer -- there is no empty state for Shabang to fill, exactly as for the bare consent box in
+  // `guessOrdinary`. So Shabang does not tick "I consent to a credit check" or "I agree to a drug screen" on
   // anyone's behalf. A yes/no CONTROL is different: it has no unanswered state and the form cannot be sent
   // without one, so there the routine consent is still proposed, flagged, and hold-Tab stops on it.
   if (topic === "backgroundCheck" && field.kind === "checkbox") {
@@ -515,7 +515,7 @@ function guessOrdinary(field: QuestionField, skeleton: Skeleton): AnswerProposal
 }
 
 /**
- * The answer Ghost proposes for one question: an answer the user gave before, then a profile fact, then the
+ * The answer Shabang proposes for one question: an answer the user gave before, then a profile fact, then the
  * most conservative guess. Pure: the same question, profile and store always produce the same proposal.
  */
 export function proposeAnswer(field: QuestionField, ctx: AnswerContext): AnswerProposal {

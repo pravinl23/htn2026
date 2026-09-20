@@ -149,7 +149,7 @@ export function summarizeCommand(body: unknown): Summary {
   };
 }
 
-/** `/v1/ghost-text` with `?stream=0`. The draft is measured, never read. */
+/** `/v1/shabang-text` with `?stream=0`. The draft is measured, never read. */
 export function summarizeGhostText(body: unknown): Summary {
   const response = record(body);
   if (!response) return EMPTY;
@@ -259,7 +259,7 @@ export function summarizerFor(route: string): ((body: unknown) => Summary) | und
       return summarizeNext;
     case "/v1/predict/command":
       return summarizeCommand;
-    case "/v1/ghost-text":
+    case "/v1/shabang-text":
       return summarizeGhostText;
     case "/v1/loop/synthesize":
       return summarizeLoop;

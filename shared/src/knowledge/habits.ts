@@ -4,7 +4,7 @@
 // replaced}` plus a six-bit mask of the hour buckets it was taken in and a day-resolution last-seen. There is no
 // event log, so the file does not grow with use, and nothing in an entry can be read back as a place the user went.
 //
-// Two generalizations sit on top of the raw counters, and they are what make a screen Ghost has never seen useful:
+// Two generalizations sit on top of the raw counters, and they are what make a screen Shabang has never seen useful:
 //   1. the same screen kind across ALL other surfaces — what this person does on screens shaped like this one;
 //   2. a shape-only prior — what anyone would want on a screen of that kind, when there is no history at all.
 // Nothing here reads a surface id for meaning: it is a grouping key, so the layer cannot overfit to one site.
@@ -158,7 +158,7 @@ export class HabitStore {
   private readonly byKind = new Map<string, Set<string>>();
   /** surface|kind|action -> the full keys, for this surface with any previous action. */
   private readonly bySurfaceKind = new Map<string, Set<string>>();
-  /** surface|kind -> the full keys, for "how well does Ghost know this screen at all". */
+  /** surface|kind -> the full keys, for "how well does Shabang know this screen at all". */
   private readonly bySurface = new Map<string, Set<string>>();
 
   constructor(entries: readonly HabitEntry[] = [], surfaces: readonly SurfaceStat[] = []) {
@@ -276,8 +276,8 @@ export class HabitStore {
   }
 
   /**
-   * How much Ghost has watched this person on this kind of screen HERE, counting every action and every outcome.
-   * It is what decides how much borrowed evidence still counts: once Ghost knows a screen, here leads.
+   * How much Shabang has watched this person on this kind of screen HERE, counting every action and every outcome.
+   * It is what decides how much borrowed evidence still counts: once Shabang knows a screen, here leads.
    */
   surfaceVolume(surface: string, screenKind: ScreenKind): number {
     const keys = this.bySurface.get(`${cleanSurface(surface)}|${screenKind}`);
@@ -292,7 +292,7 @@ export class HabitStore {
 
   /**
    * How often this person ACTS here at all: the denominator of "of everything they do on this screen, how much of
-   * it is this". A rate answers "when Ghost proposed this, did they take it"; a share answers "is this the thing
+   * it is this". A rate answers "when Shabang proposed this, did they take it"; a share answers "is this the thing
    * they mostly do here", and a ranking needs both (docs/knowledge.md section 6: the noisy screens).
    */
   surfaceTaken(surface: string, screenKind: ScreenKind): number {
@@ -458,7 +458,7 @@ export const SHAPE_PRIOR_UNLISTED = 0.45;
 
 /**
  * What anyone would most likely want on a screen of this shape. This is the floor under "always propose": on a
- * surface Ghost has never seen, with a completely empty graph, this alone produces a ranking.
+ * surface Shabang has never seen, with a completely empty graph, this alone produces a ranking.
  */
 export function shapePriors(kind: ScreenKind, state: ScreenState = {}): ShapePrior[] {
   return build(kind, state)

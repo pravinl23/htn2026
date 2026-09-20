@@ -1,4 +1,4 @@
-import { sanitizeGhostWalkOutcome } from "@ghost/shared";
+import { sanitizeGhostWalkOutcome } from "@shabang/shared";
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { ServerConfig } from "../config";
@@ -32,7 +32,7 @@ export function registerWalkTelemetryRoutes(app: Hono, config: ServerConfig, dep
       // Two Sentry surfaces, deliberately: the sink captures ONE durable event per walk (with the replay
       // fixture attached), while this adds the per-proposal metrics and the walk log line that make
       // accept-vs-reject queryable in the dashboard rather than readable one event at a time.
-      reportWalkToSentry(outcome, surfaceOf(c.req.header("x-ghost-surface")));
+      reportWalkToSentry(outcome, surfaceOf(c.req.header("x-shabang-surface")));
       const eventId = await sink.capture(outcome, replay).catch(() => undefined);
       return c.json({
         accepted: true as const,
@@ -47,6 +47,6 @@ export function registerWalkTelemetryRoutes(app: Hono, config: ServerConfig, dep
 
   app.get("/v1/walk/replays", (c) => {
     const fixtures = store.list();
-    return c.json({ schemaVersion: "ghost.walk-replay.v1", count: fixtures.length, fixtures });
+    return c.json({ schemaVersion: "shabang.walk-replay.v1", count: fixtures.length, fixtures });
   });
 }

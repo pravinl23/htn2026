@@ -1,11 +1,11 @@
-import { FACT_DESCRIPTIONS } from "@ghost/shared";
+import { FACT_DESCRIPTIONS } from "@shabang/shared";
 import type { DraftInput } from "../lib/template";
 import type { ChatMessage } from "./client";
 
 const DEFAULT_LENGTH = "60 to 120 words";
 const CHARS_PER_WORD = 6.5;
 
-const GHOST_TEXT_RULES = [
+const SHABANG_TEXT_RULES = [
   "You draft answers to free-text questions on a job application, written as the applicant in the first person.",
   "Use ONLY the applicant facts, past answers and page context provided. Never invent employers, job titles, projects, awards, numbers, dates or skills that are not in the inputs.",
   "If the inputs are thin, write about motivation and working style instead of making up details.",
@@ -43,7 +43,7 @@ export function ghostTextMessages(input: DraftInput): ChatMessage[] {
     pastAnswers: input.pastAnswers.map((p) => ({ question: p.question, answer: p.answer })),
   };
   return [
-    { role: "system", content: `${GHOST_TEXT_RULES}\n${lengthInstruction(input.maxChars)}` },
+    { role: "system", content: `${SHABANG_TEXT_RULES}\n${lengthInstruction(input.maxChars)}` },
     // Page text stays inside the JSON. Interpolating the label into this instruction line would let a quote break out of it.
     { role: "user", content: `${JSON.stringify(context, null, 1)}\n\nWrite the answer to the \`question\` in the JSON above.` },
   ];

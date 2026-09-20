@@ -93,7 +93,7 @@ describe("inferPageKind places a page from what it offers", () => {
 });
 
 describe("what real pages taught it", () => {
-  it("calls a page with a cart a shop, even when its header is all Ghost can see", () => {
+  it("calls a page with a cart a shop, even when its header is all Shabang can see", () => {
     const header = [
       candidate("f", "", { kind: "field", ariaRole: "searchbox", placeholder: "Search the store" }),
       candidate("c", "0 items in cart", { kind: "link", classTokens: ["nav-cart"] }),

@@ -20,7 +20,7 @@ import {
   readColdStartMeta,
   fileSizeBytes,
   forgetSurface,
-} from "@ghost/shared";
+} from "@shabang/shared";
 import type {
   ActionRole,
   AxCandidate,
@@ -32,7 +32,7 @@ import type {
   ScreenKind,
   ScreenSignals,
   ScreenState,
-} from "@ghost/shared";
+} from "@shabang/shared";
 
 const MAX_CANDIDATES = 200;
 const MAX_TEXT = 300;
@@ -243,7 +243,7 @@ export interface RankWindowResult {
   previousAction?: ActionRole;
   threshold: number;
   proposals: WindowProposal[];
-  /** The one Ghost would propose. Null only when the window offers nothing at all to act on. */
+  /** The one Shabang would propose. Null only when the window offers nothing at all to act on. */
   top: WindowProposal | null;
 }
 

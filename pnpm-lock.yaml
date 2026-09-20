@@ -51,9 +51,6 @@ importers:
 
   server:
     dependencies:
-      '@ghost/shared':
-        specifier: workspace:*
-        version: link:../shared
       '@hono/node-server':
         specifier: ^1.13.8
         version: 1.19.17(hono@4.13.8)
@@ -63,6 +60,9 @@ importers:
       '@sentry/profiling-node':
         specifier: ^10.75.0
         version: 10.75.0(@opentelemetry/core@2.11.0(@opentelemetry/api@1.9.1))
+      '@shabang/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@typesafe-ai/sdk':
         specifier: ^0.6.0
         version: 0.6.0

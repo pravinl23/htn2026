@@ -1,4 +1,4 @@
-import { DEMO_PROFILE } from "@ghost/shared";
+import { DEMO_PROFILE } from "@shabang/shared";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config";
@@ -135,11 +135,11 @@ describe("Baseten through the OpenAI-compatible client", () => {
   });
 });
 
-describe("POST /v1/ghost-text with the Baseten text provider", () => {
+describe("POST /v1/shabang-text with the Baseten text provider", () => {
   it("streams the draft, measures first-token and total latency, and never leaks reasoning", async () => {
     const stream = sse([{ role: "assistant" }, { reasoning_content: REASONING }, { content: `<think>${REASONING}</think>` }, ...DRAFT.map((content) => ({ content }))]);
     const { post, calls } = appWith(() => streamResponse(stream, 13));
-    const events = await readEvents(await post("/v1/ghost-text", BODY));
+    const events = await readEvents(await post("/v1/shabang-text", BODY));
     const done = events[events.length - 1];
     expect(done).toMatchObject({ done: true, provider: "baseten", text: DRAFT.join("") });
     expect(done?.fallbackFrom).toBeUndefined();
@@ -158,30 +158,30 @@ describe("POST /v1/ghost-text with the Baseten text provider", () => {
 
   it("falls back to the template when a thinking-only model returns no content", async () => {
     const { post } = appWith(() => streamResponse(sse([{ reasoning_content: REASONING }, { reasoning_content: "still thinking" }])));
-    const body = (await (await post("/v1/ghost-text?stream=0", BODY)).json()) as { provider: string; fallbackFrom?: string; text: string };
+    const body = (await (await post("/v1/shabang-text?stream=0", BODY)).json()) as { provider: string; fallbackFrom?: string; text: string };
     expect(body).toMatchObject({ provider: "template", fallbackFrom: "baseten" });
     expect(body.text).not.toContain("should mention robots");
   });
 
   it("uses BASETEN_TEXT_MODEL and BASETEN_BASE_URL", async () => {
     const { post, calls } = appWith(() => streamResponse(sse(DRAFT.map((content) => ({ content })))), { BASETEN_API_KEY: FAKE_KEY, BASETEN_TEXT_MODEL: "deepseek-ai/DeepSeek-V4.1-Flash", BASETEN_BASE_URL: "https://example.test/v1/" });
-    await (await post("/v1/ghost-text?stream=0", BODY)).json();
+    await (await post("/v1/shabang-text?stream=0", BODY)).json();
     expect(calls[0]?.url).toBe("https://example.test/v1/chat/completions");
     expect(calls[0]?.body).toMatchObject({ model: "deepseek-ai/DeepSeek-V4.1-Flash", chat_template_kwargs: { thinking: false, enable_thinking: false } });
   });
 
-  it("prefers Baseten over OpenAI and xAI, and GHOST_TEXT_PROVIDER still wins", async () => {
+  it("prefers Baseten over OpenAI and xAI, and SHABANG_TEXT_PROVIDER still wins", async () => {
     const all = { BASETEN_API_KEY: FAKE_KEY, OPENAI_API_KEY: FAKE_KEY, XAI_API_KEY: FAKE_KEY };
     const auto = appWith(() => streamResponse(sse(DRAFT.map((content) => ({ content })))), all);
-    expect(await (await auto.post("/v1/ghost-text?stream=0", BODY)).json()).toMatchObject({ provider: "baseten" });
-    const forced = appWith(() => streamResponse(sse(DRAFT.map((content) => ({ content })))), { ...all, GHOST_TEXT_PROVIDER: "openai" });
-    expect(await (await forced.post("/v1/ghost-text?stream=0", BODY)).json()).toMatchObject({ provider: "openai" });
+    expect(await (await auto.post("/v1/shabang-text?stream=0", BODY)).json()).toMatchObject({ provider: "baseten" });
+    const forced = appWith(() => streamResponse(sse(DRAFT.map((content) => ({ content })))), { ...all, SHABANG_TEXT_PROVIDER: "openai" });
+    expect(await (await forced.post("/v1/shabang-text?stream=0", BODY)).json()).toMatchObject({ provider: "openai" });
     expect(forced.calls[0]?.url).toBe("https://api.openai.com/v1/chat/completions");
   });
 
-  it("GHOST_TEXT_PROVIDER=template makes zero requests even with a Baseten key", async () => {
-    const { post, calls } = appWith(() => new Response("unused"), { BASETEN_API_KEY: FAKE_KEY, GHOST_TEXT_PROVIDER: "template" });
-    expect(await (await post("/v1/ghost-text?stream=0", BODY)).json()).toMatchObject({ provider: "template" });
+  it("SHABANG_TEXT_PROVIDER=template makes zero requests even with a Baseten key", async () => {
+    const { post, calls } = appWith(() => new Response("unused"), { BASETEN_API_KEY: FAKE_KEY, SHABANG_TEXT_PROVIDER: "template" });
+    expect(await (await post("/v1/shabang-text?stream=0", BODY)).json()).toMatchObject({ provider: "template" });
     expect(calls).toHaveLength(0);
   });
 

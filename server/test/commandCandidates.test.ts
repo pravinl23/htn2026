@@ -37,7 +37,7 @@ describe("context moves", () => {
 
   it("a failed test is rerun; a passing one is not", () => {
     expect(contextMoves("pnpm test", undefined, 1)).toContainEqual(expect.objectContaining({ command: "pnpm test", prior: 0.75 }));
-    expect(contextMoves("pnpm --filter @ghost/server test", undefined, 1)[0]?.command).toBe("pnpm --filter @ghost/server test");
+    expect(contextMoves("pnpm --filter @shabang/server test", undefined, 1)[0]?.command).toBe("pnpm --filter @shabang/server test");
     expect(contextMoves("pnpm test", undefined, 0)).toEqual([]);
     expect(contextMoves("pnpm build", undefined, 1)).toEqual([]);
   });

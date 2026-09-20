@@ -71,7 +71,7 @@ const RECENCY_FLOOR = 0.5;
 const HOUR_BONUS = 0.03;
 /**
  * How far "of everything they do here, this is most of it" may move a score. A rate alone cannot answer that: an
- * action Ghost proposed once and got right reads as a better habit than one the person takes three times in five
+ * action Shabang proposed once and got right reads as a better habit than one the person takes three times in five
  * but turns down twice, because only a PROPOSED action can ever be turned down. The share is the counterweight,
  * and it is deliberately smaller than what evidence can do.
  */
@@ -182,7 +182,7 @@ function scoreCandidate(
   const anyKind = habits.kindAnyStat(context.screenKind, candidate.role, context.surface);
   const kind = levelEvidence(exactKind, anyKind, KIND_K, now);
 
-  // Borrowed evidence fades as Ghost's history WITH THIS SCREEN grows, not as this one candidate's does. Damping
+  // Borrowed evidence fades as Shabang's history WITH THIS SCREEN grows, not as this one candidate's does. Damping
   // per candidate would leave the borrowed boost at full strength on everything the user has never taken here,
   // which is exactly how a habit learned elsewhere drowns out the one learned right here.
   const kindFactor = KIND_DISCOUNT * (1 - familiarity / (familiarity + SURFACE_K));

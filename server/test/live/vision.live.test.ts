@@ -88,7 +88,7 @@ describe.skipIf(!hasKey)("live OpenAI vision", () => {
 
   it("labels 20 boxes in ONE call and re-locks what the model left unlocked", async () => {
     const started = Date.now();
-    const { status, json } = await post(app, "/v1/vision/label", { image: mixed.dataUrl, boxes: mixed.boxes, context: { app: "Ghost demo page" } });
+    const { status, json } = await post(app, "/v1/vision/label", { image: mixed.dataUrl, boxes: mixed.boxes, context: { app: "Shabang demo page" } });
     const labels = labelsOf(json);
     const byId = new Map(labels.map((l) => [l.id, l]));
     console.log(

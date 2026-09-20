@@ -19,7 +19,7 @@ export interface RequiredEvidence {
 /** Which piece of evidence made the field required, for the HUD and for debugging. */
 export type RequiredSource = "flag" | "marker" | "label" | "section";
 
-// A red asterisk is a marker whatever its colour; Ghost never reads colour.
+// A red asterisk is a marker whatever its colour; Shabang never reads colour.
 const ASTERISK = "[*∗✱✳﹡＊]";
 const TRAILING_ASTERISK = new RegExp(`${ASTERISK}\\s*$`, "u");
 const LEADING_ASTERISK = new RegExp(`^\\s*${ASTERISK}\\s*\\S`, "u");

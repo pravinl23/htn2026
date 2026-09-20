@@ -17,7 +17,7 @@ import type { GhostWalkOutcome } from "../src/walkTelemetry";
 const RUN_ID = "11111111-1111-4111-8111-111111111111";
 
 const OUTCOME: GhostWalkOutcome = {
-  schemaVersion: "ghost.walk-outcome.v1",
+  schemaVersion: "shabang.walk-outcome.v1",
   runId: RUN_ID,
   state: "parked",
   reason: "locked-action",

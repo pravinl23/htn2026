@@ -32,7 +32,7 @@ describe("media priors follow the state of the player", () => {
 describe("feed priors", () => {
   it("proposes the first item, and never leads with search", () => {
     expect(roles("feed")[0]).toBe("primary-item");
-    // Search sits at the floor in every place: a cursor in a search box is only worth a keystroke if Ghost
+    // Search sits at the floor in every place: a cursor in a search box is only worth a keystroke if Shabang
     // knows what goes in it, and there is no honest way to guess that.
     expect(priorWeight(priorsFor("feed"), "search")).toBe(PRIOR_MIN);
   });
@@ -73,7 +73,7 @@ describe("reader, mail and form priors", () => {
 
   it("proposes opening a message in a mailbox and replying inside one", () => {
     // `compose` sits at the floor, below search. Starting a new message is only useful to somebody who
-    // already knows who it is for, which is exactly what Ghost does not know: "new message" then "fill in
+    // already knows who it is for, which is exactly what Shabang does not know: "new message" then "fill in
     // the recipient" is a chain that ends in a shrug. Reading the one that came in is the thing it can help
     // with, and it can follow that all the way through to a drafted reply.
     expect(roles("mail")).toEqual(["primary-item", "search", "compose"]);
@@ -92,7 +92,7 @@ describe("reader, mail and form priors", () => {
   });
 
   it("follows somebody who started a new message, without ever starting one itself", () => {
-    // Two separate rules, and conflating them was the bug. Ghost must not PROPOSE compose: it does not know
+    // Two separate rules, and conflating them was the bug. Shabang must not PROPOSE compose: it does not know
     // who you are writing to, so it cannot help with the step after. But once you start a new message
     // yourself, the recipient field is exactly what comes next, so the transition stays.
     expect(priorWeight(priorsFor("mail"), "compose")).toBe(PRIOR_MIN);

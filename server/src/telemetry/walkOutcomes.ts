@@ -1,5 +1,5 @@
-import { createGhostWalkReplayFixture, isReviewableWalk, sanitizeGhostWalkOutcome } from "@ghost/shared";
-import type { GhostWalkOutcome, GhostWalkReplayFixture } from "@ghost/shared";
+import { createGhostWalkReplayFixture, isReviewableWalk, sanitizeGhostWalkOutcome } from "@shabang/shared";
+import type { GhostWalkOutcome, GhostWalkReplayFixture } from "@shabang/shared";
 import type { ServerConfig } from "../config";
 
 export interface WalkOutcomeSink {

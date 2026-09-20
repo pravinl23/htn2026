@@ -1,5 +1,5 @@
-import { createGhostWalkReplayFixture, evaluateGhostWalkReplay, sanitizeGhostWalkReplayFixture, sanitizeGhostWalkOutcome } from "@ghost/shared";
-import type { GhostWalkReplayFixture } from "@ghost/shared";
+import { createGhostWalkReplayFixture, evaluateGhostWalkReplay, sanitizeGhostWalkReplayFixture, sanitizeGhostWalkOutcome } from "@shabang/shared";
+import type { GhostWalkReplayFixture } from "@shabang/shared";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -74,7 +74,7 @@ function extractFixtures(raw: unknown): GhostWalkReplayFixture[] {
 
 async function writeBundle(path: string, fixtures: GhostWalkReplayFixture[]): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ schemaVersion: "ghost.walk-replay.v1", count: fixtures.length, fixtures }, null, 2)}\n`, "utf8");
+  await writeFile(path, `${JSON.stringify({ schemaVersion: "shabang.walk-replay.v1", count: fixtures.length, fixtures }, null, 2)}\n`, "utf8");
 }
 
 function option(args: string[], name: string): string | undefined {

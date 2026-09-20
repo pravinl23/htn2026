@@ -43,7 +43,7 @@ export interface TraceEvent {
   target?: TraceTarget;
   /** Final value of an input/select (one event per field edit). MASKED_VALUE if the field became sensitive. */
   value?: string;
-  /** Ghost's own programmatic action: ignored by the loop detector, kept for episodic memory. */
+  /** Shabang's own programmatic action: ignored by the loop detector, kept for episodic memory. */
   synthetic?: boolean;
 }
 

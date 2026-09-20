@@ -391,7 +391,7 @@ curl -q -s -o /dev/null -X POST -H 'Content-Type: application/json' -d '{"rawCom
 #    what the plugin sends and the heuristic's `git commit -m ""` after `git add -A` (0.8) clears the 0.7 gate.
 TSX=$ROOT/server/node_modules/.bin/tsx
 if [[ -x $TSX ]]; then
-  env -i PATH=$PATH HOME=$TMP PORT=0 GHOST_PROVIDER=heuristic $TSX $ROOT/server/src/index.ts > $TMP/server.out 2>&1 &
+  env -i PATH=$PATH HOME=$TMP PORT=0 SHABANG_PROVIDER=heuristic $TSX $ROOT/server/src/index.ts > $TMP/server.out 2>&1 &
   integer SERVER_PID=$!
   REAL_PORT=''
   deadline=$(( EPOCHREALTIME + 15 ))

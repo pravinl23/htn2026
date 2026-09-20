@@ -199,7 +199,7 @@ describe("POST /v1/vision/label: the reply is validated in code", () => {
       labels: [
         { id: "b1", label: "Send", role: "button", irreversible: true, confidence: 0.9 },
         { id: "b1", label: "Archive", role: "button", irreversible: false, confidence: 0.9 }, // repeat: first wins
-        { id: "b9", label: "Ghost box", role: "button", irreversible: false, confidence: 0.9 }, // never sent
+        { id: "b9", label: "Shabang box", role: "button", irreversible: false, confidence: 0.9 }, // never sent
         { id: "send", label: "Client id", role: "button", irreversible: false, confidence: 0.9 }, // client ids are not aliases
         { id: "b2", label: "Cancel", role: "widget", irreversible: false, confidence: 0.9 }, // role outside the enum
         { id: "b3", label: "Delete", role: "button", irreversible: "yes", confidence: 0.9 }, // wrong type
@@ -325,7 +325,7 @@ describe("POST /v1/vision/label: request validation (no call is made)", () => {
 
 describe("availability, budget, timeout and retries", () => {
   it("answers 503 without an OpenAI key, and makes zero network calls", async () => {
-    const envs: Array<Record<string, string>> = [{}, { XAI_API_KEY: FAKE_KEY }, { BASETEN_API_KEY: FAKE_KEY }, { OPENAI_API_KEY: FAKE_KEY, GHOST_PROVIDER: "heuristic" }];
+    const envs: Array<Record<string, string>> = [{}, { XAI_API_KEY: FAKE_KEY }, { BASETEN_API_KEY: FAKE_KEY }, { OPENAI_API_KEY: FAKE_KEY, SHABANG_PROVIDER: "heuristic" }];
     for (const env of envs) {
       const { post, calls, app } = appWith(answering(goodLabels()), { env });
       const res = await post("/v1/vision/label", labelBody());
@@ -604,27 +604,27 @@ describe("review regressions: who may spend the vision budget", () => {
     const call = (path: string, headers: Record<string, string>) => app.request(path, { method: "POST", headers: { ...JSON_HEADERS, ...headers }, body: JSON.stringify(labelBody()) });
     expect((await call("/v1/vision/label", { Origin: "http://localhost:5173" })).status).toBe(403);
     expect((await call("/v1/vision/locate", { Origin: "http://127.0.0.1:8080" })).status).toBe(403);
-    // No GHOST_EXTENSION_ID: an extension is only admitted with the token.
+    // No SHABANG_EXTENSION_ID: an extension is only admitted with the token.
     expect((await call("/v1/vision/label", { Origin: `chrome-extension://${EXT}` })).status).toBe(403);
-    expect((await call("/v1/vision/label", { "X-Ghost-Token": "wrong-token-wrong-token" })).status).toBe(401);
-    // A local process without an Origin (Ghost Desktop) is admitted; here there is no key, so 503.
+    expect((await call("/v1/vision/label", { "X-Shabang-Token": "wrong-token-wrong-token" })).status).toBe(401);
+    // A local process without an Origin (Shabang Desktop) is admitted; here there is no key, so 503.
     expect((await call("/v1/vision/label", {})).status).toBe(503);
   });
 
   it("admits the pinned extension or a valid token, and a refused caller costs nothing", async () => {
-    const { app, calls, budget } = appWith(answering(goodLabels()), { env: { OPENAI_API_KEY: FAKE_KEY, GHOST_EXTENSION_ID: EXT, GHOST_EXECUTE_TOKEN: TOKEN } });
+    const { app, calls, budget } = appWith(answering(goodLabels()), { env: { OPENAI_API_KEY: FAKE_KEY, SHABANG_EXTENSION_ID: EXT, SHABANG_EXECUTE_TOKEN: TOKEN } });
     const call = async (headers: Record<string, string>) => (await app.request("/v1/vision/label", { method: "POST", headers: { ...JSON_HEADERS, ...headers }, body: JSON.stringify(labelBody()) })).status;
     expect(await call({ Origin: "http://localhost:5173" })).toBe(403);
     expect(await call({ Origin: `chrome-extension://${OTHER_EXT}` })).toBe(403);
-    expect(await call({ Origin: `chrome-extension://${OTHER_EXT}`, "X-Ghost-Token": TOKEN })).toBe(403);
+    expect(await call({ Origin: `chrome-extension://${OTHER_EXT}`, "X-Shabang-Token": TOKEN })).toBe(403);
     expect(calls).toHaveLength(0);
     expect(budget.snapshot().used).toBe(0);
     expect(await call({ Origin: `chrome-extension://${EXT}` })).toBe(200);
-    expect(await call({ "X-Ghost-Token": TOKEN })).toBe(200);
+    expect(await call({ "X-Shabang-Token": TOKEN })).toBe(200);
     expect(await call({})).toBe(200);
     expect(calls).toHaveLength(3);
-    const unpinned = appWith(answering(goodLabels()), { env: { OPENAI_API_KEY: FAKE_KEY, GHOST_EXECUTE_TOKEN: TOKEN } });
-    const res = await unpinned.app.request("/v1/vision/label", { method: "POST", headers: { ...JSON_HEADERS, Origin: `chrome-extension://${OTHER_EXT}`, "X-Ghost-Token": TOKEN }, body: JSON.stringify(labelBody()) });
+    const unpinned = appWith(answering(goodLabels()), { env: { OPENAI_API_KEY: FAKE_KEY, SHABANG_EXECUTE_TOKEN: TOKEN } });
+    const res = await unpinned.app.request("/v1/vision/label", { method: "POST", headers: { ...JSON_HEADERS, Origin: `chrome-extension://${OTHER_EXT}`, "X-Shabang-Token": TOKEN }, body: JSON.stringify(labelBody()) });
     expect(res.status).toBe(200);
   });
 });

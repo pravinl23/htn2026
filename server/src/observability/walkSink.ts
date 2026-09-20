@@ -1,7 +1,7 @@
 /**
  * The Sentry sink for walk telemetry.
  *
- * A "walk" is one Tab-Tab-Tab pass over a form or a page: every ghost Ghost proposed, and what the user did with it.
+ * A "walk" is one Tab-Tab-Tab pass over a form or a page: every ghost Shabang proposed, and what the user did with it.
  * That is the outcome data the product is judged on, and the counters the prize asks for (proposed / accepted /
  * corrected, by class and by source) are exactly its aggregate.
  *

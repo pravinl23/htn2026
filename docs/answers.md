@@ -35,7 +35,7 @@ The reverse direction is sound and is kept: a question that names the profile's 
 
 1. An option matching a profile fact wins (that is not a guess).
 2. Otherwise the **neutral option**, found in code: an explicit neutral ("Other", "None of the above", "N/A", "Prefer not to say", "Decline to self-identify") if the option set has one; else, for a yes/no question, the answer that claims the least for the applicant (for a declaration that is the conservative one, e.g. "No" to authorization the profile does not support; for a willingness question, "Yes" to relocating or starting on time, since that commits nobody to a falsehood and is what most applicants answer).
-3. Free-text questions with no fact fall back to the streamed draft path (`/v1/ghost-text`) exactly as today; they are never left empty when the server is reachable.
+3. Free-text questions with no fact fall back to the streamed draft path (`/v1/shabang-text`) exactly as today; they are never left empty when the server is reachable.
 4. Every proposal that did not come from a fact or a learned answer is marked `source: "guess"`, rendered with a dotted underline, reported in the HUD, and **never accepted by hold-Tab**: holding Tab stops at the first guess so the user sees it before Submit (which stays locked).
 
 ## 4. Learning from a correction
@@ -97,5 +97,5 @@ No label, no value, no origin. These answer the only questions that matter for t
 
 - Shabang never invents a protected characteristic when the form offers a way to decline: it declines.
 - Shabang never proposes the flattering side of a declaration. Inferences always run toward claiming less (no authorization the profile does not support, sponsorship required rather than not).
-- Shabang never sends a learned answer, a protected value or a declaration to any server, and never logs a value. Concretely, in both clients: a protected question is not in the `/v1/predict/form` body at all (label, section heading and option list included, and so not cached against the site either); a protected or declaration free-text prompt is never drafted by `/v1/ghost-text`; and such an answer never becomes a `pastAnswer`, which is the one learned thing that rides in a request. `isSensitive` guards none of this -- it knows passwords, cards and government IDs and has no protected vocabulary -- so each route carries its own check.
+- Shabang never sends a learned answer, a protected value or a declaration to any server, and never logs a value. Concretely, in both clients: a protected question is not in the `/v1/predict/form` body at all (label, section heading and option list included, and so not cached against the site either); a protected or declaration free-text prompt is never drafted by `/v1/shabang-text`; and such an answer never becomes a `pastAnswer`, which is the one learned thing that rides in a request. `isSensitive` guards none of this -- it knows passwords, cards and government IDs and has no protected vocabulary -- so each route carries its own check.
 - A guess is always visibly a guess, never auto-accepted by hold-Tab, and always reversible before Submit, which stays locked and is never pressed by Shabang.

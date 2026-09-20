@@ -1,16 +1,16 @@
-// GHProfileStore tests. Everything happens in a temp directory: the user's real Application Support is never touched.
-#import "GHTest.h"
-#import "GHCore.h"
-#import "GHProfileStore.h"
-#import "GHAppDelegate.h"
+// SBProfileStore tests. Everything happens in a temp directory: the user's real Application Support is never touched.
+#import "SBTest.h"
+#import "SBCore.h"
+#import "SBProfileStore.h"
+#import "SBAppDelegate.h"
 #include <sys/stat.h>
 
-static GHCore *StoreCore(void) {
-    static GHCore *core;
+static SBCore *StoreCore(void) {
+    static SBCore *core;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        NSString *path = [GHCore defaultBundlePath];
-        core = path ? [[GHCore alloc] initWithBundlePath:path error:NULL] : nil;
+        NSString *path = [SBCore defaultBundlePath];
+        core = path ? [[SBCore alloc] initWithBundlePath:path error:NULL] : nil;
     });
     return core;
 }
@@ -20,15 +20,15 @@ static int ModeOf(NSString *path) {
     return stat(path.fileSystemRepresentation, &st) == 0 ? (int)(st.st_mode & 0777) : -1;
 }
 
-static GHProfileStore *FreshStore(void) {
-    NSString *directory = [GHTestTempDirectory() stringByAppendingPathComponent:@"Ghost"];
-    GHProfileStore *store = [[GHProfileStore alloc] initWithDirectory:directory core:StoreCore()];
+static SBProfileStore *FreshStore(void) {
+    NSString *directory = [SBTestTempDirectory() stringByAppendingPathComponent:@"Shabang"];
+    SBProfileStore *store = [[SBProfileStore alloc] initWithDirectory:directory core:StoreCore()];
     [store prepare];
     return store;
 }
 
 GH_TEST(store_seeds_demo_profile_with_private_modes) {
-    GHProfileStore *store = FreshStore();
+    SBProfileStore *store = FreshStore();
     GH_ASSERT_EQUAL_INT(ModeOf(store.directory), 0700);
     GH_ASSERT_EQUAL_INT(ModeOf(store.profilePath), 0600);
     GH_ASSERT_EQUAL_INT(ModeOf(store.settingsPath), 0600);
@@ -41,14 +41,14 @@ GH_TEST(store_seeds_demo_profile_with_private_modes) {
 }
 
 GH_TEST(store_profile_round_trip_keeps_0600) {
-    GHProfileStore *store = FreshStore();
+    SBProfileStore *store = FreshStore();
     NSDictionary *profile = @{ @"facts": @{ @"firstName": @"Alex", @"nickname": @"Al", @"empty": @"", @"bogus": @42 },
                                @"pastAnswers": @[ @{ @"question": @"Why us?", @"answer": @"Because.", @"origin": @"app://demo" }, @{ @"question": @"no answer" } ] };
     NSError *error;
     GH_ASSERT([store saveProfile:profile error:&error]);
     GH_ASSERT_EQUAL_INT(ModeOf(store.profilePath), 0600);
 
-    GHProfileStore *reopened = [[GHProfileStore alloc] initWithDirectory:store.directory core:StoreCore()];
+    SBProfileStore *reopened = [[SBProfileStore alloc] initWithDirectory:store.directory core:StoreCore()];
     [reopened prepare];
     GH_ASSERT_EQUAL_OBJECTS(reopened.profile[@"facts"][@"nickname"], @"Al");
     GH_ASSERT(reopened.profile[@"facts"][@"bogus"] == nil);          // only string facts survive
@@ -60,12 +60,12 @@ GH_TEST(store_profile_round_trip_keeps_0600) {
 }
 
 GH_TEST(store_never_overwrites_existing_files_and_tightens_modes) {
-    NSString *directory = [GHTestTempDirectory() stringByAppendingPathComponent:@"Ghost"];
+    NSString *directory = [SBTestTempDirectory() stringByAppendingPathComponent:@"Shabang"];
     [NSFileManager.defaultManager createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
     NSString *profilePath = [directory stringByAppendingPathComponent:@"profile.json"];
     [@"{\"facts\":{\"firstName\":\"Sam\"},\"pastAnswers\":[]}" writeToFile:profilePath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     chmod(profilePath.fileSystemRepresentation, 0644);
-    GHProfileStore *store = [[GHProfileStore alloc] initWithDirectory:directory core:StoreCore()];
+    SBProfileStore *store = [[SBProfileStore alloc] initWithDirectory:directory core:StoreCore()];
     [store prepare];
     GH_ASSERT_EQUAL_OBJECTS(store.profile[@"facts"][@"firstName"], @"Sam");
     GH_ASSERT(store.profile[@"facts"][@"lastName"] == nil);
@@ -73,7 +73,7 @@ GH_TEST(store_never_overwrites_existing_files_and_tightens_modes) {
 }
 
 GH_TEST(store_keeps_last_good_profile_when_json_breaks) {
-    GHProfileStore *store = FreshStore();
+    SBProfileStore *store = FreshStore();
     [@"{ \"facts\": { \"firstName\": \"Al" writeToFile:store.profilePath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     GH_ASSERT_FALSE([store reload]);
     GH_ASSERT_EQUAL_OBJECTS(store.profile[@"facts"][@"firstName"], @"Alex");
@@ -83,7 +83,7 @@ GH_TEST(store_keeps_last_good_profile_when_json_breaks) {
 }
 
 GH_TEST(store_settings_are_validated_and_merged) {
-    GHProfileStore *store = FreshStore();
+    SBProfileStore *store = FreshStore();
     [@"{\"enabled\":false,\"confidenceThreshold\":0.01,\"serverUrl\":\"ftp://evil.example\",\"showHud\":\"yes\",\"futureKey\":{\"a\":1},\"pausedBundleIds\":[\"com.example.app\",7,\"com.example.app\"]}"
         writeToFile:store.settingsPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     GH_ASSERT([store reload]);
@@ -106,7 +106,7 @@ GH_TEST(store_settings_are_validated_and_merged) {
 }
 
 GH_TEST(store_pause_list) {
-    GHProfileStore *store = FreshStore();
+    SBProfileStore *store = FreshStore();
     for (NSString *bundleId in @[ @"com.apple.Terminal", @"com.googlecode.iterm2", @"com.apple.keychainaccess", @"com.apple.systempreferences",
                                   @"com.1password.1password", @"com.1password.browser-helper", @"com.bitwarden.desktop", @"dev.shabang.desktop" ]) {
         GH_ASSERT_MSG([store isPausedBundleId:bundleId], @"%@ must always be skipped", bundleId);
@@ -125,14 +125,14 @@ GH_TEST(store_pause_list) {
 }
 
 GH_TEST(store_does_not_offer_sensitive_fact_keys) {
-    GHProfileStore *store = FreshStore();
+    SBProfileStore *store = FreshStore();
     [store saveProfile:@{ @"facts": @{ @"firstName": @"Alex", @"ssn": @"000-00-0000", @"cardNumber": @"4111111111111111", @"password": @"hunter2" } } error:NULL];
     GH_ASSERT_EQUAL_OBJECTS([store usableFactKeys], (@[ @"firstName" ]));
 }
 
 GH_TEST(store_without_core_seeds_empty_profile) {
-    NSString *directory = [GHTestTempDirectory() stringByAppendingPathComponent:@"Ghost"];
-    GHProfileStore *store = [[GHProfileStore alloc] initWithDirectory:directory core:nil];
+    NSString *directory = [SBTestTempDirectory() stringByAppendingPathComponent:@"Shabang"];
+    SBProfileStore *store = [[SBProfileStore alloc] initWithDirectory:directory core:nil];
     GH_ASSERT([store prepare]);
     GH_ASSERT_EQUAL_INT([store.profile[@"facts"] count], 0);
     GH_ASSERT(store.enabled);
@@ -140,20 +140,20 @@ GH_TEST(store_without_core_seeds_empty_profile) {
 }
 
 GH_TEST(store_watches_for_edits) {
-    GHProfileStore *store = FreshStore();
+    SBProfileStore *store = FreshStore();
     [store startWatching];
     __block NSUInteger notifications = 0;
-    id token = [NSNotificationCenter.defaultCenter addObserverForName:GHProfileStoreDidChangeNotification object:store queue:nil
+    id token = [NSNotificationCenter.defaultCenter addObserverForName:SBProfileStoreDidChangeNotification object:store queue:nil
                                                            usingBlock:^(NSNotification *note) { notifications++; }];
     // An editor that saves by rename (atomically:YES)...
     [@"{\"facts\":{\"firstName\":\"Robin\"},\"pastAnswers\":[]}" writeToFile:store.profilePath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    BOOL sawRename = GHTestWaitUntil(3.0, ^BOOL { return [store.profile[@"facts"][@"firstName"] isEqual:@"Robin"] && notifications == 1; });
+    BOOL sawRename = SBTestWaitUntil(3.0, ^BOOL { return [store.profile[@"facts"][@"firstName"] isEqual:@"Robin"] && notifications == 1; });
     // ...and one that writes in place.
     NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:store.profilePath];
     [handle truncateFileAtOffset:0];
     [handle writeData:[@"{\"facts\":{\"firstName\":\"Jamie\"},\"pastAnswers\":[]}" dataUsingEncoding:NSUTF8StringEncoding]];
     [handle closeFile];
-    BOOL sawInPlace = GHTestWaitUntil(3.0, ^BOOL { return [store.profile[@"facts"][@"firstName"] isEqual:@"Jamie"] && notifications == 2; });
+    BOOL sawInPlace = SBTestWaitUntil(3.0, ^BOOL { return [store.profile[@"facts"][@"firstName"] isEqual:@"Jamie"] && notifications == 2; });
     [store stopWatching];
     [NSNotificationCenter.defaultCenter removeObserver:token];
     GH_ASSERT(sawRename);
@@ -161,18 +161,18 @@ GH_TEST(store_watches_for_edits) {
 }
 
 GH_TEST(app_status_title) {
-    GH_ASSERT_EQUAL_OBJECTS([GHAppDelegate statusTitleForTrusted:NO enabled:YES coreLoaded:YES provider:@"jev" latencyMs:@120], @"Needs Accessibility permission");
-    GH_ASSERT_EQUAL_OBJECTS([GHAppDelegate statusTitleForTrusted:YES enabled:NO coreLoaded:YES provider:@"jev" latencyMs:@120], @"Off");
-    GH_ASSERT_EQUAL_OBJECTS([GHAppDelegate statusTitleForTrusted:YES enabled:YES coreLoaded:YES provider:nil latencyMs:nil], @"On: heuristic only (server offline)");
-    GH_ASSERT_EQUAL_OBJECTS([GHAppDelegate statusTitleForTrusted:YES enabled:YES coreLoaded:YES provider:@"jev-gateway" latencyMs:@182.4], @"On: jev-gateway, 182 ms");
-    GH_ASSERT([[GHAppDelegate statusTitleForTrusted:YES enabled:YES coreLoaded:NO provider:nil latencyMs:nil] containsString:@"make core"]);
+    GH_ASSERT_EQUAL_OBJECTS([SBAppDelegate statusTitleForTrusted:NO enabled:YES coreLoaded:YES provider:@"jev" latencyMs:@120], @"Needs Accessibility permission");
+    GH_ASSERT_EQUAL_OBJECTS([SBAppDelegate statusTitleForTrusted:YES enabled:NO coreLoaded:YES provider:@"jev" latencyMs:@120], @"Off");
+    GH_ASSERT_EQUAL_OBJECTS([SBAppDelegate statusTitleForTrusted:YES enabled:YES coreLoaded:YES provider:nil latencyMs:nil], @"On: heuristic only (server offline)");
+    GH_ASSERT_EQUAL_OBJECTS([SBAppDelegate statusTitleForTrusted:YES enabled:YES coreLoaded:YES provider:@"jev-gateway" latencyMs:@182.4], @"On: jev-gateway, 182 ms");
+    GH_ASSERT([[SBAppDelegate statusTitleForTrusted:YES enabled:YES coreLoaded:NO provider:nil latencyMs:nil] containsString:@"make core"]);
 }
 
 #pragma mark - file facts
 
 GH_TEST(store_validates_resume_and_cover_letter_paths_on_load) {
-    GHProfileStore *store = FreshStore();
-    NSString *dir = GHTestTempDirectory();
+    SBProfileStore *store = FreshStore();
+    NSString *dir = SBTestTempDirectory();
     NSString *resume = [dir stringByAppendingPathComponent:@"resume-alex-chen.pdf"];
     NSString *letter = [dir stringByAppendingPathComponent:@"Cover Letter.docx"];
     NSString *binary = [dir stringByAppendingPathComponent:@"resume.exe"];
@@ -202,10 +202,10 @@ GH_TEST(store_validates_resume_and_cover_letter_paths_on_load) {
         GH_ASSERT_EQUAL_OBJECTS(store.profile[@"facts"][@"firstName"], @"Alex");   // the rest of the profile is untouched
     }
     NSString *problem = nil;
-    GH_ASSERT(GHUsableProfileFilePath(@"~/ghost-tests-surely-missing-9f1c.pdf", &problem) == nil);
+    GH_ASSERT(SBUsableProfileFilePath(@"~/ghost-tests-surely-missing-9f1c.pdf", &problem) == nil);
     GH_ASSERT_EQUAL_OBJECTS(problem, @"missing");                   // "~/" was expanded before the checks
-    GH_ASSERT(GHUsableProfileFilePath(@"  ", &problem) == nil);
-    GH_ASSERT_EQUAL_OBJECTS(GHUsableProfileFilePath(resume, NULL), resume);
+    GH_ASSERT(SBUsableProfileFilePath(@"  ", &problem) == nil);
+    GH_ASSERT_EQUAL_OBJECTS(SBUsableProfileFilePath(resume, NULL), resume);
 }
 
 GH_TEST(store_example_profile_is_the_demo_profile_plus_the_fictional_resume) {
@@ -225,7 +225,7 @@ GH_TEST(store_example_profile_is_the_demo_profile_plus_the_fictional_resume) {
     NSMutableDictionary *withPath = [example[@"facts"] mutableCopy];
     withPath[@"resumePath"] = resume;
     profile[@"facts"] = withPath;
-    GHProfileStore *store = FreshStore();
+    SBProfileStore *store = FreshStore();
     [[NSJSONSerialization dataWithJSONObject:profile options:0 error:NULL] writeToFile:store.profilePath atomically:YES];
     [store reload];
     GH_ASSERT_EQUAL_OBJECTS(store.profile[@"facts"][@"resumePath"], resume);
@@ -236,8 +236,8 @@ GH_TEST(store_example_profile_is_the_demo_profile_plus_the_fictional_resume) {
 #pragma mark - answers.json (docs/answers.md)
 
 GH_TEST(store_answers_start_empty_and_are_never_seeded) {
-    GHProfileStore *store = FreshStore();
-    // Nothing learned yet is an ABSENT file, not an empty one: Ghost writes it the first time it learns.
+    SBProfileStore *store = FreshStore();
+    // Nothing learned yet is an ABSENT file, not an empty one: Shabang writes it the first time it learns.
     GH_ASSERT_FALSE([NSFileManager.defaultManager fileExistsAtPath:store.answersPath]);
     GH_ASSERT_EQUAL_INT([store.answers[@"answers"] count], 0);
     GH_ASSERT_EQUAL_OBJECTS([store answersJSON], @"");
@@ -245,7 +245,7 @@ GH_TEST(store_answers_start_empty_and_are_never_seeded) {
 }
 
 GH_TEST(store_answers_round_trip_keeps_0600_and_survives_a_reload) {
-    GHProfileStore *store = FreshStore();
+    SBProfileStore *store = FreshStore();
     NSDictionary *answer = @{ @"signature": @"choice:gender#abc", @"textSignature": @"gender", @"label": @"Gender",
                               @"kind": @"select", @"value": @"Decline To Self Identify", @"count": @1,
                               @"updatedAt": @"2026-01-01T00:00:00.000Z", @"origins": @[ @"app://x" ], @"class": @"protected" };
@@ -254,7 +254,7 @@ GH_TEST(store_answers_round_trip_keeps_0600_and_survives_a_reload) {
     GH_ASSERT_EQUAL_INT([store.answers[@"answers"] count], 1);
     GH_ASSERT([[store answersJSON] containsString:@"choice:gender#abc"]);
 
-    GHProfileStore *reopened = [[GHProfileStore alloc] initWithDirectory:store.directory core:StoreCore()];
+    SBProfileStore *reopened = [[SBProfileStore alloc] initWithDirectory:store.directory core:StoreCore()];
     [reopened prepare];
     GH_ASSERT_EQUAL_INT([reopened.answers[@"answers"] count], 1);
     GH_ASSERT_EQUAL_OBJECTS(reopened.answers[@"answers"][0][@"label"], @"Gender");
@@ -265,9 +265,9 @@ GH_TEST(store_answers_round_trip_keeps_0600_and_survives_a_reload) {
 }
 
 GH_TEST(store_answers_tolerate_a_missing_corrupt_or_half_written_file) {
-    GHProfileStore *store = FreshStore();
+    SBProfileStore *store = FreshStore();
     // A file that is not JSON at all, one that is the wrong shape, and one whose entries are half there:
-    // every one of them reads as "nothing learned yet" rather than stopping Ghost from proposing.
+    // every one of them reads as "nothing learned yet" rather than stopping Shabang from proposing.
     NSArray<NSString *> *broken = @[ @"", @"{", @"[]", @"null", @"{\"answers\": \"lots\"}",
                                      @"{\"answers\": [1, \"two\", {\"signature\": \"\"}, {\"signature\": \"s\"}]}" ];
     for (NSString *text in broken) {
@@ -287,7 +287,7 @@ GH_TEST(store_answers_tolerate_a_missing_corrupt_or_half_written_file) {
 }
 
 GH_TEST(store_settings_carry_the_answer_policy_knob) {
-    GHProfileStore *store = FreshStore();
+    SBProfileStore *store = FreshStore();
     GH_ASSERT_EQUAL_OBJECTS(store.settings[@"answerProtectedWithDecline"], @YES);   // on by default
     GH_ASSERT([store updateSettings:@{ @"answerProtectedWithDecline": @NO } error:NULL]);
     GH_ASSERT_EQUAL_OBJECTS(store.settings[@"answerProtectedWithDecline"], @NO);

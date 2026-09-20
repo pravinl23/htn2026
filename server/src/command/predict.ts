@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { NONE, type Answers, type ChoiceQuestion, type DecisionProvider, type Questions } from "@ghost/shared";
+import { NONE, type Answers, type ChoiceQuestion, type DecisionProvider, type Questions } from "@shabang/shared";
 import { LruCache } from "../lib/cache";
 import { withDeadline } from "../providers/timeout";
 import { buildCandidates, cleanRequest, pickHeuristic, type Candidate, type CleanCommandRequest, type CommandRequest, type GitSummary } from "./candidates";

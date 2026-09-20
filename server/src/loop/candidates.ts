@@ -1,4 +1,4 @@
-import { isSensitive, normalizeUrl, type FactLocator, type FactsByUrl, type LoopCandidate, type TraceEvent, type UnresolvedStep } from "@ghost/shared";
+import { isSensitive, normalizeUrl, type FactLocator, type FactsByUrl, type LoopCandidate, type TraceEvent, type UnresolvedStep } from "@shabang/shared";
 import { looksSecret } from "./secrets";
 import { TRANSFORM_ORDER, reproduces, type LoopTransform } from "./transforms";
 

@@ -204,7 +204,7 @@ describe("everything stays removable", () => {
   });
 });
 
-describe("what Ghost knows, described", () => {
+describe("what Shabang knows, described", () => {
   it("reports counts per screen kind and per source, plus the file size", () => {
     const seeded = applyColdStart({
       surfaces: surfacesOf([

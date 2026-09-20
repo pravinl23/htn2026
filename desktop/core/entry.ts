@@ -1,5 +1,5 @@
-// Ghost Desktop core bridge. Bundled by build-core.mjs into build/shabang-core.js as an IIFE whose global
-// is `GhostCore`, and run inside JavaScriptCore by desktop/src/GHCore.m.
+// Shabang Desktop core bridge. Bundled by build-core.mjs into build/shabang-core.js as an IIFE whose global
+// is `GhostCore`, and run inside JavaScriptCore by desktop/src/SBCore.m.
 //
 // Strings in, strings out (JSON): the Objective-C side stays thin and the behaviour stays identical to
 // the extension. Nothing here may touch the DOM, Node or chrome.*: JavaScriptCore has none of them
@@ -13,7 +13,7 @@ import {
   isLockedAction,
   isSensitive,
   recordCorrection as recordAnswerCorrection,
-} from "@ghost/shared";
+} from "@shabang/shared";
 import type {
   AnswerSettings,
   CapturedField,
@@ -27,7 +27,7 @@ import type {
   Profile,
   QuestionField,
   SensitiveProbe,
-} from "@ghost/shared";
+} from "@shabang/shared";
 // ./predict.ts is a port of the pure rules of extension/src/content/predict.ts: threshold gating, skip
 // filled fields, placeholder choices, sensitivity re-check, tick-only checkboxes, the lock ghost parked last.
 // On top of them it adds the Desktop rules for real forms: upload ghosts from resumePath / coverLetterPath,
@@ -105,7 +105,7 @@ export function mapForm(fieldsJson: string, factKeysJson: string): string {
 /**
  * Answers the user gave before, read back from ~/Library/Application Support/Shabang/answers.json.
  * A file that is missing, empty, corrupt or not the right shape is simply an empty store: a broken file
- * must never stop Ghost from proposing anything. Nothing in here ever leaves the machine.
+ * must never stop Shabang from proposing anything. Nothing in here ever leaves the machine.
  */
 function asAnswers(json: string | undefined | null): LearnedAnswerStore {
   if (typeof json !== "string" || json.trim() === "") return new LearnedAnswerStore();
@@ -159,7 +159,7 @@ function asSource(source: string): GhostSource {
 }
 
 /**
- * Ghost[] in field order with the lock ghost last -- and no lock ghost at all while a required field before it
+ * Shabang[] in field order with the lock ghost last -- and no lock ghost at all while a required field before it
  * is still empty (docs/incremental.md). `optionsJson` is optional:
  * `{ keepLock?, lockSignature?, answers?, accepted?, company? }`. `answers` is the answers.json snapshot (a
  * string or the object itself), `accepted` the signatures the user has already taken in this walk.
@@ -224,8 +224,8 @@ export function isLockedActionProbe(probeJson: string): boolean {
   return isLockedAction(probe as unknown as LockProbe);
 }
 
-// ---------- /v1/ghost-text facts ----------
-// Desktop-only client allowlist for `/v1/ghost-text`. The Chrome extension has no server/text client yet;
+// ---------- /v1/shabang-text facts ----------
+// Desktop-only client allowlist for `/v1/shabang-text`. The Chrome extension has no server/text client yet;
 // when it gains one, move this policy into shared code instead of copying it again.
 // Contact details, LinkedIn, work authorization and sponsorship never leave the machine for a draft.
 const TEXT_FACT_KEYS: readonly string[] = [
@@ -245,7 +245,7 @@ export function textFacts(profileJson: string): string {
   return JSON.stringify(out);
 }
 
-// ---------- /v1/ghost-text past answers ----------
+// ---------- /v1/shabang-text past answers ----------
 // The same filter as the extension's similarPastAnswers (extension/src/content/freeText.ts): only answers to
 // questions that resemble this one, closest first, at most three, never a sensitive question and never an answer
 // that carries an e-mail address or a phone number. Desktop also drops EEO / demographic questions and anything
@@ -344,7 +344,7 @@ function toWireField(raw: unknown): CapturedField | null {
 
 /**
  * The JSON body for POST /v1/predict/form, or "null" when there is nothing worth asking. EEO / demographic
- * questions are not asked about at all (Ghost never answers them), and file-path facts are local only.
+ * questions are not asked about at all (Shabang never answers them), and file-path facts are local only.
  */
 export function formRequest(fieldsJson: string, factKeysJson: string, origin: string, formSignature: string): string {
   const rawFields = parse<unknown>(fieldsJson, "fields");
@@ -410,7 +410,7 @@ function asQuestion(json: string): QuestionField {
 }
 
 /**
- * What Ghost proposes for every field, in field order: `{ signature, value, optionLabel?, confidence, source,
+ * What Shabang proposes for every field, in field order: `{ signature, value, optionLabel?, confidence, source,
  * class, reason, needsReview, signature: questionKey }`. Exposed for the options page, the harness and tests;
  * the walk itself gets the same answers through `ghostsFor` / `upgradeGhosts`.
  * `answersJson` is the answers.json snapshot; a missing or corrupt one is simply no learned answers.
@@ -430,7 +430,7 @@ export function proposeAnswers(fieldsJson: string, profileJson: string, answersJ
 }
 
 /**
- * The user answered a question themselves (or changed what Ghost filled): keep it, keyed by the question
+ * The user answered a question themselves (or changed what Shabang filled): keep it, keyed by the question
  * rather than by the site. Returns `{ answers, counter, changed, refusal? }`, where `answers` is the new
  * snapshot to write back to answers.json and `counter` is the value-free telemetry counter name.
  * Nothing here ever leaves the machine, and a value that looks like a secret is refused.
@@ -469,7 +469,7 @@ export function gateFor(fieldsJson: string, ghostsJson: string, optionsJson?: st
 // The names docs/desktop.md promises. `isSensitive` and `isLockedAction` take a JSON probe.
 export { isSensitiveProbe as isSensitive, isLockedActionProbe as isLockedAction };
 
-// ---------- Ghost anywhere (docs/anywhere.md) ----------
+// ---------- Shabang anywhere (docs/anywhere.md) ----------
 // The next-action pass for a window that is not a form: affordances, the kind of place, priors and role memory.
 // Everything it needs comes from the capture the native side already makes; nothing here names an app or a site.
 export { nextAction, recordRoleOutcome, emptyRoleMemory, lockedForCandidate } from "./anywhere";

@@ -7,7 +7,7 @@ This document is a **future implementation and validation plan**, not a descript
 Implemented and unit-tested (199 native tests):
 
 - macOS Accessibility trust handling and bounded AX-tree capture; sensitive/hidden/disabled exclusion; stable signatures;
-- offline form mapping plus server-upgraded `/v1/predict/form`; streamed `/v1/ghost-text` drafts; ghost overlays; Tab/Escape/hold-Tab state; locks; verified writes; local profile/settings/form cache; menu-bar app;
+- offline form mapping plus server-upgraded `/v1/predict/form`; streamed `/v1/shabang-text` drafts; ghost overlays; Tab/Escape/hold-Tab state; locks; verified writes; local profile/settings/form cache; menu-bar app;
 - **stable host + hot-swappable `libshabang.dylib`** (`desktop/host/main.m`, `make host`, `make lib`, `make install-lib`). The granted host is `~/Applications/Shabang.app`; rebuild only the library;
 - **harness**: `desktop/tools/shabangctl trust | dump | dump-tree | autotab N | run | quit | log | selftest` with `--frontmost`, `--delay`, `--out`;
 - a fictional resume PDF at `demo/fixtures/resume-alex-chen.pdf`;

@@ -45,7 +45,7 @@ export class TraceBuilder {
     return this;
   }
 
-  /** Marks the next event as Ghost's own action. */
+  /** Marks the next event as Shabang's own action. */
   synthetic(): this {
     this.syntheticNext = true;
     return this;

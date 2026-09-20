@@ -1,4 +1,4 @@
-// Bundles core/entry.ts (which pulls in @ghost/shared and the extension's pure predict rules) into
+// Bundles core/entry.ts (which pulls in @shabang/shared and the extension's pure predict rules) into
 // build/shabang-core.js: one IIFE whose global is `GhostCore`, for JavaScriptCore.
 //
 // Then PROVES the bundle: it is run in a bare VM context (no DOM, no Node, no chrome), every export the
@@ -14,7 +14,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../..");
 const outfile = resolve(here, "../build/shabang-core.js");
 
-/** What GHCore.m calls. Keep in sync with docs/desktop.md "Core bridge". */
+/** What SBCore.m calls. Keep in sync with docs/desktop.md "Core bridge". */
 const REQUIRED_EXPORTS = [
   "demoProfile", "defaultSettings", "mapForm", "ghostsFor", "isSensitive", "isLockedAction", "textFacts",
   "upgradeGhosts", "formRequest", "cleanAssignments", "isPlaceholder", "textPastAnswers",
@@ -58,7 +58,7 @@ await esbuild.build({
   target: "safari16",
   charset: "utf8",
   legalComments: "none",
-  alias: { "@ghost/shared": join(repo, "shared/src/index.ts") },
+  alias: { "@shabang/shared": join(repo, "shared/src/index.ts") },
   logLevel: "warning",
 }).catch((err) => fail(err.message));
 
@@ -109,7 +109,7 @@ try {
     fail(`smoke test: a correction was not learned (${JSON.stringify(learned)})`);
   }
 
-  // Ghost anywhere (docs/anywhere.md): a window that is not a form still gets one proposal. A playing video
+  // Shabang anywhere (docs/anywhere.md): a window that is not a form still gets one proposal. A playing video
   // wants fullscreen; nothing here names a site, and the whole pass is the SHARED affordance layer.
   const player = [
     { id: "c1", kind: "button", label: "Pause", locked: false, insideMediaControls: true },

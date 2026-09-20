@@ -34,7 +34,7 @@ a replay harness: it scores each fixture against expectations derived from that 
 | 7 | "A summary that contradicts the proposals it describes" returns 400 — `server-api.md:133` | **PARTLY FALSE** | The check is one-sided. `summary.shown: 99` against 1 proposal → **200**. Under-counting is rejected, over-counting is not. |
 | 8 | "Invalid or widened actions, sources, verdicts, counts, buckets or IDs return 400" | **PROVEN** | Widened `action` → 400; array body → 400; malformed JSON → 400. |
 | 9 | "64 KB maximum" | **PROVEN** | 200 KB body → 413. |
-| 10 | "`GHOST_PROVIDER=heuristic` intentionally disables Sentry" | **PROVEN** | `config.ts:163,186`; `offline` requires that literal value. |
+| 10 | "`SHABANG_PROVIDER=heuristic` intentionally disables Sentry" | **PROVEN** | `config.ts:163,186`; `offline` requires that literal value. |
 | 11 | "With no `SENTRY_DSN` … reporting `captured: false`" | **PROVEN by code path** | `config.sentry` undefined → `NoopWalkOutcomeSink` → `capture()` returns `undefined` → `captured: false`. Not re-run live this pass. |
 | 12 | "Deterministic replay eval" catches regressions — `learning-loop.md` | **FALSE as written** | Self-comparison; see below. |
 | 13 | "The native client only needs to emit it" (Shabang Desktop) | **PROVEN absent** | `grep -ril "walk-outcome\|walkOutcome\|walk/outcomes" desktop/` → no hits. |
@@ -206,13 +206,13 @@ My ingest returns 200 to anything, so these stay **unverifiable** without one:
 **Two-minute procedure once a DSN exists** (apply fix 1 first, or this proves nothing):
 
 ```bash
-# 1. Real DSN, and NOT the offline provider — GHOST_PROVIDER=heuristic disables Sentry by design.
+# 1. Real DSN, and NOT the offline provider — SHABANG_PROVIDER=heuristic disables Sentry by design.
 SENTRY_DSN='https://<key>@oNNN.ingest.sentry.io/NNN' SENTRY_ENVIRONMENT=audit \
-  GHOST_PROVIDER= pnpm --filter @ghost/server start
+  SHABANG_PROVIDER= pnpm --filter @shabang/server start
 
 # 2. Post one reviewable outcome with a real proposal (the shape that is dropped today).
 curl -s localhost:8787/v1/walk/outcomes -H 'content-type: application/json' -d '{
-  "schemaVersion":"ghost.walk-outcome.v1","runId":"11111111-1111-4111-8111-111111111111",
+  "schemaVersion":"shabang.walk-outcome.v1","runId":"11111111-1111-4111-8111-111111111111",
   "state":"abandoned","reason":"page-left","duration":"1s-4.9s","provider":"typesafe","latency":"250-499ms",
   "proposals":[{"index":1,"action":"fill","source":"server","calibrated":true,
                 "confidence":"95-plus","locked":false,"outcome":"accepted"}],

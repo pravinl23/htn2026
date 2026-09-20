@@ -16,5 +16,5 @@ if (present.length === 0) {
   process.exit(0);
 }
 console.log("test:live using keys: " + present.join(", "));
-const r = spawnSync("pnpm", ["--filter", "@ghost/server", "test:live", ...process.argv.slice(2)], { stdio: "inherit", env: process.env });
+const r = spawnSync("pnpm", ["--filter", "@shabang/server", "test:live", ...process.argv.slice(2)], { stdio: "inherit", env: process.env });
 process.exit(r.status ?? 1);

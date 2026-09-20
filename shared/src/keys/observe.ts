@@ -1,7 +1,7 @@
 // Learning which key a place wants (docs/accept-key.md section 2). Pure and JSON-serializable: no DOM, no AX, no
 // storage, no clock. The client watches, this module counts, and `acceptKeyFor` reads the result.
 //
-// There is no site list anywhere in Ghost and there never will be. A place earns "Tab is free here" by being
+// There is no site list anywhere in Shabang and there never will be. A place earns "Tab is free here" by being
 // watched, and one piece of contrary evidence takes it away again, because stealing Tab from a page that uses it is
 // the expensive mistake and waiting one keypress to learn is the cheap one.
 //
@@ -38,7 +38,7 @@ export interface PressCounts {
   ghost: number;
 }
 
-/** What Ghost remembers about one origin or app. Counters only; nothing here can be read back as a browsing history. */
+/** What Shabang remembers about one origin or app. Counters only; nothing here can be read back as a browsing history. */
 export interface KeyObservation {
   /** "app://<bundle id>" or "scheme://host". Never a path, a query or a fragment. */
   id: string;
@@ -46,7 +46,7 @@ export interface KeyObservation {
   probes: ProbeCounts;
   /** Accept presses the user made here, per key. */
   presses: PressCounts;
-  /** Presses that accepted nothing: the user reached for a key Ghost was not listening to. Shown in the HUD. */
+  /** Presses that accepted nothing: the user reached for a key Shabang was not listening to. Shown in the HUD. */
   missed: number;
   /** The current run of identical accept presses. The third one flips the place. */
   run: { key: AcceptKey; count: number } | null;
@@ -61,14 +61,14 @@ export interface TabProbe extends SiteId {
   preventedDefault?: boolean;
   /** Focus moved to another control, the way a native Tab would move it. Undefined means the client could not tell. */
   focusMoved?: boolean;
-  /** Editors, terminals and password managers: Ghost suggests nothing there, so it watches nothing either. */
+  /** Editors, terminals and password managers: Shabang suggests nothing there, so it watches nothing either. */
   paused?: boolean;
 }
 
 /**
  * One accept press by the user. Report a press only when a ghost was on screen and the press was AIMED at it (for
  * Tab, that means focus was in the ghosted field). An ordinary Tab through a form is not a correction and must never
- * be reported here, or Ghost would teach itself to steal the key the user was only tabbing with.
+ * be reported here, or Shabang would teach itself to steal the key the user was only tabbing with.
  */
 export interface UserPress extends SiteId {
   key: AcceptKey;
@@ -121,7 +121,7 @@ export function applyTabProbe(current: KeyObservation, probe: TabProbe): KeyObse
 /**
  * Fold one accept press by the user into a place's record (doc section 2 step 4). Three consistent presses flip the
  * place permanently and pin it, so a person who keeps reaching for Tab gets Tab, and a person who keeps reaching for
- * the Ghost key stops being offered Tab. A press of the other key starts a new run: "consistent" means in a row.
+ * the Shabang key stops being offered Tab. A press of the other key starts a new run: "consistent" means in a row.
  */
 export function applyUserPress(current: KeyObservation, press: UserPress): KeyObservation {
   const next = clone(current);
@@ -136,7 +136,7 @@ export function applyUserPress(current: KeyObservation, press: UserPress): KeyOb
     next.tab = wanted;
     next.flips = bump(next.flips);
   }
-  // Pinned either way: three deliberate presses are the user telling Ghost which key this place uses.
+  // Pinned either way: three deliberate presses are the user telling Shabang which key this place uses.
   next.pinned = true;
   next.run = null;
   return next;

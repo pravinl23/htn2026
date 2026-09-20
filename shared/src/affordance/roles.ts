@@ -194,10 +194,10 @@ const PATH_PATTERNS: readonly { role: AffordanceRole; re: RegExp }[] = [
 ];
 
 /**
- * A list hands Ghost its headings as rows. Measured on this machine: a notes app put "Pinned", "Today" and
+ * A list hands Shabang its headings as rows. Measured on this machine: a notes app put "Pinned", "Today" and
  * "Previous 7 Days" in the same list and the same index space as the notes themselves, and two file/track lists
  * published their column-title row ("Name Kind Date Last Opened", "# Title Album Date added Duration") as row
- * zero. Ghost proposed all of them, top of the ranking, because nothing here had a word for "this names the rows
+ * zero. Shabang proposed all of them, top of the ranking, because nothing here had a word for "this names the rows
  * under it". Pressing one does nothing at all, which is the worst ghost there is.
  *
  * Both rules match the WHOLE name, never a substring, and that anchoring is the entire safety argument: "Today"
@@ -409,7 +409,7 @@ export function classifyAffordance(candidate: AffordanceCandidate, context: Affo
     if (standing > 0) scores.add("primary-item", listItemWeight(candidate.list?.index ?? 0) * standing, "list-item");
   }
   // Somebody is waiting for an answer. Strongest item evidence there is: it says which row, not merely that
-  // rows exist, and it is the one thing on a messaging screen Ghost can follow all the way through.
+  // rows exist, and it is the one thing on a messaging screen Shabang can follow all the way through.
   if (itemLike && candidate.unread === true) scores.add("primary-item", 0.8, "unread");
   // A price beside a link is a product tile even where the list detector found no list (a single featured item).
   if (itemLike && candidate.nearbyPrice === true) {

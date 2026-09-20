@@ -4,11 +4,11 @@
  * This is the span the prize asks for: an AI call with the provider and the model on it, inside the request that
  * needed it. It wraps `DecisionProvider.decide`, which is the ONE place a form, a next action or a shell command is
  * decided, so the trace answers the question the whole product is about: of the milliseconds a ghost took to appear,
- * how many were the model and how many were Ghost's own code?
+ * how many were the model and how many were Shabang's own code?
  *
  * The state and the questions are never touched. Only their SHAPE (how many questions) leaves.
  */
-import type { DecisionProvider, DecisionResult, Questions } from "@ghost/shared";
+import type { DecisionProvider, DecisionResult, Questions } from "@shabang/shared";
 import { confidenceBucket, decideSpanName, genAiSystem, type ConfidenceBucket } from "./names";
 import { DECISION_TIMEOUT_MS } from "../providers/timeout";
 import { count, distribution, isEnabled, log, span, type Attrs } from "./sentry";

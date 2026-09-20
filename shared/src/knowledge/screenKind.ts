@@ -1,6 +1,6 @@
 // What KIND of screen this is, from STRUCTURE alone (docs/knowledge.md section 2).
 //
-// The rule that makes Ghost work anywhere: nothing here may know a site, an app, a bundle id or a brand. A screen
+// The rule that makes Shabang work anywhere: nothing here may know a site, an app, a bundle id or a brand. A screen
 // is a tree of boxes with structural roles, and a kind is a shape that tree has: a media node with a controls
 // cluster, a repeated grid of similar items, a long run of text with few controls, two panes where one lists and
 // one shows, a column of labelled rows each carrying a switch, one editable region that owns the view, a grid of

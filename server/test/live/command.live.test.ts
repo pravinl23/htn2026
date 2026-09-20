@@ -1,4 +1,4 @@
-import type { DecisionProvider } from "@ghost/shared";
+import type { DecisionProvider } from "@shabang/shared";
 import { describe, expect, it } from "vitest";
 import { createCommandPredictor } from "../../src/command/predict";
 import { loadConfig } from "../../src/config";
@@ -8,7 +8,7 @@ import { createTypesafeProvider } from "../../src/providers/typesafe";
 // Live only (pnpm test:live command). ONE real Jev call per configured Jev route: the terminal ghost predicts the next
 // command of a fictional session. The generous timeout is for measuring; the route itself falls back after 1.5 s.
 const LIVE_TIMEOUT_MS = 20_000;
-const config = loadConfig({ ...process.env, GHOST_DECISION_PROVIDER: undefined, GHOST_TEXT_PROVIDER: undefined });
+const config = loadConfig({ ...process.env, SHABANG_DECISION_PROVIDER: undefined, SHABANG_TEXT_PROVIDER: undefined });
 
 const SESSION = {
   cwd: "northwind-app",

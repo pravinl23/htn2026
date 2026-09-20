@@ -1,60 +1,60 @@
-// GHComboBoxDriver without a keyboard or AX: a fake react-select (Greenhouse style: label, live log, placeholder,
+// SBComboBoxDriver without a keyboard or AX: a fake react-select (Greenhouse style: label, live log, placeholder,
 // input, "Toggle flyout", menu inserted right after it) reacts to the fake poster, and a hand-driven clock runs
-// every wait. Only GHFakeKeyPoster is used: nothing here can post a real event.
-#import "GHTest.h"
-#import "GHComboBoxDriver.h"
-#import "GHKeyPoster.h"
+// every wait. Only SBFakeKeyPoster is used: nothing here can post a real event.
+#import "SBTest.h"
+#import "SBComboBoxDriver.h"
+#import "SBKeyPoster.h"
 
 #pragma mark - fakes
 
 /// A fake node that owns an ordered, editable child list (a menu is inserted after the toggle and removed again).
-@interface GHCBNode : GHFakeAXNode
-- (void)insert:(GHFakeAXNode *)child after:(nullable id<GHAXNode>)sibling;
-- (void)remove:(GHFakeAXNode *)child;
-- (BOOL)holds:(GHFakeAXNode *)child;
+@interface SBCBNode : SBFakeAXNode
+- (void)insert:(SBFakeAXNode *)child after:(nullable id<SBAXNode>)sibling;
+- (void)remove:(SBFakeAXNode *)child;
+- (BOOL)holds:(SBFakeAXNode *)child;
 @end
 
-@implementation GHCBNode {
-    NSMutableArray<GHFakeAXNode *> *_items;
+@implementation SBCBNode {
+    NSMutableArray<SBFakeAXNode *> *_items;
 }
-- (NSMutableArray<GHFakeAXNode *> *)items {
+- (NSMutableArray<SBFakeAXNode *> *)items {
     if (!_items) _items = [NSMutableArray array];
     return _items;
 }
-- (NSArray<id<GHAXNode>> *)children { return [self.items copy]; }
-- (GHFakeAXNode *)addChild:(GHFakeAXNode *)child {
+- (NSArray<id<SBAXNode>> *)children { return [self.items copy]; }
+- (SBFakeAXNode *)addChild:(SBFakeAXNode *)child {
     child.parent = self;
     [self.items addObject:child];
     return child;
 }
-- (void)insert:(GHFakeAXNode *)child after:(id<GHAXNode>)sibling {
+- (void)insert:(SBFakeAXNode *)child after:(id<SBAXNode>)sibling {
     child.parent = self;
-    NSUInteger index = sibling ? [self.items indexOfObjectIdenticalTo:(GHFakeAXNode *)sibling] : NSNotFound;
+    NSUInteger index = sibling ? [self.items indexOfObjectIdenticalTo:(SBFakeAXNode *)sibling] : NSNotFound;
     if (index == NSNotFound) [self.items addObject:child]; else [self.items insertObject:child atIndex:index + 1];
 }
-- (void)remove:(GHFakeAXNode *)child { [self.items removeObjectIdenticalTo:child]; }
-- (BOOL)holds:(GHFakeAXNode *)child { return [self.items indexOfObjectIdenticalTo:child] != NSNotFound; }
+- (void)remove:(SBFakeAXNode *)child { [self.items removeObjectIdenticalTo:child]; }
+- (BOOL)holds:(SBFakeAXNode *)child { return [self.items indexOfObjectIdenticalTo:child] != NSNotFound; }
 @end
 
-@interface GHCBClock : NSObject
+@interface SBCBClock : NSObject
 @property (nonatomic) NSTimeInterval now;
 @property (nonatomic, readonly) NSMutableArray<NSArray *> *timers;
 @end
 
-@implementation GHCBClock
+@implementation SBCBClock
 - (instancetype)init {
     if ((self = [super init])) { _timers = [NSMutableArray array]; _now = 50; }
     return self;
 }
 - (void (^)(NSTimeInterval, dispatch_block_t))after {
-    __weak GHCBClock *weakSelf = self;
+    __weak SBCBClock *weakSelf = self;
     return ^(NSTimeInterval delay, dispatch_block_t block) {
-        GHCBClock *clock = weakSelf;
+        SBCBClock *clock = weakSelf;
         [clock.timers addObject:@[ @(clock.now + delay), [block copy] ]];
     };
 }
 - (NSTimeInterval (^)(void))clock {
-    __weak GHCBClock *weakSelf = self;
+    __weak SBCBClock *weakSelf = self;
     return ^NSTimeInterval { return weakSelf.now; };
 }
 - (void)runUntil:(BOOL (^)(void))done {
@@ -71,40 +71,40 @@
 }
 @end
 
-@interface GHCBState : GHFakeDesktopState
+@interface SBCBState : SBFakeDesktopState
 /// Runs on every focus read (the poster reads focus right before each post), with the read's number.
 @property (nonatomic, copy) void (^onFocusRead)(NSUInteger read);
 @end
 
-@implementation GHCBState
-- (id<GHAXNode>)focusedElement {
+@implementation SBCBState
+- (id<SBAXNode>)focusedElement {
     if (self.onFocusRead) self.onFocusRead(self.focusReads + 1);
     return [super focusedElement];
 }
 @end
 
-@class GHCBWorld;
+@class SBCBWorld;
 
-@interface GHCBActuator : GHFakeAXActuator
-@property (nonatomic, weak) GHCBWorld *world;
+@interface SBCBActuator : SBFakeAXActuator
+@property (nonatomic, weak) SBCBWorld *world;
 @end
 
-/// GHCBPressClosesOnly is what the REAL react-select on the live Greenhouse form does: a synthesized press on an
+/// SBCBPressClosesOnly is what the REAL react-select on the live Greenhouse form does: a synthesized press on an
 /// option row dismisses the menu and chooses nothing at all (the row answers a real mouse press).
-typedef NS_ENUM(NSInteger, GHCBPress) { GHCBPressSelects, GHCBPressIgnored, GHCBPressFails, GHCBPressSelectsOther, GHCBPressClosesOnly };
+typedef NS_ENUM(NSInteger, SBCBPress) { SBCBPressSelects, SBCBPressIgnored, SBCBPressFails, SBCBPressSelectsOther, SBCBPressClosesOnly };
 
 /// A react-select combobox inside a flat form group, as on the real Greenhouse page.
-@interface GHCBWorld : NSObject
+@interface SBCBWorld : NSObject
 @property (nonatomic) pid_t pid;
-@property (nonatomic, strong) GHCBState *state;
-@property (nonatomic, strong) GHFakeKeyPoster *poster;
-@property (nonatomic, strong) GHCBActuator *actuator;
-@property (nonatomic, strong) GHCBClock *clock;
-@property (nonatomic, strong) GHComboBoxDriver *driver;
+@property (nonatomic, strong) SBCBState *state;
+@property (nonatomic, strong) SBFakeKeyPoster *poster;
+@property (nonatomic, strong) SBCBActuator *actuator;
+@property (nonatomic, strong) SBCBClock *clock;
+@property (nonatomic, strong) SBComboBoxDriver *driver;
 
-@property (nonatomic, strong) GHCBNode *container;
-@property (nonatomic, strong) GHFakeAXNode *combo, *toggle, *shownText, *logText, *elsewhere;
-@property (nonatomic, strong, nullable) GHCBNode *menu;
+@property (nonatomic, strong) SBCBNode *container;
+@property (nonatomic, strong) SBFakeAXNode *combo, *toggle, *shownText, *logText, *elsewhere;
+@property (nonatomic, strong, nullable) SBCBNode *menu;
 @property (nonatomic, copy) NSArray<NSString *> *options;
 @property (nonatomic) NSInteger highlight;
 
@@ -120,39 +120,39 @@ typedef NS_ENUM(NSInteger, GHCBPress) { GHCBPressSelects, GHCBPressIgnored, GHCB
 /// How many verification looks pass before the chosen text appears beside the control: a page whose accessibility
 /// tree catches up after it has already chosen.
 @property (nonatomic) NSUInteger chosenTextLagLooks;
-@property (nonatomic) GHCBPress press;
-@property (nonatomic, copy) void (^afterPost)(GHKeyStroke *stroke);
+@property (nonatomic) SBCBPress press;
+@property (nonatomic, copy) void (^afterPost)(SBKeyStroke *stroke);
 
 // What happened.
 @property (nonatomic) NSUInteger presses, escapes, returnsWithoutList, selections, pressOpensDone;
 @property (nonatomic, copy) NSString *selected;
 
-- (instancetype)initWithContainer:(GHCBNode *)container combo:(GHFakeAXNode *)combo;
+- (instancetype)initWithContainer:(SBCBNode *)container combo:(SBFakeAXNode *)combo;
 + (instancetype)syntheticWorldWithLabel:(NSString *)label;
 + (instancetype)syntheticWorld;
-- (void)focus:(GHFakeAXNode *)node;
+- (void)focus:(SBFakeAXNode *)node;
 - (void)choose:(NSString *)text;
 - (void)openMenu;
 - (void)closeMenu;
 - (void)highlightIndex:(NSInteger)index;
-- (GHComboBoxResult *)choose:(NSString *)answer in:(id<GHAXNode>)combo;
-- (GHComboBoxResult *)answer:(NSString *)answer;
+- (SBComboBoxResult *)choose:(NSString *)answer in:(id<SBAXNode>)combo;
+- (SBComboBoxResult *)answer:(NSString *)answer;
 @end
 
-static BOOL CBIsInside(id<GHAXNode> node, id<GHAXNode> ancestor) {
-    for (id<GHAXNode> up = node; up; up = up.parent) if (up == ancestor) return YES;
+static BOOL CBIsInside(id<SBAXNode> node, id<SBAXNode> ancestor) {
+    for (id<SBAXNode> up = node; up; up = up.parent) if (up == ancestor) return YES;
     return NO;
 }
 
-@implementation GHCBActuator
-- (BOOL)focusNode:(id<GHAXNode>)node {
+@implementation SBCBActuator
+- (BOOL)focusNode:(id<SBAXNode>)node {
     BOOL ok = [super focusNode:node];
     if (ok) self.world.state.focusedNode = node;
     return ok;
 }
-- (BOOL)pressNode:(id<GHAXNode>)node {
+- (BOOL)pressNode:(id<SBAXNode>)node {
     [super pressNode:node];
-    GHCBWorld *world = self.world;
+    SBCBWorld *world = self.world;
     world.presses++;
     if (world.pressOpens && node == world.combo && !world.menu) {
         if (world.maxPressOpens > 0 && world.pressOpensDone >= world.maxPressOpens) return YES;
@@ -162,77 +162,77 @@ static BOOL CBIsInside(id<GHAXNode> node, id<GHAXNode> ancestor) {
     }
     if (!world.menu || !CBIsInside(node, world.menu)) return YES;
     switch (world.press) {
-        case GHCBPressSelects: [world choose:[GHComboBoxDriver textOfOption:node]]; return YES;
-        case GHCBPressIgnored: return YES;
-        case GHCBPressFails: return NO;
-        case GHCBPressSelectsOther: [world choose:@"Something else"]; return YES;
-        case GHCBPressClosesOnly: [world closeMenu]; return YES;
+        case SBCBPressSelects: [world choose:[SBComboBoxDriver textOfOption:node]]; return YES;
+        case SBCBPressIgnored: return YES;
+        case SBCBPressFails: return NO;
+        case SBCBPressSelectsOther: [world choose:@"Something else"]; return YES;
+        case SBCBPressClosesOnly: [world closeMenu]; return YES;
     }
     return YES;
 }
 @end
 
-static GHFakeAXNode *CBNode(NSString *role, NSString *title) {
-    GHCBNode *node = [GHCBNode nodeWithRole:role];
+static SBFakeAXNode *CBNode(NSString *role, NSString *title) {
+    SBCBNode *node = [SBCBNode nodeWithRole:role];
     node.title = title;
     return node;
 }
 
-@implementation GHCBWorld
+@implementation SBCBWorld
 
 /// `combo` sits in `container` after [label, log group, placeholder group] and before its toggle button.
-- (instancetype)initWithContainer:(GHCBNode *)container combo:(GHFakeAXNode *)combo {
+- (instancetype)initWithContainer:(SBCBNode *)container combo:(SBFakeAXNode *)combo {
     if ((self = [super init])) {
         _pid = 777;
-        _state = [[GHCBState alloc] init];
+        _state = [[SBCBState alloc] init];
         _state.frontmostPID = _pid;
-        _poster = [[GHFakeKeyPoster alloc] initWithState:_state];
-        _actuator = [[GHCBActuator alloc] init];
+        _poster = [[SBFakeKeyPoster alloc] initWithState:_state];
+        _actuator = [[SBCBActuator alloc] init];
         _actuator.world = self;
-        _clock = [[GHCBClock alloc] init];
+        _clock = [[SBCBClock alloc] init];
         _container = container;
         _combo = combo;
-        NSArray<id<GHAXNode>> *siblings = container.children;
+        NSArray<id<SBAXNode>> *siblings = container.children;
         NSUInteger index = [siblings indexOfObjectIdenticalTo:combo];
-        _toggle = index + 1 < siblings.count ? (GHFakeAXNode *)siblings[index + 1] : nil;
-        GHFakeAXNode *placeholder = index >= 1 ? (GHFakeAXNode *)siblings[index - 1] : nil;
-        GHFakeAXNode *log = index >= 2 ? (GHFakeAXNode *)siblings[index - 2] : nil;
-        _shownText = (GHFakeAXNode *)placeholder.children.firstObject;
-        _logText = [GHFakeAXNode staticText:@"" frame:CGRectZero];
+        _toggle = index + 1 < siblings.count ? (SBFakeAXNode *)siblings[index + 1] : nil;
+        SBFakeAXNode *placeholder = index >= 1 ? (SBFakeAXNode *)siblings[index - 1] : nil;
+        SBFakeAXNode *log = index >= 2 ? (SBFakeAXNode *)siblings[index - 2] : nil;
+        _shownText = (SBFakeAXNode *)placeholder.children.firstObject;
+        _logText = [SBFakeAXNode staticText:@"" frame:CGRectZero];
         [log addChild:_logText];
-        _elsewhere = (GHFakeAXNode *)CBNode(@"AXTextField", @"Somewhere else");
+        _elsewhere = (SBFakeAXNode *)CBNode(@"AXTextField", @"Somewhere else");
         _options = @[ @"Indeed", @"LinkedIn", @"Referral" ];
         _opensMenu = _highlightsFirst = _arrowsWork = _escapeClears = _typingLands = YES;
-        _press = GHCBPressSelects;
+        _press = SBCBPressSelects;
         _highlight = -1;
 
-        __weak GHCBWorld *weakSelf = self;
-        _poster.onPost = ^(GHKeyStroke *stroke) { [weakSelf react:stroke]; };
-        _driver = [[GHComboBoxDriver alloc] initWithActuator:_actuator poster:_poster state:_state];
+        __weak SBCBWorld *weakSelf = self;
+        _poster.onPost = ^(SBKeyStroke *stroke) { [weakSelf react:stroke]; };
+        _driver = [[SBComboBoxDriver alloc] initWithActuator:_actuator poster:_poster state:_state];
         _driver.after = _clock.after;
         _driver.clock = _clock.clock;
-        _driver.isNodeSensitive = ^BOOL(id<GHAXNode> node) { return NO; };
+        _driver.isNodeSensitive = ^BOOL(id<SBAXNode> node) { return NO; };
     }
     return self;
 }
 
 + (instancetype)syntheticWorldWithLabel:(NSString *)label {
-    GHCBNode *form = (GHCBNode *)CBNode(@"AXGroup", nil);
+    SBCBNode *form = (SBCBNode *)CBNode(@"AXGroup", nil);
     form.subrole = @"AXLandmarkForm";
-    [form addChild:[GHFakeAXNode staticText:label frame:CGRectZero]];
-    GHFakeAXNode *log = [form addChild:CBNode(@"AXGroup", nil)];
+    [form addChild:[SBFakeAXNode staticText:label frame:CGRectZero]];
+    SBFakeAXNode *log = [form addChild:CBNode(@"AXGroup", nil)];
     log.subrole = @"AXEmptyGroup";
     log.roleDescription = @"log";
-    GHFakeAXNode *placeholder = [form addChild:CBNode(@"AXGroup", nil)];
-    [placeholder addChild:[GHFakeAXNode staticText:@"Select..." frame:CGRectZero]];
-    GHFakeAXNode *combo = [form addChild:CBNode(@"AXComboBox", label)];
+    SBFakeAXNode *placeholder = [form addChild:CBNode(@"AXGroup", nil)];
+    [placeholder addChild:[SBFakeAXNode staticText:@"Select..." frame:CGRectZero]];
+    SBFakeAXNode *combo = [form addChild:CBNode(@"AXComboBox", label)];
     combo.axDescription = label;
     combo.roleDescription = @"combo box";
     [form addChild:CBNode(@"AXButton", @"Toggle flyout")];
-    [form addChild:[GHFakeAXNode staticText:@"" frame:CGRectZero]];
-    [form addChild:[GHFakeAXNode staticText:@"Are you legally authorized to work in the United States for any employer?" frame:CGRectZero]];
+    [form addChild:[SBFakeAXNode staticText:@"" frame:CGRectZero]];
+    [form addChild:[SBFakeAXNode staticText:@"Are you legally authorized to work in the United States for any employer?" frame:CGRectZero]];
     [form addChild:CBNode(@"AXComboBox", @"Are you legally authorized to work in the United States for any employer?")];
-    GHFakeAXNode *web = CBNode(@"AXWebArea", nil);
+    SBFakeAXNode *web = CBNode(@"AXWebArea", nil);
     [web addChild:form];
     return [[self alloc] initWithContainer:form combo:combo];
 }
@@ -241,16 +241,16 @@ static GHFakeAXNode *CBNode(NSString *role, NSString *title) {
     return [self syntheticWorldWithLabel:@"How did you hear about this opportunity at Viam?"];
 }
 
-- (void)focus:(GHFakeAXNode *)node {
-    ((GHFakeAXNode *)self.state.focusedNode).isFocused = NO;
+- (void)focus:(SBFakeAXNode *)node {
+    ((SBFakeAXNode *)self.state.focusedNode).isFocused = NO;
     node.isFocused = YES;
     self.state.focusedNode = node;
     self.actuator.focusedNode = node;
 }
 
-- (NSArray<GHFakeAXNode *> *)optionNodes {
-    NSMutableArray<GHFakeAXNode *> *nodes = [NSMutableArray array];
-    for (id<GHAXNode> child in self.menu.children) [nodes addObject:(GHFakeAXNode *)child];
+- (NSArray<SBFakeAXNode *> *)optionNodes {
+    NSMutableArray<SBFakeAXNode *> *nodes = [NSMutableArray array];
+    for (id<SBAXNode> child in self.menu.children) [nodes addObject:(SBFakeAXNode *)child];
     return nodes;
 }
 
@@ -261,22 +261,22 @@ static GHFakeAXNode *CBNode(NSString *role, NSString *title) {
     for (NSString *option in self.options) {
         if (!self.filters || typed.length == 0 || [option.lowercaseString containsString:typed]) [shown addObject:option];
     }
-    GHCBNode *menu = (GHCBNode *)CBNode(@"AXList", nil);
+    SBCBNode *menu = (SBCBNode *)CBNode(@"AXList", nil);
     menu.roleDescription = @"list box";
     if (shown.count == 0) {
-        [menu addChild:[GHFakeAXNode staticText:@"No options" frame:CGRectZero]];
+        [menu addChild:[SBFakeAXNode staticText:@"No options" frame:CGRectZero]];
     }
     for (NSString *option in shown) {
         if (self.explicitOptions) {
-            GHFakeAXNode *row = [menu addChild:CBNode(@"AXGroup", nil)];
+            SBFakeAXNode *row = [menu addChild:CBNode(@"AXGroup", nil)];
             row.roleDescription = @"option";
-            [row addChild:[GHFakeAXNode staticText:option frame:CGRectZero]];
+            [row addChild:[SBFakeAXNode staticText:option frame:CGRectZero]];
         } else if (self.webkitOptions) {
-            GHFakeAXNode *row = [menu addChild:CBNode(@"AXStaticText", option)];   // text in AXTitle, AXValue empty
+            SBFakeAXNode *row = [menu addChild:CBNode(@"AXStaticText", option)];   // text in AXTitle, AXValue empty
             row.roleDescription = @"text";
             row.domClassList = @[ @"select__option", @"remix-css-18355b6-option" ];
         } else {
-            [menu addChild:[GHFakeAXNode staticText:option frame:CGRectZero]];
+            [menu addChild:[SBFakeAXNode staticText:option frame:CGRectZero]];
         }
     }
     self.menu = menu;
@@ -292,8 +292,8 @@ static GHFakeAXNode *CBNode(NSString *role, NSString *title) {
 }
 
 - (void)highlightIndex:(NSInteger)index {
-    NSArray<GHFakeAXNode *> *nodes = [self optionNodes];
-    for (GHFakeAXNode *node in nodes) {
+    NSArray<SBFakeAXNode *> *nodes = [self optionNodes];
+    for (SBFakeAXNode *node in nodes) {
         node.isFocused = NO;
         if (self.webkitOptions) node.domClassList = @[ @"select__option", @"remix-css-18355b6-option" ];
     }
@@ -312,38 +312,38 @@ static GHFakeAXNode *CBNode(NSString *role, NSString *title) {
     self.logText.value = [NSString stringWithFormat:@"option %@, selected.", text];
     if (self.chosenTextLagLooks == 0) { self.shownText.value = text; return; }
     // The page has chosen; its accessibility tree says so only a few looks later.
-    GHFakeAXNode *shown = self.shownText;
+    SBFakeAXNode *shown = self.shownText;
     shown.value = @"";
     self.driver.after(self.driver.verifyDelay * (self.chosenTextLagLooks + 0.5), ^{ shown.value = text; });
 }
 
-- (void)react:(GHKeyStroke *)stroke {
-    GHFakeAXNode *focused = (GHFakeAXNode *)self.state.focusedNode;
+- (void)react:(SBKeyStroke *)stroke {
+    SBFakeAXNode *focused = (SBFakeAXNode *)self.state.focusedNode;
     BOOL inCombo = focused == self.combo;
     switch (stroke.kind) {
-        case GHKeyStrokeKindText:
+        case SBKeyStrokeKindText:
             if (!self.typingLands || !focused) break;
             focused.value = [focused.value ?: @"" stringByAppendingString:stroke.text];
             if (inCombo && self.opensMenu) [self openMenu];
             break;
-        case GHKeyStrokeKindDownArrow:
-        case GHKeyStrokeKindUpArrow:
+        case SBKeyStrokeKindDownArrow:
+        case SBKeyStrokeKindUpArrow:
             if (inCombo && self.menu && self.arrowsWork) {
-                NSInteger step = stroke.kind == GHKeyStrokeKindDownArrow ? 1 : -1;
+                NSInteger step = stroke.kind == SBKeyStrokeKindDownArrow ? 1 : -1;
                 NSInteger next = MAX(0, MIN((NSInteger)[self optionNodes].count - 1, self.highlight + step));
                 [self highlightIndex:next];
             }
             break;
-        case GHKeyStrokeKindReturn:
-            if (inCombo && self.menu && self.highlight >= 0) [self choose:[GHComboBoxDriver textOfOption:[self optionNodes][(NSUInteger)self.highlight]]];
+        case SBKeyStrokeKindReturn:
+            if (inCombo && self.menu && self.highlight >= 0) [self choose:[SBComboBoxDriver textOfOption:[self optionNodes][(NSUInteger)self.highlight]]];
             else self.returnsWithoutList++;
             break;
-        case GHKeyStrokeKindEscape:
+        case SBKeyStrokeKindEscape:
             self.escapes++;
             [self closeMenu];
             if (inCombo && self.escapeClears) self.combo.value = @"";
             break;
-        case GHKeyStrokeKindBackspace:
+        case SBKeyStrokeKindBackspace:
             if (focused.value.length) focused.value = [focused.value substringToIndex:focused.value.length - 1];
             break;
         default:
@@ -352,27 +352,27 @@ static GHFakeAXNode *CBNode(NSString *role, NSString *title) {
     if (self.afterPost) self.afterPost(stroke);
 }
 
-- (GHComboBoxResult *)choose:(NSString *)answer in:(id<GHAXNode>)combo {
-    __block GHComboBoxResult *result = nil;
-    [self.driver chooseAnswer:answer inComboBox:combo completion:^(GHComboBoxResult *r) { result = r; }];
+- (SBComboBoxResult *)choose:(NSString *)answer in:(id<SBAXNode>)combo {
+    __block SBComboBoxResult *result = nil;
+    [self.driver chooseAnswer:answer inComboBox:combo completion:^(SBComboBoxResult *r) { result = r; }];
     [self.clock runUntil:^BOOL { return result != nil; }];
     return result;
 }
 
-- (GHComboBoxResult *)answer:(NSString *)answer {
+- (SBComboBoxResult *)answer:(NSString *)answer {
     return [self choose:answer in:self.combo];
 }
 
 @end
 
-static BOOL CBTouchedNothing(GHCBWorld *world) {
+static BOOL CBTouchedNothing(SBCBWorld *world) {
     return world.poster.posted.count == 0 && world.poster.guardCalls == 0 && world.actuator.focusCount == 0 && world.presses == 0;
 }
 
 #pragma mark - fixture
 
-static GHCBNode *CBFixtureNode(NSDictionary *raw) {
-    GHCBNode *node = [GHCBNode nodeWithRole:raw[@"role"] ?: @"AXUnknown"];
+static SBCBNode *CBFixtureNode(NSDictionary *raw) {
+    SBCBNode *node = [SBCBNode nodeWithRole:raw[@"role"] ?: @"AXUnknown"];
     NSDictionary *keys = @{ @"title": @"title", @"subrole": @"subrole", @"description": @"axDescription", @"roleDescription": @"roleDescription",
                             @"identifier": @"identifier", @"text": @"value" };
     for (NSString *key in keys) if ([raw[key] isKindOfClass:NSString.class]) [node setValue:raw[key] forKey:keys[key]];
@@ -381,186 +381,186 @@ static GHCBNode *CBFixtureNode(NSDictionary *raw) {
     return node;
 }
 
-static GHCBNode *CBGreenhouseWindow(void) {
+static SBCBNode *CBGreenhouseWindow(void) {
     NSString *path = [@(__FILE__).stringByDeletingLastPathComponent stringByAppendingPathComponent:@"fixtures/greenhouse-safari-viam.json"];
     NSDictionary *fixture = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:path] ?: [NSData data] options:0 error:NULL];
     return [fixture[@"tree"] isKindOfClass:NSDictionary.class] ? CBFixtureNode(fixture[@"tree"]) : nil;
 }
 
-static void CBCollect(id<GHAXNode> root, NSString *role, NSMutableArray *out) {
+static void CBCollect(id<SBAXNode> root, NSString *role, NSMutableArray *out) {
     if ([root.role isEqualToString:role]) [out addObject:root];
-    for (id<GHAXNode> child in root.children) CBCollect(child, role, out);
+    for (id<SBAXNode> child in root.children) CBCollect(child, role, out);
 }
 
-static GHFakeAXNode *CBComboTitled(id<GHAXNode> window, NSString *title) {
-    NSMutableArray<id<GHAXNode>> *combos = [NSMutableArray array];
+static SBFakeAXNode *CBComboTitled(id<SBAXNode> window, NSString *title) {
+    NSMutableArray<id<SBAXNode>> *combos = [NSMutableArray array];
     CBCollect(window, @"AXComboBox", combos);
-    for (id<GHAXNode> combo in combos) if ([combo.title isEqualToString:title]) return (GHFakeAXNode *)combo;
+    for (id<SBAXNode> combo in combos) if ([combo.title isEqualToString:title]) return (SBFakeAXNode *)combo;
     return nil;
 }
 
 #pragma mark - pure rules
 
 GH_TEST(combobox_match_option_port_pins_the_shared_cases) {
-    GHOptionMatch m = GHMatchOption(@[ @"Select...", @"Indeed", @"LinkedIn" ], @"LinkedIn");
+    SBOptionMatch m = SBMatchOption(@[ @"Select...", @"Indeed", @"LinkedIn" ], @"LinkedIn");
     GH_ASSERT_EQUAL_INT(m.index, 2);
     GH_ASSERT_NEAR(m.score, 1.0, 1e-9);
-    m = GHMatchOption(@[ @"Yes, I am authorized", @"No, I am not" ], @"Yes");
+    m = SBMatchOption(@[ @"Yes, I am authorized", @"No, I am not" ], @"Yes");
     GH_ASSERT_EQUAL_INT(m.index, 0);
     GH_ASSERT_NEAR(m.score, 0.95, 1e-9);
-    GH_ASSERT_EQUAL_INT(GHMatchOption(@[ @"Yes", @"No" ], @"no").index, 1);
-    GH_ASSERT_EQUAL_INT(GHMatchOption(@[ @"Yes", @"Yes, with sponsorship" ], @"yes").index, 0);   // exact 1 beats 0.95
+    GH_ASSERT_EQUAL_INT(SBMatchOption(@[ @"Yes", @"No" ], @"no").index, 1);
+    GH_ASSERT_EQUAL_INT(SBMatchOption(@[ @"Yes", @"Yes, with sponsorship" ], @"yes").index, 0);   // exact 1 beats 0.95
     // Two equally good answers are a guess, not an answer.
-    GH_ASSERT_EQUAL_INT(GHMatchOption(@[ @"Yes, as a citizen", @"Yes, with a permit" ], @"Yes").index, -1);
-    m = GHMatchOption(@[ @"Hack the North 2026", @"Other" ], @"Hack the North");
+    GH_ASSERT_EQUAL_INT(SBMatchOption(@[ @"Yes, as a citizen", @"Yes, with a permit" ], @"Yes").index, -1);
+    m = SBMatchOption(@[ @"Hack the North 2026", @"Other" ], @"Hack the North");
     GH_ASSERT_EQUAL_INT(m.index, 0);
     GH_ASSERT_NEAR(m.score, 0.88, 1e-9);
-    GH_ASSERT_EQUAL_INT(GHMatchOption(@[ @"University of Toronto" ], @"University of Waterloo").index, -1);
-    GH_ASSERT_EQUAL_INT(GHMatchOption(@[ @"University" ], @"University of Waterloo").index, -1);
-    GH_ASSERT_EQUAL_INT(GHMatchOption(@[ @"Arkansas" ], @"AR").index, -1);   // never substrings
-    GH_ASSERT_EQUAL_INT(GHMatchOption(@[ @"LinkedIn", @"Indeed" ], @"Twitter").index, -1);
-    GH_ASSERT_EQUAL_INT(GHMatchOption(@[ @"Select one", @"-- choose --" ], @"Select one").index, -1);   // placeholders are never options
-    GH_ASSERT_EQUAL_INT(GHMatchOption(@[ @"linked_in" ], @"Linked In").index, 0);   // shared normalize()
-    GH_ASSERT_EQUAL_INT(GHMatchOption(@[], @"Yes").index, -1);
-    GH_ASSERT_EQUAL_INT(GHMatchOption(@[ @"Yes" ], @"").index, -1);
-    GH_ASSERT_NEAR(GHComboBoxMatchThreshold, 0.7, 1e-9);
+    GH_ASSERT_EQUAL_INT(SBMatchOption(@[ @"University of Toronto" ], @"University of Waterloo").index, -1);
+    GH_ASSERT_EQUAL_INT(SBMatchOption(@[ @"University" ], @"University of Waterloo").index, -1);
+    GH_ASSERT_EQUAL_INT(SBMatchOption(@[ @"Arkansas" ], @"AR").index, -1);   // never substrings
+    GH_ASSERT_EQUAL_INT(SBMatchOption(@[ @"LinkedIn", @"Indeed" ], @"Twitter").index, -1);
+    GH_ASSERT_EQUAL_INT(SBMatchOption(@[ @"Select one", @"-- choose --" ], @"Select one").index, -1);   // placeholders are never options
+    GH_ASSERT_EQUAL_INT(SBMatchOption(@[ @"linked_in" ], @"Linked In").index, 0);   // shared normalize()
+    GH_ASSERT_EQUAL_INT(SBMatchOption(@[], @"Yes").index, -1);
+    GH_ASSERT_EQUAL_INT(SBMatchOption(@[ @"Yes" ], @"").index, -1);
+    GH_ASSERT_NEAR(SBComboBoxMatchThreshold, 0.7, 1e-9);
 }
 
 GH_TEST(combobox_demographic_questions_are_recognised) {
     for (NSString *text in @[ @"Gender", @"Are you Hispanic/Latino?", @"Veteran Status", @"Disability Status", @"Pronouns", @"Race & Ethnicity",
                               @"Sexual orientation", @"Date of Birth", @"What is your age?", @"Birthdate", @"hispanic_ethnicity", @"veteranStatus",
                               @"Do you identify as transgender?" ]) {
-        GH_ASSERT_MSG([GHComboBoxDriver isDemographicText:text], @"should be demographic: %@", text);
+        GH_ASSERT_MSG([SBComboBoxDriver isDemographicText:text], @"should be demographic: %@", text);
     }
     for (NSString *text in @[ @"Country", @"How did you hear about this opportunity at Viam?", @"Language", @"Page", @"Manager", @"Message",
                               @"Are you legally authorized to work in the United States for any employer?", @"Stage", @"" ]) {
-        GH_ASSERT_MSG(![GHComboBoxDriver isDemographicText:text], @"should not be demographic: %@", text);
+        GH_ASSERT_MSG(![SBComboBoxDriver isDemographicText:text], @"should not be demographic: %@", text);
     }
 }
 
 GH_TEST(combobox_real_greenhouse_eeo_questions_are_never_touched) {
-    GHCBNode *window = CBGreenhouseWindow();
+    SBCBNode *window = CBGreenhouseWindow();
     GH_ASSERT(window != nil);
-    NSMutableArray<id<GHAXNode>> *combos = [NSMutableArray array];
+    NSMutableArray<id<SBAXNode>> *combos = [NSMutableArray array];
     CBCollect(window, @"AXComboBox", combos);
     GH_ASSERT_EQUAL_INT(combos.count, 7);
     NSMutableSet<NSString *> *eeo = [NSMutableSet set];
-    for (id<GHAXNode> combo in combos) if ([GHComboBoxDriver isDemographicComboBox:combo]) [eeo addObject:combo.title];
+    for (id<SBAXNode> combo in combos) if ([SBComboBoxDriver isDemographicComboBox:combo]) [eeo addObject:combo.title];
     GH_ASSERT_EQUAL_OBJECTS(eeo, ([NSSet setWithArray:@[ @"Gender", @"Are you Hispanic/Latino?", @"Veteran Status", @"Disability Status" ]]));
 
     for (NSString *title in eeo) {
-        GHFakeAXNode *combo = CBComboTitled(window, title);
-        GHCBWorld *world = [[GHCBWorld alloc] initWithContainer:(GHCBNode *)combo.parent combo:combo];
-        GHComboBoxResult *result = [world answer:@"Decline to self-identify"];
-        GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonDemographic);
+        SBFakeAXNode *combo = CBComboTitled(window, title);
+        SBCBWorld *world = [[SBCBWorld alloc] initWithContainer:(SBCBNode *)combo.parent combo:combo];
+        SBComboBoxResult *result = [world answer:@"Decline to self-identify"];
+        GH_ASSERT_EQUAL_OBJECTS(result.reason, SBComboBoxReasonDemographic);
         GH_ASSERT(result.skipsField);
         GH_ASSERT(CBTouchedNothing(world));
     }
 }
 
 GH_TEST(combobox_real_greenhouse_list_detection) {
-    GHCBNode *window = CBGreenhouseWindow();
-    NSMutableArray<id<GHAXNode>> *combos = [NSMutableArray array];
+    SBCBNode *window = CBGreenhouseWindow();
+    NSMutableArray<id<SBAXNode>> *combos = [NSMutableArray array];
     CBCollect(window, @"AXComboBox", combos);
     // Nothing is open: the posting's bulleted AXContentLists are never taken for a menu.
-    for (id<GHAXNode> combo in combos) GH_ASSERT_MSG([GHComboBoxDriver listForComboBox:combo] == nil, @"%@", combo.title);
+    for (id<SBAXNode> combo in combos) GH_ASSERT_MSG([SBComboBoxDriver listForComboBox:combo] == nil, @"%@", combo.title);
     // Every combobox shows "Select..." (or nothing): no value yet.
-    for (id<GHAXNode> combo in combos) GH_ASSERT_EQUAL_INT([GHComboBoxDriver shownTextsForComboBox:combo typed:nil].count, 0);
+    for (id<SBAXNode> combo in combos) GH_ASSERT_EQUAL_INT([SBComboBoxDriver shownTextsForComboBox:combo typed:nil].count, 0);
 
-    GHFakeAXNode *heard = CBComboTitled(window, @"How did you hear about this opportunity at Viam?");
-    GHCBWorld *world = [[GHCBWorld alloc] initWithContainer:(GHCBNode *)heard.parent combo:heard];
+    SBFakeAXNode *heard = CBComboTitled(window, @"How did you hear about this opportunity at Viam?");
+    SBCBWorld *world = [[SBCBWorld alloc] initWithContainer:(SBCBNode *)heard.parent combo:heard];
     [world openMenu];
-    GH_ASSERT([GHComboBoxDriver listForComboBox:heard] == world.menu);
+    GH_ASSERT([SBComboBoxDriver listForComboBox:heard] == world.menu);
     // The next question's combobox does not claim a menu that sits before it.
-    GH_ASSERT([GHComboBoxDriver listForComboBox:CBComboTitled(window, @"Are you legally authorized to work in the United States for any employer?")] == nil);
+    GH_ASSERT([SBComboBoxDriver listForComboBox:CBComboTitled(window, @"Are you legally authorized to work in the United States for any employer?")] == nil);
 }
 
 GH_TEST(combobox_list_search_stops_at_a_hung_app) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     [world openMenu];
-    GH_ASSERT([GHComboBoxDriver listForComboBox:world.combo] == world.menu);
+    GH_ASSERT([SBComboBoxDriver listForComboBox:world.combo] == world.menu);
     // The web process stops answering: the menu is not "found" through a node that did not answer, and nothing
     // behind it is read.
     world.menu.lastError = kAXErrorCannotComplete;
     NSUInteger reads = world.menu.childrenReadCount;
-    GH_ASSERT([GHComboBoxDriver listForComboBox:world.combo] == nil);
+    GH_ASSERT([SBComboBoxDriver listForComboBox:world.combo] == nil);
     GH_ASSERT_EQUAL_INT(world.menu.childrenReadCount, reads);
     world.menu.lastError = kAXErrorSuccess;
-    GH_ASSERT([GHComboBoxDriver listForComboBox:world.combo] == world.menu);
+    GH_ASSERT([SBComboBoxDriver listForComboBox:world.combo] == world.menu);
 }
 
 GH_TEST(combobox_list_and_option_detection_rules) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     // A checkbox group right after the combobox is not its menu.
-    GHCBNode *checks = (GHCBNode *)CBNode(@"AXList", nil);
-    GHFakeAXNode *row = [checks addChild:CBNode(@"AXGroup", nil)];
+    SBCBNode *checks = (SBCBNode *)CBNode(@"AXList", nil);
+    SBFakeAXNode *row = [checks addChild:CBNode(@"AXGroup", nil)];
     [row addChild:CBNode(@"AXCheckBox", @"Yes")];
-    [row addChild:[GHFakeAXNode staticText:@"Yes" frame:CGRectZero]];
+    [row addChild:[SBFakeAXNode staticText:@"Yes" frame:CGRectZero]];
     [world.container insert:checks after:world.toggle];
-    GH_ASSERT([GHComboBoxDriver listForComboBox:world.combo] == nil);
+    GH_ASSERT([SBComboBoxDriver listForComboBox:world.combo] == nil);
     [world.container remove:checks];
     // Neither is a content list.
-    GHCBNode *bullets = (GHCBNode *)CBNode(@"AXList", nil);
+    SBCBNode *bullets = (SBCBNode *)CBNode(@"AXList", nil);
     bullets.subrole = @"AXContentList";
-    [bullets addChild:[GHFakeAXNode staticText:@"Free lunch" frame:CGRectZero]];
+    [bullets addChild:[SBFakeAXNode staticText:@"Free lunch" frame:CGRectZero]];
     [world.container insert:bullets after:world.toggle];
-    GH_ASSERT([GHComboBoxDriver listForComboBox:world.combo] == nil);
+    GH_ASSERT([SBComboBoxDriver listForComboBox:world.combo] == nil);
     [world.container remove:bullets];
 
     // Explicit option rows win over loose text, and their text comes from inside.
     world.explicitOptions = YES;
     [world openMenu];
-    GH_ASSERT([GHComboBoxDriver listForComboBox:world.combo] == world.menu);
-    NSArray<id<GHAXNode>> *options = [GHComboBoxDriver optionsInList:world.menu];
+    GH_ASSERT([SBComboBoxDriver listForComboBox:world.combo] == world.menu);
+    NSArray<id<SBAXNode>> *options = [SBComboBoxDriver optionsInList:world.menu];
     GH_ASSERT_EQUAL_INT(options.count, 3);
     GH_ASSERT_EQUAL_OBJECTS(options[0].roleDescription, @"option");
-    GH_ASSERT_EQUAL_OBJECTS([GHComboBoxDriver textOfOption:options[1]], @"LinkedIn");
+    GH_ASSERT_EQUAL_OBJECTS([SBComboBoxDriver textOfOption:options[1]], @"LinkedIn");
     [world closeMenu];
 
     // "No options" is a notice, never an option.
-    GHCBNode *notice = (GHCBNode *)CBNode(@"AXList", nil);
+    SBCBNode *notice = (SBCBNode *)CBNode(@"AXList", nil);
     notice.roleDescription = @"list box";
-    [notice addChild:[GHFakeAXNode staticText:@"No options" frame:CGRectZero]];
-    GH_ASSERT_EQUAL_INT([GHComboBoxDriver optionsInList:notice].count, 0);
+    [notice addChild:[SBFakeAXNode staticText:@"No options" frame:CGRectZero]];
+    GH_ASSERT_EQUAL_INT([SBComboBoxDriver optionsInList:notice].count, 0);
 
     // A menu rendered in a portal at the end of the page is found too.
-    GHCBNode *web = (GHCBNode *)CBNode(@"AXWebArea", nil);
-    GHCBNode *form = (GHCBNode *)[web addChild:CBNode(@"AXGroup", nil)];
-    GHFakeAXNode *combo = [form addChild:CBNode(@"AXComboBox", @"Location")];
+    SBCBNode *web = (SBCBNode *)CBNode(@"AXWebArea", nil);
+    SBCBNode *form = (SBCBNode *)[web addChild:CBNode(@"AXGroup", nil)];
+    SBFakeAXNode *combo = [form addChild:CBNode(@"AXComboBox", @"Location")];
     [form addChild:CBNode(@"AXTextField", @"Next field")];
-    GHCBNode *portal = (GHCBNode *)[web addChild:CBNode(@"AXGroup", nil)];
-    GHFakeAXNode *menu = [portal addChild:CBNode(@"AXMenu", nil)];
+    SBCBNode *portal = (SBCBNode *)[web addChild:CBNode(@"AXGroup", nil)];
+    SBFakeAXNode *menu = [portal addChild:CBNode(@"AXMenu", nil)];
     [menu addChild:CBNode(@"AXMenuItem", @"Toronto, ON")];
-    GH_ASSERT([GHComboBoxDriver listForComboBox:combo] == menu);
-    GH_ASSERT_EQUAL_OBJECTS([GHComboBoxDriver textOfOption:[GHComboBoxDriver optionsInList:menu][0]], @"Toronto, ON");
+    GH_ASSERT([SBComboBoxDriver listForComboBox:combo] == menu);
+    GH_ASSERT_EQUAL_OBJECTS([SBComboBoxDriver textOfOption:[SBComboBoxDriver optionsInList:menu][0]], @"Toronto, ON");
 
-    GH_ASSERT([GHComboBoxDriver isComboBox:world.combo]);
-    GHFakeAXNode *textCombo = CBNode(@"AXTextField", @"City");
+    GH_ASSERT([SBComboBoxDriver isComboBox:world.combo]);
+    SBFakeAXNode *textCombo = CBNode(@"AXTextField", @"City");
     textCombo.roleDescription = @"combo box";
-    GH_ASSERT([GHComboBoxDriver isComboBox:textCombo]);
-    GH_ASSERT_FALSE([GHComboBoxDriver isComboBox:CBNode(@"AXTextField", @"City")]);
+    GH_ASSERT([SBComboBoxDriver isComboBox:textCombo]);
+    GH_ASSERT_FALSE([SBComboBoxDriver isComboBox:CBNode(@"AXTextField", @"City")]);
 }
 
 GH_TEST(combobox_shown_texts_skip_placeholder_log_label_and_typing) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
-    GH_ASSERT_EQUAL_INT([GHComboBoxDriver shownTextsForComboBox:world.combo typed:nil].count, 0);
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
+    GH_ASSERT_EQUAL_INT([SBComboBoxDriver shownTextsForComboBox:world.combo typed:nil].count, 0);
     world.logText.value = @"Select is focused, type to refine list";
-    GH_ASSERT_EQUAL_INT([GHComboBoxDriver shownTextsForComboBox:world.combo typed:nil].count, 0);
+    GH_ASSERT_EQUAL_INT([SBComboBoxDriver shownTextsForComboBox:world.combo typed:nil].count, 0);
     world.combo.value = @"Link";
-    GH_ASSERT_EQUAL_INT([GHComboBoxDriver shownTextsForComboBox:world.combo typed:@"Link"].count, 0);
-    GH_ASSERT_EQUAL_OBJECTS([GHComboBoxDriver shownTextsForComboBox:world.combo typed:nil], (@[ @"Link" ]));
+    GH_ASSERT_EQUAL_INT([SBComboBoxDriver shownTextsForComboBox:world.combo typed:@"Link"].count, 0);
+    GH_ASSERT_EQUAL_OBJECTS([SBComboBoxDriver shownTextsForComboBox:world.combo typed:nil], (@[ @"Link" ]));
     world.combo.value = @"";
     world.shownText.value = @"LinkedIn";
-    GH_ASSERT_EQUAL_OBJECTS([GHComboBoxDriver shownTextsForComboBox:world.combo typed:nil], (@[ @"LinkedIn" ]));
+    GH_ASSERT_EQUAL_OBJECTS([SBComboBoxDriver shownTextsForComboBox:world.combo typed:nil], (@[ @"LinkedIn" ]));
 }
 
 #pragma mark - choosing
 
 GH_TEST(combobox_types_presses_the_option_and_verifies) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
-    GHComboBoxResult *result = [world answer:@"LinkedIn"];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
+    SBComboBoxResult *result = [world answer:@"LinkedIn"];
     GH_ASSERT_MSG(result.chosen, @"%@", result);
-    GH_ASSERT_EQUAL_OBJECTS(result.method, GHComboBoxMethodPress);
+    GH_ASSERT_EQUAL_OBJECTS(result.method, SBComboBoxMethodPress);
     GH_ASSERT_NEAR(result.score, 1.0, 1e-9);
     GH_ASSERT(result.typed);
     GH_ASSERT_EQUAL_OBJECTS(world.selected, @"LinkedIn");
@@ -573,43 +573,43 @@ GH_TEST(combobox_types_presses_the_option_and_verifies) {
 }
 
 GH_TEST(combobox_chooses_on_the_real_greenhouse_tree) {
-    GHCBNode *window = CBGreenhouseWindow();
-    GHFakeAXNode *heard = CBComboTitled(window, @"How did you hear about this opportunity at Viam?");
-    GHCBWorld *world = [[GHCBWorld alloc] initWithContainer:(GHCBNode *)heard.parent combo:heard];
+    SBCBNode *window = CBGreenhouseWindow();
+    SBFakeAXNode *heard = CBComboTitled(window, @"How did you hear about this opportunity at Viam?");
+    SBCBWorld *world = [[SBCBWorld alloc] initWithContainer:(SBCBNode *)heard.parent combo:heard];
     world.filters = YES;
-    GHComboBoxResult *result = [world answer:@"LinkedIn"];
+    SBComboBoxResult *result = [world answer:@"LinkedIn"];
     GH_ASSERT_MSG(result.chosen, @"%@", result);
     GH_ASSERT_EQUAL_OBJECTS(world.shownText.value, @"LinkedIn");
     GH_ASSERT_EQUAL_INT(result.optionCount, 1);
 
-    GHFakeAXNode *authorized = CBComboTitled(window, @"Are you legally authorized to work in the United States for any employer?");
-    GHCBWorld *yes = [[GHCBWorld alloc] initWithContainer:(GHCBNode *)authorized.parent combo:authorized];
+    SBFakeAXNode *authorized = CBComboTitled(window, @"Are you legally authorized to work in the United States for any employer?");
+    SBCBWorld *yes = [[SBCBWorld alloc] initWithContainer:(SBCBNode *)authorized.parent combo:authorized];
     yes.options = @[ @"Yes", @"No" ];
     yes.filters = NO;
-    GHComboBoxResult *answered = [yes answer:@"Yes"];
+    SBComboBoxResult *answered = [yes answer:@"Yes"];
     GH_ASSERT_MSG(answered.chosen, @"%@", answered);
     GH_ASSERT_EQUAL_OBJECTS(yes.selected, @"Yes");
 }
 
 GH_TEST(combobox_press_that_does_nothing_falls_back_to_arrows_and_return) {
-    for (NSNumber *mode in @[ @(GHCBPressIgnored), @(GHCBPressFails) ]) {
-        GHCBWorld *world = [GHCBWorld syntheticWorld];
-        world.press = (GHCBPress)mode.integerValue;
+    for (NSNumber *mode in @[ @(SBCBPressIgnored), @(SBCBPressFails) ]) {
+        SBCBWorld *world = [SBCBWorld syntheticWorld];
+        world.press = (SBCBPress)mode.integerValue;
         world.options = @[ @"Indeed", @"LinkedIn", @"Referral" ];
         world.filters = NO;   // all three stay listed, "Indeed" highlighted first
-        GHComboBoxResult *result = [world answer:@"LinkedIn"];
+        SBComboBoxResult *result = [world answer:@"LinkedIn"];
         GH_ASSERT_MSG(result.chosen, @"%@", result);
-        GH_ASSERT_EQUAL_OBJECTS(result.method, GHComboBoxMethodKeys);
+        GH_ASSERT_EQUAL_OBJECTS(result.method, SBComboBoxMethodKeys);
         GH_ASSERT_EQUAL_OBJECTS(world.poster.postedNames, (@[ @"text", @"down", @"return" ]));
         GH_ASSERT_EQUAL_OBJECTS(world.selected, @"LinkedIn");
         GH_ASSERT_EQUAL_INT(world.returnsWithoutList, 0);
     }
     // Nothing highlighted yet: Down first highlights, then walks.
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
-    world.press = GHCBPressIgnored;
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
+    world.press = SBCBPressIgnored;
     world.filters = NO;
     world.highlightsFirst = NO;
-    GHComboBoxResult *result = [world answer:@"Referral"];
+    SBComboBoxResult *result = [world answer:@"Referral"];
     GH_ASSERT_MSG(result.chosen, @"%@", result);
     GH_ASSERT_EQUAL_OBJECTS(world.poster.postedNames, (@[ @"text", @"down", @"down", @"down", @"return" ]));
 }
@@ -619,18 +619,18 @@ GH_TEST(combobox_press_that_does_nothing_falls_back_to_arrows_and_return) {
 // questions. The row answers a real mouse press; a synthesized one only dismisses the menu. So: open it again and
 // use the keyboard, which is the path a person without a mouse takes anyway.
 GH_TEST(combobox_press_that_only_closes_the_menu_reopens_it_and_uses_the_keyboard) {
-    GHCBNode *window = CBGreenhouseWindow();
-    GHFakeAXNode *authorized = CBComboTitled(window, @"Are you legally authorized to work in the United States for any employer?");
-    GHCBWorld *world = [[GHCBWorld alloc] initWithContainer:(GHCBNode *)authorized.parent combo:authorized];
+    SBCBNode *window = CBGreenhouseWindow();
+    SBFakeAXNode *authorized = CBComboTitled(window, @"Are you legally authorized to work in the United States for any employer?");
+    SBCBWorld *world = [[SBCBWorld alloc] initWithContainer:(SBCBNode *)authorized.parent combo:authorized];
     world.options = @[ @"Yes", @"No" ];
     world.filters = NO;
     world.pressOpens = YES;       // react-select opens on a press, so nothing is ever typed here
     world.webkitOptions = YES;    // rows are AXStaticText marked only by their DOM class
-    world.press = GHCBPressClosesOnly;
+    world.press = SBCBPressClosesOnly;
 
-    GHComboBoxResult *result = [world answer:@"No"];
+    SBComboBoxResult *result = [world answer:@"No"];
     GH_ASSERT_MSG(result.chosen, @"%@", result);
-    GH_ASSERT_EQUAL_OBJECTS(result.method, GHComboBoxMethodKeys);
+    GH_ASSERT_EQUAL_OBJECTS(result.method, SBComboBoxMethodKeys);
     GH_ASSERT_EQUAL_OBJECTS(world.selected, @"No");
     GH_ASSERT_EQUAL_OBJECTS(world.shownText.value, @"No");
     GH_ASSERT_FALSE(result.typed);
@@ -643,15 +643,15 @@ GH_TEST(combobox_press_that_only_closes_the_menu_reopens_it_and_uses_the_keyboar
 
 // The same for a decline on a demographic question: the option is chosen by MEANING and still nothing is typed.
 GH_TEST(combobox_decline_survives_a_press_that_only_closes_the_menu) {
-    GHCBWorld *world = [GHCBWorld syntheticWorldWithLabel:@"Gender"];
+    SBCBWorld *world = [SBCBWorld syntheticWorldWithLabel:@"Gender"];
     world.options = @[ @"Male", @"Female", @"Decline To Self Identify" ];
     world.filters = NO;
     world.pressOpens = YES;
     world.webkitOptions = YES;
-    world.press = GHCBPressClosesOnly;
+    world.press = SBCBPressClosesOnly;
 
-    __block GHComboBoxResult *result = nil;
-    [world.driver chooseAnswer:@"Prefer not to say" inComboBox:world.combo decline:YES completion:^(GHComboBoxResult *r) { result = r; }];
+    __block SBComboBoxResult *result = nil;
+    [world.driver chooseAnswer:@"Prefer not to say" inComboBox:world.combo decline:YES completion:^(SBComboBoxResult *r) { result = r; }];
     [world.clock runUntil:^BOOL { return result != nil; }];
     GH_ASSERT_MSG(result.chosen, @"%@", result);
     GH_ASSERT_EQUAL_OBJECTS(world.selected, @"Decline To Self Identify");   // the form's own wording, never ours
@@ -662,28 +662,28 @@ GH_TEST(combobox_decline_survives_a_press_that_only_closes_the_menu) {
 // A press that DID choose, on a page whose accessibility tree catches up a few looks later: no second choice, no
 // re-open, and the run still reports the press as the method.
 GH_TEST(combobox_press_is_verified_when_the_page_catches_up_late) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     world.pressOpens = YES;
     world.webkitOptions = YES;
     world.filters = NO;
     world.chosenTextLagLooks = 3;   // the page chose, but says so only after three more looks
-    GHComboBoxResult *result = [world answer:@"LinkedIn"];
+    SBComboBoxResult *result = [world answer:@"LinkedIn"];
     GH_ASSERT_MSG(result.chosen, @"%@", result);
-    GH_ASSERT_EQUAL_OBJECTS(result.method, GHComboBoxMethodPress);
+    GH_ASSERT_EQUAL_OBJECTS(result.method, SBComboBoxMethodPress);
     GH_ASSERT_EQUAL_INT(world.presses, 2);     // open, the option: never a third
     GH_ASSERT_EQUAL_INT(world.selections, 1);
 }
 
 // A press that chose the WRONG option is never answered with a second choice, however long the run looks.
 GH_TEST(combobox_press_that_picks_something_else_is_never_reopened) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     world.pressOpens = YES;
     world.webkitOptions = YES;
     world.filters = NO;
-    world.press = GHCBPressSelectsOther;
-    GHComboBoxResult *result = [world answer:@"LinkedIn"];
+    world.press = SBCBPressSelectsOther;
+    SBComboBoxResult *result = [world answer:@"LinkedIn"];
     GH_ASSERT(result.stopsWalk);
-    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonNotVerified);
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, SBComboBoxReasonNotVerified);
     GH_ASSERT_EQUAL_INT(world.presses, 2);
     GH_ASSERT_EQUAL_INT(world.selections, 1);
     GH_ASSERT_EQUAL_OBJECTS(world.selected, @"Something else");
@@ -691,15 +691,15 @@ GH_TEST(combobox_press_that_picks_something_else_is_never_reopened) {
 
 // A control that will not open a second time is left exactly as the press found it: nothing typed, nothing chosen.
 GH_TEST(combobox_that_will_not_reopen_is_left_alone) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     world.pressOpens = YES;
     world.webkitOptions = YES;
     world.filters = NO;
-    world.press = GHCBPressClosesOnly;
+    world.press = SBCBPressClosesOnly;
     world.maxPressOpens = 1;   // the menu never comes back
-    GHComboBoxResult *result = [world answer:@"LinkedIn"];
+    SBComboBoxResult *result = [world answer:@"LinkedIn"];
     GH_ASSERT_FALSE(result.chosen);
-    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonNotVerified);
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, SBComboBoxReasonNotVerified);
     GH_ASSERT_EQUAL_INT(world.selections, 0);
     GH_ASSERT_EQUAL_OBJECTS(world.poster.postedNames, @[]);
     GH_ASSERT_EQUAL_OBJECTS(world.shownText.value, @"Select...");
@@ -707,32 +707,32 @@ GH_TEST(combobox_that_will_not_reopen_is_left_alone) {
 
 GH_TEST(combobox_neutral_matcher_ranks_the_least_committing_option_first) {
     // "Other" answers the question; declining merely ends it, so it ranks after the three that answer.
-    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption((@[ @"LinkedIn", @"Prefer not to say", @"Other" ]), @"").index, 2);
-    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption((@[ @"None of the above", @"N/A" ]), @"").index, 0);
-    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption((@[ @"Yes", @"No", @"Not applicable" ]), @"").index, 2);
-    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption((@[ @"Select...", @"Other" ]), @"").index, 1);   // never a placeholder
-    GH_ASSERT_NEAR(GHMatchNeutralOption((@[ @"Other" ]), @"").score, 1.0, 1e-9);
+    GH_ASSERT_EQUAL_INT(SBMatchNeutralOption((@[ @"LinkedIn", @"Prefer not to say", @"Other" ]), @"").index, 2);
+    GH_ASSERT_EQUAL_INT(SBMatchNeutralOption((@[ @"None of the above", @"N/A" ]), @"").index, 0);
+    GH_ASSERT_EQUAL_INT(SBMatchNeutralOption((@[ @"Yes", @"No", @"Not applicable" ]), @"").index, 2);
+    GH_ASSERT_EQUAL_INT(SBMatchNeutralOption((@[ @"Select...", @"Other" ]), @"").index, 1);   // never a placeholder
+    GH_ASSERT_NEAR(SBMatchNeutralOption((@[ @"Other" ]), @"").score, 1.0, 1e-9);
     // A legal statement is not a neutral answer, and a list of real claims has no neutral option at all.
-    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption((@[ @"I certify that none of the above apply" ]), @"").index, -1);
-    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption((@[ @"Yes", @"No" ]), @"").index, -1);
-    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption(@[], @"").index, -1);
+    GH_ASSERT_EQUAL_INT(SBMatchNeutralOption((@[ @"I certify that none of the above apply" ]), @"").index, -1);
+    GH_ASSERT_EQUAL_INT(SBMatchNeutralOption((@[ @"Yes", @"No" ]), @"").index, -1);
+    GH_ASSERT_EQUAL_INT(SBMatchNeutralOption(@[], @"").index, -1);
     // The exact list the LIVE Greenhouse "How did you hear" control showed on 2026-09-19.
     NSArray<NSString *> *live = @[ @"LinkedIn", @"Indeed", @"A friend", @"TikTok", @"Instagram", @"Twitter", @"Meetup/Event", @"Other" ];
-    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption(live, @"Hack the North").index, 7);
-    GH_ASSERT_EQUAL_INT(GHMatchOption(live, @"Hack the North").index, -1);   // the fact itself is not on the list
+    GH_ASSERT_EQUAL_INT(SBMatchNeutralOption(live, @"Hack the North").index, 7);
+    GH_ASSERT_EQUAL_INT(SBMatchOption(live, @"Hack the North").index, -1);   // the fact itself is not on the list
 }
 
 // docs/answers.md section 3: an ORDINARY question whose profile fact is not among the options is still answered,
 // with whatever the list itself calls the neutral choice. Live: "Hack the North" against eight named sources.
 GH_TEST(combobox_answer_that_is_not_on_the_list_takes_the_lists_own_neutral_option) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     world.options = @[ @"LinkedIn", @"Indeed", @"A friend", @"TikTok", @"Instagram", @"Twitter", @"Meetup/Event", @"Other" ];
     world.filters = NO;
     world.pressOpens = YES;
     world.webkitOptions = YES;
 
-    __block GHComboBoxResult *result = nil;
-    [world.driver chooseAnswer:@"Hack the North" inComboBox:world.combo decline:NO neutralFallback:YES completion:^(GHComboBoxResult *r) { result = r; }];
+    __block SBComboBoxResult *result = nil;
+    [world.driver chooseAnswer:@"Hack the North" inComboBox:world.combo decline:NO neutralFallback:YES completion:^(SBComboBoxResult *r) { result = r; }];
     [world.clock runUntil:^BOOL { return result != nil; }];
     GH_ASSERT_MSG(result.chosen, @"%@", result);
     GH_ASSERT(result.tookNeutral);
@@ -742,73 +742,73 @@ GH_TEST(combobox_answer_that_is_not_on_the_list_takes_the_lists_own_neutral_opti
 
 GH_TEST(combobox_neutral_fallback_never_beats_a_real_match_and_never_invents_one) {
     // A real match still wins: the fallback only ever runs when the matcher found nothing.
-    GHCBWorld *match = [GHCBWorld syntheticWorld];
+    SBCBWorld *match = [SBCBWorld syntheticWorld];
     match.options = @[ @"LinkedIn", @"Other" ];
     match.filters = NO;
     match.pressOpens = YES;
-    __block GHComboBoxResult *chosen = nil;
-    [match.driver chooseAnswer:@"LinkedIn" inComboBox:match.combo decline:NO neutralFallback:YES completion:^(GHComboBoxResult *r) { chosen = r; }];
+    __block SBComboBoxResult *chosen = nil;
+    [match.driver chooseAnswer:@"LinkedIn" inComboBox:match.combo decline:NO neutralFallback:YES completion:^(SBComboBoxResult *r) { chosen = r; }];
     [match.clock runUntil:^BOOL { return chosen != nil; }];
     GH_ASSERT(chosen.chosen);
     GH_ASSERT_FALSE(chosen.tookNeutral);
     GH_ASSERT_EQUAL_OBJECTS(match.selected, @"LinkedIn");
 
     // A list with no neutral option is left exactly as it was: a declaration's Yes/No is never "answered" for it.
-    GHCBWorld *none = [GHCBWorld syntheticWorldWithLabel:@"Are you legally authorized to work in the United States for any employer?"];
+    SBCBWorld *none = [SBCBWorld syntheticWorldWithLabel:@"Are you legally authorized to work in the United States for any employer?"];
     none.options = @[ @"Yes", @"No" ];
     none.filters = NO;
     none.pressOpens = YES;
-    __block GHComboBoxResult *skipped = nil;
-    [none.driver chooseAnswer:@"Maybe" inComboBox:none.combo decline:NO neutralFallback:YES completion:^(GHComboBoxResult *r) { skipped = r; }];
+    __block SBComboBoxResult *skipped = nil;
+    [none.driver chooseAnswer:@"Maybe" inComboBox:none.combo decline:NO neutralFallback:YES completion:^(SBComboBoxResult *r) { skipped = r; }];
     [none.clock runUntil:^BOOL { return skipped != nil; }];
     GH_ASSERT(skipped.skipsField);
-    GH_ASSERT_EQUAL_OBJECTS(skipped.reason, GHComboBoxReasonNoMatchingOption);
+    GH_ASSERT_EQUAL_OBJECTS(skipped.reason, SBComboBoxReasonNoMatchingOption);
     GH_ASSERT_EQUAL_INT(none.selections, 0);
     GH_ASSERT_FALSE(skipped.tookNeutral);
 
     // Without the flag nothing changes: the field is skipped, as it was before the fallback existed.
-    GHCBWorld *off = [GHCBWorld syntheticWorld];
+    SBCBWorld *off = [SBCBWorld syntheticWorld];
     off.options = @[ @"LinkedIn", @"Other" ];
     off.filters = NO;
     off.pressOpens = YES;
-    GHComboBoxResult *left = [off answer:@"Hack the North"];
+    SBComboBoxResult *left = [off answer:@"Hack the North"];
     GH_ASSERT(left.skipsField);
     GH_ASSERT_EQUAL_INT(off.selections, 0);
 }
 
 GH_TEST(combobox_return_only_while_the_list_is_open_and_the_choice_highlighted) {
     // The list closes after an arrow: no Return at all.
-    GHCBWorld *closing = [GHCBWorld syntheticWorld];
-    closing.press = GHCBPressIgnored;
+    SBCBWorld *closing = [SBCBWorld syntheticWorld];
+    closing.press = SBCBPressIgnored;
     closing.filters = NO;
-    __weak GHCBWorld *weakClosing = closing;
-    closing.afterPost = ^(GHKeyStroke *stroke) { if (stroke.kind == GHKeyStrokeKindDownArrow) [weakClosing closeMenu]; };
-    GHComboBoxResult *closed = [closing answer:@"LinkedIn"];
-    GH_ASSERT_EQUAL_OBJECTS(closed.reason, GHComboBoxReasonListClosed);
+    __weak SBCBWorld *weakClosing = closing;
+    closing.afterPost = ^(SBKeyStroke *stroke) { if (stroke.kind == SBKeyStrokeKindDownArrow) [weakClosing closeMenu]; };
+    SBComboBoxResult *closed = [closing answer:@"LinkedIn"];
+    GH_ASSERT_EQUAL_OBJECTS(closed.reason, SBComboBoxReasonListClosed);
     GH_ASSERT(closed.stopsWalk);
-    GH_ASSERT_EQUAL_INT([closing.poster countOfKind:GHKeyStrokeKindReturn], 0);
+    GH_ASSERT_EQUAL_INT([closing.poster countOfKind:SBKeyStrokeKindReturn], 0);
 
     // The highlight moves off the choice between the decision and the Return: the guard refuses it.
-    GHCBWorld *moving = [GHCBWorld syntheticWorld];
-    moving.press = GHCBPressIgnored;
+    SBCBWorld *moving = [SBCBWorld syntheticWorld];
+    moving.press = SBCBPressIgnored;
     moving.filters = NO;
-    __weak GHCBWorld *weakMoving = moving;
+    __weak SBCBWorld *weakMoving = moving;
     moving.state.onFocusRead = ^(NSUInteger read) {
-        GHCBWorld *world = weakMoving;
+        SBCBWorld *world = weakMoving;
         if (world.menu && world.highlight == 1) [world highlightIndex:2];   // "LinkedIn" -> "Referral" right before the post
     };
-    GHComboBoxResult *moved = [moving answer:@"LinkedIn"];
+    SBComboBoxResult *moved = [moving answer:@"LinkedIn"];
     GH_ASSERT_FALSE(moved.chosen);
     GH_ASSERT(moved.stopsWalk);
-    GH_ASSERT_EQUAL_INT([moving.poster countOfKind:GHKeyStrokeKindReturn], 0);
+    GH_ASSERT_EQUAL_INT([moving.poster countOfKind:SBKeyStrokeKindReturn], 0);
     GH_ASSERT_EQUAL_INT(moving.selections, 0);
 }
 
 GH_TEST(combobox_without_a_matching_option_escapes_once_clears_and_skips) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     world.filters = NO;
-    GHComboBoxResult *result = [world answer:@"Twitter"];
-    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonNoMatchingOption);
+    SBComboBoxResult *result = [world answer:@"Twitter"];
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, SBComboBoxReasonNoMatchingOption);
     GH_ASSERT(result.skipsField);
     GH_ASSERT(result.pressedEscape);
     GH_ASSERT(result.clearedTyping);
@@ -817,142 +817,142 @@ GH_TEST(combobox_without_a_matching_option_escapes_once_clears_and_skips) {
     GH_ASSERT_EQUAL_OBJECTS(world.combo.value, @"");
 
     // A list whose Escape keeps the typed text: backspaces take exactly that back.
-    GHCBWorld *sticky = [GHCBWorld syntheticWorld];
+    SBCBWorld *sticky = [SBCBWorld syntheticWorld];
     sticky.filters = NO;
     sticky.escapeClears = NO;
-    GHComboBoxResult *cleaned = [sticky answer:@"Twitter"];
+    SBComboBoxResult *cleaned = [sticky answer:@"Twitter"];
     GH_ASSERT(cleaned.skipsField);
     GH_ASSERT(cleaned.clearedTyping);
-    GH_ASSERT_EQUAL_INT([sticky.poster countOfKind:GHKeyStrokeKindBackspace], 7);
+    GH_ASSERT_EQUAL_INT([sticky.poster countOfKind:SBKeyStrokeKindBackspace], 7);
     GH_ASSERT_EQUAL_OBJECTS(sticky.combo.value, @"");
 
     // The list closed on its own before the Escape: nothing is open, so nothing is posted (it would reach the page).
-    GHCBWorld *closed = [GHCBWorld syntheticWorld];
+    SBCBWorld *closed = [SBCBWorld syntheticWorld];
     closed.filters = NO;
-    __weak GHCBWorld *weakClosed = closed;
-    closed.driver.matcher = ^GHOptionMatch(NSArray<NSString *> *options, NSString *answer) {
+    __weak SBCBWorld *weakClosed = closed;
+    closed.driver.matcher = ^SBOptionMatch(NSArray<NSString *> *options, NSString *answer) {
         [weakClosed closeMenu];
-        return (GHOptionMatch){ -1, 0 };
+        return (SBOptionMatch){ -1, 0 };
     };
-    GHComboBoxResult *gone = [closed answer:@"Twitter"];
-    GH_ASSERT_EQUAL_OBJECTS(gone.reason, GHComboBoxReasonNoMatchingOption);
+    SBComboBoxResult *gone = [closed answer:@"Twitter"];
+    GH_ASSERT_EQUAL_OBJECTS(gone.reason, SBComboBoxReasonNoMatchingOption);
     GH_ASSERT_FALSE(gone.pressedEscape);
-    GH_ASSERT_EQUAL_INT([closed.poster countOfKind:GHKeyStrokeKindEscape], 0);
+    GH_ASSERT_EQUAL_INT([closed.poster countOfKind:SBKeyStrokeKindEscape], 0);
     GH_ASSERT_EQUAL_OBJECTS(closed.combo.value, @"");
 
     // Focus left meanwhile: nothing is deleted anywhere.
-    GHCBWorld *left = [GHCBWorld syntheticWorld];
+    SBCBWorld *left = [SBCBWorld syntheticWorld];
     left.filters = NO;
     left.escapeClears = NO;
-    __weak GHCBWorld *weakLeft = left;
-    left.afterPost = ^(GHKeyStroke *stroke) { if (stroke.kind == GHKeyStrokeKindEscape) [weakLeft focus:weakLeft.elsewhere]; };
+    __weak SBCBWorld *weakLeft = left;
+    left.afterPost = ^(SBKeyStroke *stroke) { if (stroke.kind == SBKeyStrokeKindEscape) [weakLeft focus:weakLeft.elsewhere]; };
     left.elsewhere.value = @"keep me";
-    GHComboBoxResult *untouched = [left answer:@"Twitter"];
+    SBComboBoxResult *untouched = [left answer:@"Twitter"];
     GH_ASSERT(untouched.skipsField);
     GH_ASSERT_FALSE(untouched.clearedTyping);
-    GH_ASSERT_EQUAL_INT([left.poster countOfKind:GHKeyStrokeKindBackspace], 0);
+    GH_ASSERT_EQUAL_INT([left.poster countOfKind:SBKeyStrokeKindBackspace], 0);
     GH_ASSERT_EQUAL_OBJECTS(left.elsewhere.value, @"keep me");
 
     // An injected matcher and the threshold decide.
-    GHCBWorld *low = [GHCBWorld syntheticWorld];
-    low.driver.matcher = ^GHOptionMatch(NSArray<NSString *> *options, NSString *answer) { return (GHOptionMatch){ 1, 0.69 }; };
-    GH_ASSERT_EQUAL_OBJECTS([low answer:@"LinkedIn"].reason, GHComboBoxReasonNoMatchingOption);
-    GHCBWorld *high = [GHCBWorld syntheticWorld];
+    SBCBWorld *low = [SBCBWorld syntheticWorld];
+    low.driver.matcher = ^SBOptionMatch(NSArray<NSString *> *options, NSString *answer) { return (SBOptionMatch){ 1, 0.69 }; };
+    GH_ASSERT_EQUAL_OBJECTS([low answer:@"LinkedIn"].reason, SBComboBoxReasonNoMatchingOption);
+    SBCBWorld *high = [SBCBWorld syntheticWorld];
     high.filters = NO;
-    high.driver.matcher = ^GHOptionMatch(NSArray<NSString *> *options, NSString *answer) { return (GHOptionMatch){ 1, 0.7 }; };
-    GHComboBoxResult *picked = [high answer:@"whatever"];
+    high.driver.matcher = ^SBOptionMatch(NSArray<NSString *> *options, NSString *answer) { return (SBOptionMatch){ 1, 0.7 }; };
+    SBComboBoxResult *picked = [high answer:@"whatever"];
     GH_ASSERT(picked.chosen);
     GH_ASSERT_EQUAL_OBJECTS(high.selected, @"LinkedIn");
 }
 
 GH_TEST(combobox_list_that_never_opens_skips_after_one_and_a_half_seconds) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     world.opensMenu = NO;
     NSTimeInterval start = world.clock.now;
-    GHComboBoxResult *result = [world answer:@"LinkedIn"];
-    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonNoList);
+    SBComboBoxResult *result = [world answer:@"LinkedIn"];
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, SBComboBoxReasonNoList);
     GH_ASSERT(result.skipsField);
     // Focus settle, the press that opens nothing, the list that never comes, the cleanup.
     GH_ASSERT_NEAR(world.clock.now - start, 0.05 + 0.7 + 1.5 + 0.06, 0.12);
     // No list ever showed: an Escape would reach the page or the window (a modal closes, a sheet cancels). None.
-    GH_ASSERT_EQUAL_INT([world.poster countOfKind:GHKeyStrokeKindEscape], 0);
+    GH_ASSERT_EQUAL_INT([world.poster countOfKind:SBKeyStrokeKindEscape], 0);
     GH_ASSERT_FALSE(result.pressedEscape);
     GH_ASSERT_EQUAL_OBJECTS(world.combo.value, @"");                // the typed text is taken back with backspaces
 
     // A list that only says "No options" IS open: the notice is never matched ("No" stays unanswered), but the menu
     // is closed at once with one Escape instead of waiting out the whole timeout with it hanging open.
-    GHCBWorld *notice = [GHCBWorld syntheticWorld];
+    SBCBWorld *notice = [SBCBWorld syntheticWorld];
     notice.filters = YES;
     NSTimeInterval noticeStart = notice.clock.now;
-    GHComboBoxResult *none = [notice answer:@"No"];
-    GH_ASSERT_EQUAL_OBJECTS(none.reason, GHComboBoxReasonNoMatchingOption);
+    SBComboBoxResult *none = [notice answer:@"No"];
+    GH_ASSERT_EQUAL_OBJECTS(none.reason, SBComboBoxReasonNoMatchingOption);
     GH_ASSERT(none.skipsField);
     GH_ASSERT(none.pressedEscape);
     GH_ASSERT(notice.clock.now - noticeStart < 1.2);   // not the 1.5 s "no list at all" timeout on top
     GH_ASSERT_EQUAL_INT(notice.presses, 1);            // the open attempt; the notice itself is never pressed
-    GH_ASSERT_EQUAL_INT([notice.poster countOfKind:GHKeyStrokeKindReturn], 0);
+    GH_ASSERT_EQUAL_INT([notice.poster countOfKind:SBKeyStrokeKindReturn], 0);
     GH_ASSERT_EQUAL_OBJECTS(notice.combo.value, @"");
 }
 
 GH_TEST(combobox_highlight_that_never_reaches_the_choice_gives_up) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
-    world.press = GHCBPressIgnored;
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
+    world.press = SBCBPressIgnored;
     world.filters = NO;
     world.arrowsWork = NO;
-    GHComboBoxResult *result = [world answer:@"LinkedIn"];
-    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonNoHighlight);
+    SBComboBoxResult *result = [world answer:@"LinkedIn"];
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, SBComboBoxReasonNoHighlight);
     GH_ASSERT(result.skipsField);
-    GH_ASSERT_EQUAL_INT([world.poster countOfKind:GHKeyStrokeKindDownArrow], 6);   // options + 3 tries, then stop
-    GH_ASSERT_EQUAL_INT([world.poster countOfKind:GHKeyStrokeKindReturn], 0);
-    GH_ASSERT_EQUAL_INT([world.poster countOfKind:GHKeyStrokeKindEscape], 1);
+    GH_ASSERT_EQUAL_INT([world.poster countOfKind:SBKeyStrokeKindDownArrow], 6);   // options + 3 tries, then stop
+    GH_ASSERT_EQUAL_INT([world.poster countOfKind:SBKeyStrokeKindReturn], 0);
+    GH_ASSERT_EQUAL_INT([world.poster countOfKind:SBKeyStrokeKindEscape], 1);
 }
 
 GH_TEST(combobox_press_that_picks_something_else_stops_the_walk) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
-    world.press = GHCBPressSelectsOther;
-    GHComboBoxResult *result = [world answer:@"LinkedIn"];
-    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonNotVerified);
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
+    world.press = SBCBPressSelectsOther;
+    SBComboBoxResult *result = [world answer:@"LinkedIn"];
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, SBComboBoxReasonNotVerified);
     GH_ASSERT(result.stopsWalk);
-    GH_ASSERT_EQUAL_INT([world.poster countOfKind:GHKeyStrokeKindReturn], 0);
-    GH_ASSERT_EQUAL_INT([world.poster countOfKind:GHKeyStrokeKindEscape], 0);
+    GH_ASSERT_EQUAL_INT([world.poster countOfKind:SBKeyStrokeKindReturn], 0);
+    GH_ASSERT_EQUAL_INT([world.poster countOfKind:SBKeyStrokeKindEscape], 0);
 }
 
 #pragma mark - refusals and aborts
 
 GH_TEST(combobox_refusals_touch_nothing) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
-    GH_ASSERT_EQUAL_OBJECTS([world answer:@""].reason, GHComboBoxReasonUnsupported);
-    GH_ASSERT_EQUAL_OBJECTS([world answer:@"   "].reason, GHComboBoxReasonUnsupported);
-    GH_ASSERT_EQUAL_OBJECTS([world answer:@"Linked\nIn"].reason, GHComboBoxReasonUnsupported);
-    GH_ASSERT_EQUAL_OBJECTS([world choose:@"LinkedIn" in:CBNode(@"AXTextField", @"First Name")].reason, GHComboBoxReasonUnsupported);
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
+    GH_ASSERT_EQUAL_OBJECTS([world answer:@""].reason, SBComboBoxReasonUnsupported);
+    GH_ASSERT_EQUAL_OBJECTS([world answer:@"   "].reason, SBComboBoxReasonUnsupported);
+    GH_ASSERT_EQUAL_OBJECTS([world answer:@"Linked\nIn"].reason, SBComboBoxReasonUnsupported);
+    GH_ASSERT_EQUAL_OBJECTS([world choose:@"LinkedIn" in:CBNode(@"AXTextField", @"First Name")].reason, SBComboBoxReasonUnsupported);
 
     world.shownText.value = @"Referral";   // already answered
-    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, GHComboBoxReasonHasValue);
+    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, SBComboBoxReasonHasValue);
     world.shownText.value = @"Select...";
     world.combo.value = @"Lin";            // something typed there already
-    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, GHComboBoxReasonHasValue);
+    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, SBComboBoxReasonHasValue);
     world.combo.value = nil;
 
     world.combo.enabled = NO;
-    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, GHComboBoxReasonDisabled);
+    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, SBComboBoxReasonDisabled);
     world.combo.enabled = YES;
 
     world.driver.isNodeSensitive = nil;    // not wired: fail closed
-    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, GHComboBoxReasonSensitive);
-    world.driver.isNodeSensitive = ^BOOL(id<GHAXNode> node) { return YES; };
-    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, GHComboBoxReasonSensitive);
-    world.driver.isNodeSensitive = ^BOOL(id<GHAXNode> node) { return NO; };
+    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, SBComboBoxReasonSensitive);
+    world.driver.isNodeSensitive = ^BOOL(id<SBAXNode> node) { return YES; };
+    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, SBComboBoxReasonSensitive);
+    world.driver.isNodeSensitive = ^BOOL(id<SBAXNode> node) { return NO; };
 
     world.state.frontmostPID = 0;
-    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, GHComboBoxReasonNoFrontmostApp);
+    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, SBComboBoxReasonNoFrontmostApp);
     world.state.frontmostPID = world.pid;
 
     [world.actuator.goneNodes addObject:world.combo];
-    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, GHComboBoxReasonGone);
+    GH_ASSERT_EQUAL_OBJECTS([world answer:@"LinkedIn"].reason, SBComboBoxReasonGone);
     [world.actuator.goneNodes removeObject:world.combo];
 
-    GHCBWorld *gender = [GHCBWorld syntheticWorldWithLabel:@"Gender"];
-    GH_ASSERT_EQUAL_OBJECTS([gender answer:@"Female"].reason, GHComboBoxReasonDemographic);
+    SBCBWorld *gender = [SBCBWorld syntheticWorldWithLabel:@"Gender"];
+    GH_ASSERT_EQUAL_OBJECTS([gender answer:@"Female"].reason, SBComboBoxReasonDemographic);
     GH_ASSERT(CBTouchedNothing(gender));
 
     GH_ASSERT(CBTouchedNothing(world));
@@ -960,19 +960,19 @@ GH_TEST(combobox_refusals_touch_nothing) {
 }
 
 GH_TEST(combobox_focus_that_does_not_arrive_or_leaves_before_typing_skips) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     world.actuator.focusWorks = NO;
-    GHComboBoxResult *result = [world answer:@"LinkedIn"];
-    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonNotFocused);
+    SBComboBoxResult *result = [world answer:@"LinkedIn"];
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, SBComboBoxReasonNotFocused);
     GH_ASSERT(result.skipsField);
     GH_ASSERT_EQUAL_INT(world.poster.posted.count, 0);
 
     // Focus is on the combobox when checked, gone when the first chunk is about to go out.
-    GHCBWorld *moved = [GHCBWorld syntheticWorld];
-    __weak GHCBWorld *weakMoved = moved;
+    SBCBWorld *moved = [SBCBWorld syntheticWorld];
+    __weak SBCBWorld *weakMoved = moved;
     moved.state.onFocusRead = ^(NSUInteger read) { if (read == 2) weakMoved.state.focusedNode = weakMoved.elsewhere; };
-    GHComboBoxResult *skipped = [moved answer:@"LinkedIn"];
-    GH_ASSERT_EQUAL_OBJECTS(skipped.reason, GHComboBoxReasonFocusChanged);
+    SBComboBoxResult *skipped = [moved answer:@"LinkedIn"];
+    GH_ASSERT_EQUAL_OBJECTS(skipped.reason, SBComboBoxReasonFocusChanged);
     GH_ASSERT(skipped.skipsField);
     GH_ASSERT_FALSE(skipped.typed);
     GH_ASSERT_EQUAL_INT(moved.poster.posted.count, 0);
@@ -980,66 +980,66 @@ GH_TEST(combobox_focus_that_does_not_arrive_or_leaves_before_typing_skips) {
 }
 
 GH_TEST(combobox_focus_lost_mid_typing_stops_the_walk) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     world.options = @[ @"Referral from a current employee", @"Other" ];
-    __weak GHCBWorld *weakWorld = world;
-    world.afterPost = ^(GHKeyStroke *stroke) { if (stroke.kind == GHKeyStrokeKindText) [weakWorld focus:weakWorld.elsewhere]; };
-    GHComboBoxResult *result = [world answer:@"Referral from a current employee"];
-    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonTypingInterrupted);
+    __weak SBCBWorld *weakWorld = world;
+    world.afterPost = ^(SBKeyStroke *stroke) { if (stroke.kind == SBKeyStrokeKindText) [weakWorld focus:weakWorld.elsewhere]; };
+    SBComboBoxResult *result = [world answer:@"Referral from a current employee"];
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, SBComboBoxReasonTypingInterrupted);
     GH_ASSERT(result.stopsWalk);
-    GH_ASSERT_EQUAL_INT([world.poster countOfKind:GHKeyStrokeKindText], 1);
+    GH_ASSERT_EQUAL_INT([world.poster countOfKind:SBKeyStrokeKindText], 1);
     GH_ASSERT_EQUAL_OBJECTS(world.elsewhere.value, nil);
-    GH_ASSERT_EQUAL_INT([world.poster countOfKind:GHKeyStrokeKindEscape], 0);
+    GH_ASSERT_EQUAL_INT([world.poster countOfKind:SBKeyStrokeKindEscape], 0);
 }
 
 GH_TEST(combobox_user_key_or_app_switch_stops_without_another_key) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     world.opensMenu = NO;
-    __weak GHCBWorld *weakWorld = world;
-    world.afterPost = ^(GHKeyStroke *stroke) { if (stroke.kind == GHKeyStrokeKindText) [weakWorld.driver noteUserKeyEvent]; };
-    GHComboBoxResult *result = [world answer:@"LinkedIn"];
-    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonUserKey);
+    __weak SBCBWorld *weakWorld = world;
+    world.afterPost = ^(SBKeyStroke *stroke) { if (stroke.kind == SBKeyStrokeKindText) [weakWorld.driver noteUserKeyEvent]; };
+    SBComboBoxResult *result = [world answer:@"LinkedIn"];
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, SBComboBoxReasonUserKey);
     GH_ASSERT(result.stopsWalk);
     GH_ASSERT_EQUAL_OBJECTS(world.poster.postedNames, (@[ @"text" ]));
 
-    GHCBWorld *switched = [GHCBWorld syntheticWorld];
-    __weak GHCBWorld *weakSwitched = switched;
-    switched.afterPost = ^(GHKeyStroke *stroke) { if (stroke.kind == GHKeyStrokeKindText) weakSwitched.state.frontmostPID = 1; };
-    GHComboBoxResult *away = [switched answer:@"LinkedIn"];
-    GH_ASSERT_EQUAL_OBJECTS(away.reason, GHComboBoxReasonAppChanged);
+    SBCBWorld *switched = [SBCBWorld syntheticWorld];
+    __weak SBCBWorld *weakSwitched = switched;
+    switched.afterPost = ^(SBKeyStroke *stroke) { if (stroke.kind == SBKeyStrokeKindText) weakSwitched.state.frontmostPID = 1; };
+    SBComboBoxResult *away = [switched answer:@"LinkedIn"];
+    GH_ASSERT_EQUAL_OBJECTS(away.reason, SBComboBoxReasonAppChanged);
     GH_ASSERT_EQUAL_OBJECTS(switched.poster.postedNames, (@[ @"text" ]));
     // One press: the open attempt, made while this app WAS still in front. Nothing after the switch -- no option is
     // ever pressed into an app that is not in front.
     GH_ASSERT_EQUAL_INT(switched.presses, 1);
 
     // During the cleanup of a skip: the user's key wins, no backspaces follow.
-    GHCBWorld *cleanup = [GHCBWorld syntheticWorld];
+    SBCBWorld *cleanup = [SBCBWorld syntheticWorld];
     cleanup.filters = NO;
     cleanup.escapeClears = NO;
-    __weak GHCBWorld *weakCleanup = cleanup;
-    cleanup.afterPost = ^(GHKeyStroke *stroke) { if (stroke.kind == GHKeyStrokeKindEscape) [weakCleanup.driver noteUserKeyEvent]; };
-    GHComboBoxResult *interrupted = [cleanup answer:@"Twitter"];
-    GH_ASSERT_EQUAL_OBJECTS(interrupted.reason, GHComboBoxReasonUserKey);
-    GH_ASSERT_EQUAL_INT([cleanup.poster countOfKind:GHKeyStrokeKindBackspace], 0);
+    __weak SBCBWorld *weakCleanup = cleanup;
+    cleanup.afterPost = ^(SBKeyStroke *stroke) { if (stroke.kind == SBKeyStrokeKindEscape) [weakCleanup.driver noteUserKeyEvent]; };
+    SBComboBoxResult *interrupted = [cleanup answer:@"Twitter"];
+    GH_ASSERT_EQUAL_OBJECTS(interrupted.reason, SBComboBoxReasonUserKey);
+    GH_ASSERT_EQUAL_INT([cleanup.poster countOfKind:SBKeyStrokeKindBackspace], 0);
 
     // A key while nothing runs is not remembered.
-    GHCBWorld *idle = [GHCBWorld syntheticWorld];
+    SBCBWorld *idle = [SBCBWorld syntheticWorld];
     [idle.driver noteUserKeyEvent];
     GH_ASSERT([idle answer:@"LinkedIn"].chosen);
 }
 
 GH_TEST(combobox_one_run_at_a_time_and_cancel_is_silent) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     world.opensMenu = NO;
-    __block GHComboBoxResult *first = nil;
-    [world.driver chooseAnswer:@"LinkedIn" inComboBox:world.combo completion:^(GHComboBoxResult *r) { first = r; }];
+    __block SBComboBoxResult *first = nil;
+    [world.driver chooseAnswer:@"LinkedIn" inComboBox:world.combo completion:^(SBComboBoxResult *r) { first = r; }];
     GH_ASSERT(world.driver.running);
-    __block GHComboBoxResult *second = nil;
-    [world.driver chooseAnswer:@"LinkedIn" inComboBox:world.combo completion:^(GHComboBoxResult *r) { second = r; }];
-    GH_ASSERT_EQUAL_OBJECTS(second.reason, GHComboBoxReasonBusy);
+    __block SBComboBoxResult *second = nil;
+    [world.driver chooseAnswer:@"LinkedIn" inComboBox:world.combo completion:^(SBComboBoxResult *r) { second = r; }];
+    GH_ASSERT_EQUAL_OBJECTS(second.reason, SBComboBoxReasonBusy);
     GH_ASSERT(second.stopsWalk);
     [world.driver cancel];
-    GH_ASSERT_EQUAL_OBJECTS(first.reason, GHComboBoxReasonCancelled);
+    GH_ASSERT_EQUAL_OBJECTS(first.reason, SBComboBoxReasonCancelled);
     [world.clock runUntil:^BOOL { return NO; }];   // stale timers post nothing
     GH_ASSERT_EQUAL_INT(world.poster.posted.count, 0);
     [world.driver cancel];
@@ -1059,34 +1059,34 @@ GH_TEST(combobox_one_run_at_a_time_and_cancel_is_silent) {
 ///     "Toggle flyout" AXButton and a 1 px AXStaticText;
 ///   - every row is AXStaticText with role description "text" whose label is in AXTitle and whose AXValue is EMPTY;
 ///   - the highlighted row is marked only by the class `select__option--is-focused`.
-static GHCBNode *CBRealReactSelect(NSArray<NSString *> *options, NSInteger highlighted, BOOL menuOpen) {
-    GHCBNode *form = (GHCBNode *)CBNode(@"AXGroup", nil);
-    GHFakeAXNode *label = [form addChild:CBNode(@"AXStaticText", nil)];
+static SBCBNode *CBRealReactSelect(NSArray<NSString *> *options, NSInteger highlighted, BOOL menuOpen) {
+    SBCBNode *form = (SBCBNode *)CBNode(@"AXGroup", nil);
+    SBFakeAXNode *label = [form addChild:CBNode(@"AXStaticText", nil)];
     label.value = @"How did you hear about this opportunity at Viam?";
     label.domClassList = @[ @"label", @"select__label" ];
-    GHFakeAXNode *log = [form addChild:CBNode(@"AXGroup", nil)];
+    SBFakeAXNode *log = [form addChild:CBNode(@"AXGroup", nil)];
     log.subrole = @"AXEmptyGroup";
     log.roleDescription = @"log";
     log.domClassList = @[ @"remix-css-7pg0cj-a11yText" ];
-    GHFakeAXNode *placeholder = [form addChild:CBNode(@"AXGroup", nil)];
+    SBFakeAXNode *placeholder = [form addChild:CBNode(@"AXGroup", nil)];
     placeholder.domClassList = @[ @"select__placeholder", @"remix-css-1jqq78o-placeholder" ];
-    [placeholder addChild:[GHFakeAXNode staticText:@"Select..." frame:CGRectZero]];
-    GHFakeAXNode *combo = [form addChild:CBNode(@"AXComboBox", @"How did you hear about this opportunity at Viam?")];
+    [placeholder addChild:[SBFakeAXNode staticText:@"Select..." frame:CGRectZero]];
+    SBFakeAXNode *combo = [form addChild:CBNode(@"AXComboBox", @"How did you hear about this opportunity at Viam?")];
     combo.axDescription = combo.title;
     combo.roleDescription = @"combo box";
     combo.identifier = @"question_19909094004";
     combo.domClassList = @[ @"select__input" ];
     combo.frame = CGRectMake(316, 898, 4, 21);     // four pixels wide: this is the auto-sized inner input
-    GHFakeAXNode *toggle = [form addChild:CBNode(@"AXButton", @"Toggle flyout")];
+    SBFakeAXNode *toggle = [form addChild:CBNode(@"AXButton", @"Toggle flyout")];
     toggle.axDescription = @"Toggle flyout";
     toggle.domClassList = @[ @"icon-button", @"icon-button--sm" ];
     [form addChild:CBNode(@"AXStaticText", nil)];  // the 1 px spacer between the control and the menu
     if (menuOpen) {
-        GHCBNode *menu = (GHCBNode *)CBNode(@"AXList", nil);
+        SBCBNode *menu = (SBCBNode *)CBNode(@"AXList", nil);
         menu.roleDescription = @"list";
         menu.domClassList = @[ @"select__menu-list", @"remix-css-qr46ko" ];
         for (NSUInteger i = 0; i < options.count; i++) {
-            GHFakeAXNode *row = [menu addChild:CBNode(@"AXStaticText", options[i])];
+            SBFakeAXNode *row = [menu addChild:CBNode(@"AXStaticText", options[i])];
             row.roleDescription = @"text";
             row.domClassList = (NSInteger)i == highlighted ? @[ @"select__option", @"select__option--is-focused", @"remix-css-2ov8vj-option" ]
                                                            : @[ @"select__option", @"remix-css-18355b6-option" ];
@@ -1094,12 +1094,12 @@ static GHCBNode *CBRealReactSelect(NSArray<NSString *> *options, NSInteger highl
         [form addChild:menu];
     }
     // The next question, so that a menu can be claimed by the wrong control if the scan is sloppy.
-    GHFakeAXNode *nextLabel = [form addChild:CBNode(@"AXStaticText", nil)];
+    SBFakeAXNode *nextLabel = [form addChild:CBNode(@"AXStaticText", nil)];
     nextLabel.value = @"Are you legally authorized to work in the United States for any employer?";
-    GHFakeAXNode *next = [form addChild:CBNode(@"AXComboBox", @"Are you legally authorized to work in the United States for any employer?")];
+    SBFakeAXNode *next = [form addChild:CBNode(@"AXComboBox", @"Are you legally authorized to work in the United States for any employer?")];
     next.roleDescription = @"combo box";
     next.domClassList = @[ @"select__input" ];
-    GHFakeAXNode *web = CBNode(@"AXWebArea", nil);
+    SBFakeAXNode *web = CBNode(@"AXWebArea", nil);
     [web addChild:form];
     return form;
 }
@@ -1110,54 +1110,54 @@ static NSArray<NSString *> *CBViamOptions(void) {
 }
 
 GH_TEST(combobox_real_react_select_menu_is_found_and_read_from_axtitle) {
-    GHCBNode *form = CBRealReactSelect(CBViamOptions(), 2, YES);
-    GHFakeAXNode *combo = nil, *menu = nil, *next = nil;
-    for (id<GHAXNode> child in form.children) {
-        if ([child.role isEqualToString:@"AXComboBox"] && !combo) combo = (GHFakeAXNode *)child;
-        else if ([child.role isEqualToString:@"AXComboBox"]) next = (GHFakeAXNode *)child;
-        if ([child.role isEqualToString:@"AXList"]) menu = (GHFakeAXNode *)child;
+    SBCBNode *form = CBRealReactSelect(CBViamOptions(), 2, YES);
+    SBFakeAXNode *combo = nil, *menu = nil, *next = nil;
+    for (id<SBAXNode> child in form.children) {
+        if ([child.role isEqualToString:@"AXComboBox"] && !combo) combo = (SBFakeAXNode *)child;
+        else if ([child.role isEqualToString:@"AXComboBox"]) next = (SBFakeAXNode *)child;
+        if ([child.role isEqualToString:@"AXList"]) menu = (SBFakeAXNode *)child;
     }
     GH_ASSERT(combo != nil && menu != nil && next != nil);
 
     // The menu sits two siblings past the combo box, behind the "Toggle flyout" button: the scan must cross both.
-    GH_ASSERT([GHComboBoxDriver listForComboBox:combo] == menu);
+    GH_ASSERT([SBComboBoxDriver listForComboBox:combo] == menu);
     // ...and the NEXT question, which sits after the menu, must not claim it.
-    GH_ASSERT([GHComboBoxDriver listForComboBox:next] == nil);
+    GH_ASSERT([SBComboBoxDriver listForComboBox:next] == nil);
 
     // The rows carry their text in AXTitle with an EMPTY AXValue. Reading AXValue (what the driver used to do) is
     // what made the real page report "no list": eight rows, zero options.
-    NSArray<id<GHAXNode>> *options = [GHComboBoxDriver optionsInList:menu];
+    NSArray<id<SBAXNode>> *options = [SBComboBoxDriver optionsInList:menu];
     GH_ASSERT_EQUAL_INT(options.count, 8);
-    for (id<GHAXNode> option in options) GH_ASSERT_EQUAL_INT(option.value.length, 0);
+    for (id<SBAXNode> option in options) GH_ASSERT_EQUAL_INT(option.value.length, 0);
     NSMutableArray<NSString *> *texts = [NSMutableArray array];
-    for (id<GHAXNode> option in options) [texts addObject:[GHComboBoxDriver textOfOption:option]];
+    for (id<SBAXNode> option in options) [texts addObject:[SBComboBoxDriver textOfOption:option]];
     GH_ASSERT_EQUAL_OBJECTS(texts, CBViamOptions());
-    GH_ASSERT_FALSE([GHComboBoxDriver listSaysNothingFound:menu]);
+    GH_ASSERT_FALSE([SBComboBoxDriver listSaysNothingFound:menu]);
 
     // The highlight is a CLASS, not AXFocused and not AXSelected: the arrow-key fallback's guard depends on it.
-    GHComboBoxDriver *driver = [[GHComboBoxDriver alloc] initWithActuator:[[GHCBActuator alloc] init]
-                                                                   poster:[[GHFakeKeyPoster alloc] initWithState:[[GHCBState alloc] init]]
-                                                                    state:[[GHCBState alloc] init]];
+    SBComboBoxDriver *driver = [[SBComboBoxDriver alloc] initWithActuator:[[SBCBActuator alloc] init]
+                                                                   poster:[[SBFakeKeyPoster alloc] initWithState:[[SBCBState alloc] init]]
+                                                                    state:[[SBCBState alloc] init]];
     for (NSUInteger i = 0; i < options.count; i++) {
         GH_ASSERT_FALSE(options[i].isFocused);
         GH_ASSERT_EQUAL_INT(driver.isHighlighted(options[i]) ? 1 : 0, i == 2 ? 1 : 0);
     }
 
     // Closed, there is no menu to find and nothing looks like one.
-    GHCBNode *closed = CBRealReactSelect(CBViamOptions(), -1, NO);
-    for (id<GHAXNode> child in closed.children) {
-        if ([child.role isEqualToString:@"AXComboBox"]) GH_ASSERT([GHComboBoxDriver listForComboBox:child] == nil);
+    SBCBNode *closed = CBRealReactSelect(CBViamOptions(), -1, NO);
+    for (id<SBAXNode> child in closed.children) {
+        if ([child.role isEqualToString:@"AXComboBox"]) GH_ASSERT([SBComboBoxDriver listForComboBox:child] == nil);
     }
 }
 
 GH_TEST(combobox_real_react_select_is_answered_by_two_presses_and_no_keystroke) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     world.webkitOptions = YES;     // rows are AXTitle-only AXStaticText marked by class
     world.pressOpens = YES;        // AXPress on the combo box opens the menu, as react-select really does
     world.options = CBViamOptions();
-    GHComboBoxResult *result = [world answer:@"LinkedIn"];
+    SBComboBoxResult *result = [world answer:@"LinkedIn"];
     GH_ASSERT_MSG(result.chosen, @"%@ %@", result.reason, @(result.optionCount));
-    GH_ASSERT_EQUAL_OBJECTS(result.method, GHComboBoxMethodPress);
+    GH_ASSERT_EQUAL_OBJECTS(result.method, SBComboBoxMethodPress);
     GH_ASSERT_EQUAL_OBJECTS(world.selected, @"LinkedIn");
     GH_ASSERT_EQUAL_INT(result.optionCount, 8);
     GH_ASSERT_NEAR(result.score, 1.0, 1e-9);
@@ -1169,31 +1169,31 @@ GH_TEST(combobox_real_react_select_is_answered_by_two_presses_and_no_keystroke) 
 }
 
 GH_TEST(combobox_press_opened_menu_without_a_match_is_closed_and_the_field_skipped) {
-    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    SBCBWorld *world = [SBCBWorld syntheticWorld];
     world.webkitOptions = YES;
     world.pressOpens = YES;
     world.filters = YES;           // typing narrows, so the fallback filter really runs
     world.options = CBViamOptions();
-    GHComboBoxResult *result = [world answer:@"Hack the North"];
-    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonNoMatchingOption);
+    SBComboBoxResult *result = [world answer:@"Hack the North"];
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, SBComboBoxReasonNoMatchingOption);
     GH_ASSERT(result.skipsField);
     GH_ASSERT_FALSE(result.stopsWalk);
-    // Nothing was chosen, the menu Ghost opened is closed again, and the field is exactly as it was found.
+    // Nothing was chosen, the menu Shabang opened is closed again, and the field is exactly as it was found.
     GH_ASSERT_EQUAL_INT(world.selections, 0);
     GH_ASSERT(result.pressedEscape);
     GH_ASSERT(world.menu == nil);
     GH_ASSERT_EQUAL_OBJECTS(world.combo.value, @"");
-    GH_ASSERT_EQUAL_INT([world.poster countOfKind:GHKeyStrokeKindReturn], 0);
+    GH_ASSERT_EQUAL_INT([world.poster countOfKind:SBKeyStrokeKindReturn], 0);
 }
 
 GH_TEST(combobox_eeo_and_work_authorization_are_never_even_pressed_open) {
     // The new press-to-open step runs AFTER the refusals, never before them.
     for (NSString *title in @[ @"Gender", @"Are you Hispanic/Latino?", @"Veteran Status", @"Disability Status" ]) {
-        GHCBWorld *world = [GHCBWorld syntheticWorldWithLabel:title];
+        SBCBWorld *world = [SBCBWorld syntheticWorldWithLabel:title];
         world.pressOpens = YES;
         world.webkitOptions = YES;
-        GHComboBoxResult *result = [world answer:@"Prefer not to say"];
-        GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonDemographic);
+        SBComboBoxResult *result = [world answer:@"Prefer not to say"];
+        GH_ASSERT_EQUAL_OBJECTS(result.reason, SBComboBoxReasonDemographic);
         GH_ASSERT_MSG(CBTouchedNothing(world), @"%@ was touched", title);
     }
 }
@@ -1208,17 +1208,17 @@ GH_TEST(combobox_decline_matcher_knows_every_ats_wording) {
                                        @"I don’t wish to answer" ];
     for (NSString *decline in declines) {
         NSArray<NSString *> *options = @[ @"Male", @"Female", decline ];
-        GHOptionMatch match = GHMatchDeclineOption(options, @"anything at all");
+        SBOptionMatch match = SBMatchDeclineOption(options, @"anything at all");
         GH_ASSERT_MSG(match.index == 2, @"%@ should be recognised as a decline", decline);
-        GH_ASSERT_MSG(match.score >= GHComboBoxMatchThreshold, @"%@ should be certain", decline);
+        GH_ASSERT_MSG(match.score >= SBComboBoxMatchThreshold, @"%@ should be certain", decline);
     }
     // No way to decline: nothing is picked, and nothing is guessed at.
-    GHOptionMatch none = GHMatchDeclineOption(@[ @"Male", @"Female", @"Non-binary" ], @"I don't wish to answer");
+    SBOptionMatch none = SBMatchDeclineOption(@[ @"Male", @"Female", @"Non-binary" ], @"I don't wish to answer");
     GH_ASSERT_EQUAL_INT(none.index, -1);
-    GH_ASSERT_EQUAL_INT(GHMatchDeclineOption(@[], @"x").index, -1);
+    GH_ASSERT_EQUAL_INT(SBMatchDeclineOption(@[], @"x").index, -1);
     // A question ABOUT declining is not an option that declines it.
-    GH_ASSERT_EQUAL_INT(GHMatchDeclineOption(@[ @"Yes", @"No", @"Select..." ], @"x").index, -1);
+    GH_ASSERT_EQUAL_INT(SBMatchDeclineOption(@[ @"Yes", @"No", @"Select..." ], @"x").index, -1);
     // The first way out wins, and a placeholder is never one.
-    GHOptionMatch first = GHMatchDeclineOption(@[ @"Select...", @"Prefer not to say", @"Decline To Self Identify" ], @"x");
+    SBOptionMatch first = SBMatchDeclineOption(@[ @"Select...", @"Prefer not to say", @"Decline To Self Identify" ], @"x");
     GH_ASSERT_EQUAL_INT(first.index, 1);
 }

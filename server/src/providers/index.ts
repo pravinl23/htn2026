@@ -1,4 +1,4 @@
-import { JEV_GATEWAY_MODEL, JEV_MODEL, type DecisionProvider } from "@ghost/shared";
+import { JEV_GATEWAY_MODEL, JEV_MODEL, type DecisionProvider } from "@shabang/shared";
 import type { ServerConfig } from "../config";
 import { createBasetenProvider, type BasetenProvider } from "./baseten";
 import { createHeuristicProvider } from "./heuristic";
@@ -21,7 +21,7 @@ function warmUpInBackground(provider: BasetenProvider, model: string, log: (line
 
 /**
  * config.decisionProvider already encodes the precedence (typesafe > jev-gateway > baseten > llm > heuristic) or the
- * GHOST_DECISION_PROVIDER override. A provider whose credentials are missing degrades to the heuristic,
+ * SHABANG_DECISION_PROVIDER override. A provider whose credentials are missing degrades to the heuristic,
  * so a forced name can never cause a surprise network call or a crash at startup.
  */
 export function createDecisionProvider(config: ServerConfig, deps: ProviderDeps = {}): DecisionProvider {

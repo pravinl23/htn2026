@@ -500,13 +500,13 @@ describe("detectLoop: an identical redo is not a loop", () => {
 
 // ---- detectLoop: synthetic events ----
 
-describe("detectLoop: Ghost's own synthetic events", () => {
+describe("detectLoop: Shabang's own synthetic events", () => {
   it("two fully synthetic runs are never 'the user did it twice'", () => {
     const events = session([0, 1]).events().map((e) => ({ ...e, synthetic: true }));
     expect(detectLoop(events, lastOf(events)!.t)).toBeNull();
   });
 
-  it("run B where Ghost (not the user) filled one cell: the user's own events no longer repeat, so null", () => {
+  it("run B where Shabang (not the user) filled one cell: the user's own events no longer repeat, so null", () => {
     const tb = session([0]).navigate("/invoices");
     const inv = INVOICES[1]!;
     tb.clickItem(INBOX_LIST, 1, inv.id).navigate(invoicePath(inv)).navigate("/sheet");
@@ -531,14 +531,14 @@ describe("detectLoop: Ghost's own synthetic events", () => {
     const events = session([0, 1]).events();
     const noisy = events.flatMap((e, i) => {
       if (i % 3 !== 0) return [e];
-      const ghost: TraceEvent = { ...e, t: e.t + 1, type: "click", synthetic: true, target: makeTarget(`Ghost step ${i}`, "button") };
+      const ghost: TraceEvent = { ...e, t: e.t + 1, type: "click", synthetic: true, target: makeTarget(`Shabang step ${i}`, "button") };
       delete ghost.value;
       return [e, ghost];
     });
     expectInvoiceLoop(detectLoop(noisy, lastOf(noisy)!.t), 0, 1);
   });
 
-  it("a candidate never contains a synthetic event, even when Ghost ran items in between two user runs", () => {
+  it("a candidate never contains a synthetic event, even when Shabang ran items in between two user runs", () => {
     const user0 = session([0]);
     const ghost = session([1, 2], MANY, new TraceBuilder({ start: user0.now })).events().map((e) => ({ ...e, synthetic: true }));
     const user3 = session([3], MANY, new TraceBuilder({ start: lastOf(ghost)!.t }));

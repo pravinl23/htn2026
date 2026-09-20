@@ -8,7 +8,7 @@ import { isValueKey, MAX_ATTRIBUTE_CHARS, scrubAttributes, scrubEvent, scrubLog,
  * when something upstream hands one over.
  */
 
-/** Real shapes of the things Ghost sees and must never report. */
+/** Real shapes of the things Shabang sees and must never report. */
 const VALUES = {
   email: "alex.chen@example.test",
   phone: "+1 (555) 010-4477",

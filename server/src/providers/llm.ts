@@ -1,4 +1,4 @@
-import { criterionText, instructionsText, type Answer, type Answers, type ChoiceQuestion, type DecisionProvider, type DecisionState, type Question, type Questions } from "@ghost/shared";
+import { criterionText, instructionsText, type Answer, type Answers, type ChoiceQuestion, type DecisionProvider, type DecisionState, type Question, type Questions } from "@shabang/shared";
 import type { LlmConfig } from "../config";
 import { DecisionProviderError, isRecord } from "./errors";
 import { clamp01, spreadProbabilities } from "./probabilities";

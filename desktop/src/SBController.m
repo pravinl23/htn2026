@@ -1,0 +1,2140 @@
+#import "SBController.h"
+#import "SBConversation.h"
+#import "SBVision.h"
+#import "SBCapture.h"
+#import "SBComboBoxDriver.h"
+#import "SBCore.h"
+#import "SBKeyPoster.h"
+#import "SBLog.h"
+#import "SBOpenPanelDriver.h"
+#import "SBNextAction.h"
+#import "SBOverlayWindow.h"
+#import "SBPageContext.h"
+#import "SBProfileStore.h"
+#import "SBWriter.h"
+
+NSNotificationName const SBControllerStateDidChangeNotification = @"SBControllerStateDidChangeNotification";
+
+const NSTimeInterval SBDraftWaitSeconds = 4.0;
+const NSUInteger SBMaxConcurrentDrafts = 3;
+
+static NSString *const kNeedsText = @"needs_text";
+static NSString *const kOfflineProvider = @"offline-heuristic";
+static NSString *const kDraftingText = @"Drafting...";
+static const NSUInteger kMaxFormsPerPage = 6;
+static const NSUInteger kMinFormFields = 2;
+/// How much of a window has to be fields before Shabang will fill it in. The same share `pageKind` uses.
+static const double kFormFieldShare = 0.25;
+static const NSUInteger kDraftMaxChars = 600;
+static const NSUInteger kReplyMaxChars = 200;   // a message is not an essay
+static const double kReplyConfidence = 0.72;   // a thread and an empty box under it is a clear enough place
+static const NSTimeInterval kSettleSeconds = 0.4;          // an upgrade may still replace a ghost nobody looked at yet
+static const NSTimeInterval kOwnWriteQuietSeconds = 0.4;   // value-changed notifications caused by our own write
+static const NSUInteger kChromiumMaxNodes = 4000;
+static const NSTimeInterval kChromiumWebAreaBudget = 1.6;
+static const NSTimeInterval kValueRescanSpacing = 0.5;
+static const NSTimeInterval kProposalCooldownSeconds = 2.5;   // a proposal just dealt with is not offered again
+static const double kProposalStickyMargin = 0.08;             // how much better a rival must be to move the ghost
+static const NSTimeInterval kScrollSettleSeconds = 0.06;
+static const NSTimeInterval kDraftRenderSpacing = 0.08;
+static const NSUInteger kFocusClimb = 3;
+static const NSUInteger kPageContextNodes = 1500;   // a live AX walk on the main thread: bounded, once per page
+static const NSTimeInterval kScrollSettleFirst = 0.12;   // a page that scrolls smoothly has not moved yet right after
+static const NSTimeInterval kScrollSettleLast = 0.4;     // AXScrollToVisible: its rects are read again twice
+static NSString *const kUploadNotVerified = @"upload-not-verified";
+// Live, Safari: Greenhouse uploads the file to its storage before the widget names it or grows a Remove button, so
+// one look right after the panel closed says "not attached" for an upload that worked. The check is repeated.
+static const NSTimeInterval kUploadVerifyPoll = 0.35;
+static const NSUInteger kUploadVerifyTries = 8;
+
+/// One free-text draft. The text stays in memory and is never logged.
+@interface SBDraft : NSObject
+@property (nonatomic, copy) NSString *signature;
+@property (nonatomic) double confidence;
+@property (nonatomic, strong) NSMutableString *text;
+@property (nonatomic) BOOL started;
+@property (nonatomic) BOOL finished;
+@property (nonatomic) BOOL failed;
+@property (nonatomic, strong, nullable) SBGhostTextStream *stream;
+@end
+
+@implementation SBDraft
+@end
+
+@interface SBController ()
+/// What the event tap thread reaches for every untagged key-down (the writer's drivers abort on it).
+@property (atomic, strong, nullable) SBWriter *keyRelayWriter;
+@end
+
+@implementation SBController {
+    SBCore *_core;
+    SBProfileStore *_store;
+    SBServerClient *_client;
+    SBPresence *_presence;
+    BOOL _ownsOverlay;
+
+    // The last capture.
+    SBCaptureResult *_result;
+    NSArray<SBField *> *_orderedFields;
+    NSDictionary<NSString *, SBField *> *_fields;
+    NSString *_pageKey;
+    NSString *_origin;
+
+    // Prediction (cache -> server), once per form.
+    NSMutableSet<NSString *> *_asked;
+    NSMutableDictionary<NSString *, NSDictionary *> *_served;
+    NSMutableSet<NSString *> *_pinned;
+    NSString *_factsId;
+    NSUInteger _epoch;
+    NSString *_cacheState;      // hit | miss | offline
+    NSNumber *_latencyMs;
+    CFAbsoluteTime _shownAt;
+
+    // Drafts.
+    NSMutableDictionary<NSString *, SBDraft *> *_drafts;
+    BOOL _draftRenderQueued;
+
+    // The accept queue.
+    NSInteger _pendingTabs;
+    BOOL _drainIsRepeat;
+    BOOL _stepMayHandBack;   // the first step of a fresh, unqueued press: a Tab that was not Shabang's goes back to the app
+    BOOL _stepDirect;        // the step in flight follows the user's press at once (no draft wait, no sequence)
+    BOOL _stepFromGhostKey;  // the accept came from the Shabang key, which no app binds and nothing can take back
+    NSString *_previousRoleBundleId;   // which app the last accepted role was in; another app forgets it
+    NSString *_proposalBundleId;       // which app the live proposal belongs to (it is read after the app may have changed)
+    SBVision *_vision;
+    NSMutableDictionary<NSString *, NSString *> *_visionLabels;   // signature -> the name a model gave it
+    NSMutableSet<NSString *> *_visionLocked;                      // signatures a model called irreversible
+    BOOL _visionAsked;                                            // one attempt per page view, over and above SBVision's own rule
+    NSString *_stickySignature;    // the proposal currently on screen: it wins near-ties so the ghost stops moving
+    NSString *_cooldownSignature;  // just taken or just turned down: not offered again until _cooldownUntil
+    NSString *_cooldownList;       // ...and neither is the rest of ITS list: a walk down a list is not a prediction
+    CFAbsoluteTime _cooldownUntil;
+    NSString *_lastAcceptedList;   // the list the last accepted proposal belonged to, for the learning rule below
+    BOOL _rescanDeferred;
+    NSString *_walkBundleId;   // the app whose window the walk belongs to (live captures only)
+    NSString *_waitingDraft;
+    void (^_waitContinuation)(BOOL ready);
+    NSUInteger _waitToken;
+
+    CFAbsoluteTime _quietUntil;
+    CFAbsoluteTime _lastRescanAt;
+    NSUInteger _scrollGeneration;
+    NSString *_lastStatusLine;
+    NSString *_lastRescanLog;
+    CFAbsoluteTime _stepStartedAt;
+
+    // The answer engine and the gate (docs/answers.md, docs/incremental.md).
+    NSString *_gateReason;                     // "2 required fields still empty: Country"; nil when nothing is unmet
+    NSMutableDictionary<NSString *, NSString *> *_seenValues;   // the last capture's values, to spot a user edit
+    NSMutableDictionary<NSString *, NSString *> *_ghostWrote;   // what Shabang put there: never a correction
+    NSUInteger _correctionCount;
+    NSString *_lastCorrectionCounter;           // the value-free telemetry counter of the last correction
+
+    // Sequences (uploads, lazy selects) and the jump.
+    NSMutableSet<NSString *> *_sequenceDone;   // accepted through a driver on this page: never offered again
+    NSString *_jumpFailedSignature;            // AXScrollToVisible could not bring this ghost on screen
+    NSDictionary<NSString *, NSString *> *_pageContext;   // company / role / description, once per page
+    BOOL _pageContextRead;
+    NSDictionary<NSString *, id> *_conversation;   // the thread on screen, read once per page
+    BOOL _conversationRead;
+    // docs/anywhere.md: what Shabang offers when the window is not a form. Built on first use, because most
+    // windows never need it and the memory file should not be touched before it is.
+    SBNextAction *_nextAction;
+    SBNextProposal *_proposal;          // the one on offer right now (nil when the walk is a form walk)
+    NSString *_previousRole;            // the role of the last action the user took in this page view
+}
+
+@synthesize eventTap = _eventTap;
+@synthesize writer = _writer;
+
+- (instancetype)initWithCore:(SBCore *)core store:(SBProfileStore *)store client:(SBServerClient *)client {
+    if ((self = [super init])) {
+        _core = core;
+        _store = store;
+        _client = client;
+        _walk = [[SBWalkState alloc] init];
+        _asked = [NSMutableSet set];
+        _served = [NSMutableDictionary dictionary];
+        _pinned = [NSMutableSet set];
+        _drafts = [NSMutableDictionary dictionary];
+        _factsId = @"";
+        _cacheState = @"offline";
+        _provider = kOfflineProvider;
+        _orderedFields = @[];
+        _fields = @{};
+        _sequenceDone = [NSMutableSet set];
+        _seenValues = [NSMutableDictionary dictionary];
+        _ghostWrote = [NSMutableDictionary dictionary];
+    }
+    return self;
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+#pragma mark - parts
+
+- (SBAccessibility *)accessibility {
+    if (!_accessibility) _accessibility = [[SBAccessibility alloc] init];
+    return _accessibility;
+}
+
+- (SBCapture *)capture {
+    if (!_capture) {
+        _capture = [[SBCapture alloc] initWithSafety:_core];
+        // The extension walks the whole form, not only what is on screen. Nothing off screen is ever written to:
+        // Tab is only consumed while the current ghost is visible, and the rect is re-read before every write.
+        _capture.keepsScrolledOutFields = YES;
+    }
+    return _capture;
+}
+
+- (SBEventTap *)eventTap {
+    if (!_eventTap) self.eventTap = [[SBEventTap alloc] init];
+    return _eventTap;
+}
+
+- (void)setEventTap:(SBEventTap *)eventTap {
+    _eventTap = eventTap;
+    eventTap.delegate = self;
+    // The tap thread: flags only. A sequence in flight (open panel, combobox) aborts on any key of the user's.
+    __weak SBController *weakSelf = self;
+    eventTap.userKeyObserver = ^{ [weakSelf.keyRelayWriter noteUserKeyEvent]; };
+}
+
+/// The live writer: one keyboard (SBKeyPoster) for typing and both drivers, one view of the desktop.
+- (SBWriter *)writer {
+    if (!_writer) {
+        SBKeyPoster *poster = [SBKeyPoster livePoster];
+        SBAXLiveActuator *actuator = [[SBAXLiveActuator alloc] initWithPoster:poster];
+        SBLiveDesktopState *desktop = [[SBLiveDesktopState alloc] init];
+        SBWriter *writer = [[SBWriter alloc] initWithActuator:actuator];
+        writer.openPanelDriver = [[SBOpenPanelDriver alloc] initWithActuator:actuator poster:poster state:desktop];
+        writer.comboBoxDriver = [[SBComboBoxDriver alloc] initWithActuator:actuator poster:poster state:desktop];
+        self.writer = writer;
+    }
+    return _writer;
+}
+
+- (void)setWriter:(SBWriter *)writer {
+    _writer = writer;
+    self.keyRelayWriter = writer;
+}
+
+/// Progress lines to the HUD, the same safety oracle as the writer's. Set right before a sequence starts, so a writer
+/// or driver injected later is wired too.
+- (void)prepareDriversOf:(SBWriter *)writer {
+    __weak SBController *weakSelf = self;
+    writer.openPanelDriver.progress = ^(SBOpenPanelState state, NSString *message) {
+        if (state != SBOpenPanelStateFailed) [weakSelf showStatus:message];   // a failure is the error chip's
+    };
+    SBComboBoxDriver *combo = writer.comboBoxDriver;
+    if (combo && !combo.isNodeSensitive) {
+        SBCapture *capture = self.capture;
+        combo.isNodeSensitive = ^BOOL(id<SBAXNode> node) { return [capture isNodeSensitive:node]; };
+    }
+}
+
+- (void)showStatus:(NSString *)message {
+    _hudStatus = [message copy];
+    [self render];
+}
+
+/// Only a started controller with a live accessibility session ever posts: a controller driven by tests (or not
+/// started) records the hand-back and posts nothing.
+- (void)handBackTab {
+    if (self.tabHandBack) { self.tabHandBack(); return; }
+    if (!_running || self.assumesActive || !self.accessibility.running) {
+        SBLog(@"controller: Tab hand-back skipped (not running live)");
+        return;
+    }
+    [SBEventTap postKeyCode:SBKeyCodeTab];
+}
+
+/// A new capture of the window in front, or nil when there is no way to take one.
+- (SBCaptureResult *)freshCapture {
+    if (self.captureProvider) return self.captureProvider();
+    if (_running && self.accessibility.running) return [self.accessibility captureFocusedWindowWithCapture:self.capture];
+    return nil;
+}
+
+#pragma mark - lifecycle
+
+- (void)start {
+    if (_running) return;
+    _running = YES;
+    [self syncAcceptKey];
+    if (!self.overlay) {
+        self.overlay = [[SBOverlayWindow alloc] init];
+        _ownsOverlay = YES;
+    }
+    __weak SBController *weakSelf = self;
+    self.overlay.onLayoutChange = ^{ [weakSelf.accessibility setNeedsRescan:SBRescanReasonLayoutChanged]; };
+    SBCapture *capture = self.capture;
+    if (!self.writer.isNodeSensitive) self.writer.isNodeSensitive = ^BOOL(id<SBAXNode> node) { return [capture isNodeSensitive:node]; };
+    // docs/anywhere.md: icon-only controls are kept for the next-action path, and an UNLOCKED click ghost may be
+    // pressed -- after this check has read the live element one last time. Rule 2 still refuses anything else.
+    capture.capturesUnnamedControls = YES;
+    SBCore *core = _core;
+    if (!self.writer.isNodeLocked) {
+        self.writer.isNodeLocked = ^BOOL(id<SBAXNode> node) {
+            NSString *name = [SBCapture cleanLabel:node.title ?: node.axDescription];
+            if ([SBCapture nativeLooksLocked:name]) return YES;
+            return [core isLockedActionText:name];
+        };
+    }
+
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(storeDidChange:) name:SBProfileStoreDidChangeNotification object:_store];
+    self.accessibility.delegate = self;
+    [self syncPauseList];
+    [self.accessibility start];
+    [self.eventTap install];
+    SBLog(@"controller: started (tap %@)", self.eventTap.installed ? @"installed" : @"NOT installed");
+    [self rescanForReasons:SBRescanReasonManual];
+}
+
+/// An upload or combobox sequence in flight stops at once, before the tap that watches the user's keys goes away:
+/// nothing is posted after Shabang was switched off or lost its permission.
+- (void)cancelSequences {
+    SBWriter *writer = _writer;   // never create the live writer just to cancel it
+    [writer.openPanelDriver cancel];
+    [writer.comboBoxDriver cancel];
+}
+
+- (void)stop {
+    if (!_running) return;
+    _running = NO;
+    [self cancelSequences];
+    [NSNotificationCenter.defaultCenter removeObserver:self name:SBProfileStoreDidChangeNotification object:_store];
+    [self.eventTap uninstall];
+    [self.accessibility stop];
+    [self forgetPage];
+    [self forgetPredictions:@""];
+    _pendingTabs = 0;
+    _busy = NO;
+    _rescanDeferred = NO;
+    _result = nil;
+    _orderedFields = @[];
+    _fields = @{};
+    _pageKey = nil;
+    [self.overlay hideImmediately];
+    if (_ownsOverlay) {
+        [self.overlay invalidate];
+        self.overlay = nil;
+        _ownsOverlay = NO;
+    }
+    _currentVisible = NO;
+    [self noteStateChanged];
+    SBLog(@"controller: stopped");
+}
+
+- (void)storeDidChange:(NSNotification *)notification {
+    [self syncPauseList];
+    [self syncAcceptKey];
+    // A new threshold re-gates live, a new profile re-maps: both are an ordinary rescan.
+    if (_running) [self.accessibility setNeedsRescan:SBRescanReasonManual];
+    else if (self.assumesActive && _result) [self adoptCaptureResult:_result pageKey:_pageKey ?: @"" origin:_origin ?: @""];
+}
+
+/// SBProfileStore is the source of truth for the user's pause list; SBAccessibility enforces it on the AX side.
+/// Which lone modifier tap accepts a ghost, from settings.json. Follows an edit of the file live.
+- (void)syncAcceptKey {
+    self.eventTap.ghostKey = SBGhostKeyFromName(_store.settings[@"acceptKey"]);
+}
+
+- (void)syncPauseList {
+    self.accessibility.userPausedBundleIdentifiers = [NSSet setWithArray:[_store userPausedBundleIds] ?: @[]];
+}
+
+- (void)presenceDidChange:(SBPresence *)presence {
+    BOOL before = self.active;
+    _presence = presence;
+    if (before == self.active) return;
+    SBLog(@"controller: %@ is %@ handled by its extension", self.accessibility.frontmostBundleIdentifier ?: @"?", self.active ? @"no longer" : @"now");
+    [self rescanForReasons:SBRescanReasonManual];
+}
+
+#pragma mark - gate
+
+- (BOOL)extensionHandlesFrontmost {
+    return [_presence isExtensionActiveForBundleId:self.accessibility.frontmostBundleIdentifier];
+}
+
+- (BOOL)active {
+    if (!_running && !self.assumesActive) return NO;
+    if (!_store.enabled) return NO;
+    if (self.assumesActive) return YES;
+    SBAccessibility *ax = self.accessibility;
+    if (!ax.trusted || ax.frontmostIsPaused) return NO;
+    if ([_store isPausedBundleId:ax.frontmostBundleIdentifier]) return NO;
+    return ![self extensionHandlesFrontmost];
+}
+
+- (NSString *)statusLine {
+    SBAccessibility *ax = self.accessibility;
+    NSString *app = ax.frontmostAppName ?: @"this app";
+    if (!self.assumesActive) {
+        if (!ax.trusted) return @"Needs Accessibility permission";
+        if (ax.frontmostIsPaused || [_store isPausedBundleId:ax.frontmostBundleIdentifier]) return [NSString stringWithFormat:@"Paused in %@", app];
+        if ([self extensionHandlesFrontmost]) return [NSString stringWithFormat:@"%@: handled by the extension", app];
+        if (_running && !self.eventTap.installed) return @"Keyboard tap unavailable (check the Accessibility permission)";
+    }
+    if (_walk.error) return _walk.error;
+    if (_busy && _hudStatus.length) return _hudStatus;
+    if (!_busy && _gateReason.length && _walk.ghosts.count > 0 && !_walk.error) return _gateReason;
+    NSUInteger unlocked = 0;
+    for (SBGhost *ghost in _walk.ghosts) if (!ghost.locked) unlocked++;
+    if (unlocked > 0) {
+        // Tab only accepts while focus is on the ghost's own field, which is a form. Everywhere else -- a list
+        // row, a sidebar, a player -- the Shabang key is the one that works, so the HUD says so rather than
+        // leaving the user pressing a key the app has already taken.
+        NSString *key = [_walk.current.action isEqualToString:SBGhostActionClick]
+            ? [NSString stringWithFormat:@" (%@ accepts)", SBGhostKeyDisplayName(self.eventTap.ghostKey)] : @"";
+        return [NSString stringWithFormat:@"%lu ghost%@ in %@%@", (unsigned long)unlocked, unlocked == 1 ? @"" : @"s", app, key];
+    }
+    if (_walk.current.locked) return [NSString stringWithFormat:@"Parked on the locked action in %@ (Enter confirms)", app];
+    if (_walk.accepted > 0) return [NSString stringWithFormat:@"Filled %ld field%@ in %@", (long)_walk.accepted, _walk.accepted == 1 ? @"" : @"s", app];
+    return [NSString stringWithFormat:@"No ghosts in %@", app];
+}
+
+- (void)noteStateChanged {
+    NSString *line = [self statusLine];
+    if ([line isEqualToString:_lastStatusLine ?: @""]) return;
+    _lastStatusLine = line;
+    [NSNotificationCenter.defaultCenter postNotificationName:SBControllerStateDidChangeNotification object:self];
+}
+
+#pragma mark - forgetting
+
+/// A new page, window or app starts a new walk.
+- (void)forgetPage {
+    [_walk reset];
+    [self cancelAllDrafts];
+    [_drafts removeAllObjects];
+    [_asked removeAllObjects];
+    [_served removeAllObjects];
+    [_pinned removeAllObjects];
+    [_sequenceDone removeAllObjects];
+    [_seenValues removeAllObjects];
+    [_ghostWrote removeAllObjects];
+    _gateReason = nil;
+    _predictionRequests = 0;
+    _provider = kOfflineProvider;
+    _cacheState = @"offline";
+    _shownAt = 0;
+    _jumpFailedSignature = nil;
+    _pageContext = nil;
+    _pageContextRead = NO;
+    _conversation = nil;
+    _conversationRead = NO;
+    [_visionLabels removeAllObjects];
+    [_visionLocked removeAllObjects];
+    _visionAsked = NO;
+    [_vision forgetPage];
+    /*
+     * What the user did last.
+     *
+     * It SURVIVES the page it opened, as long as they are still in the same app: pressing New Message is the
+     * reason the compose window is there, and forgetting it the instant it appears is how Shabang ended up
+     * proposing the search box on a screen somebody had just created to type a name into. A different app is
+     * a different train of thought, and forgets.
+     *
+     * And a proposal that was on screen when the view changed under it counts too. Shabang only ever recorded
+     * its OWN accepted ghosts, so doing the same thing with the mouse -- which is what people actually do --
+     * left it with no idea where in a flow it was, and the transitions never fired in real use.
+     *
+     * This is an inference, not an observation: Shabang cannot see a click. So it is kept deliberately cheap.
+     * It feeds the transition priors, which are weak by construction, and it is NEVER written to role memory
+     * and NEVER reported as an accept -- learning from something nobody watched would poison both.
+     */
+    BOOL proposalWasHere = _proposal && _proposalBundleId.length && [_proposalBundleId isEqualToString:_walkBundleId ?: @""];
+    if (proposalWasHere) {
+        _previousRole = _proposal.role;
+        _previousRoleBundleId = [_proposalBundleId copy];
+    } else if (![_walkBundleId isEqualToString:_previousRoleBundleId ?: @""]) {
+        _previousRole = nil;
+    }
+    _stickySignature = nil;
+    _cooldownSignature = nil;
+    _cooldownList = nil;
+    _lastAcceptedList = nil;
+    _hudStatus = nil;
+    _epoch++;   // an answer still in flight belongs to the page we left
+    [self endDraftWait:NO];
+}
+
+/// Another fact key set is another question.
+- (void)forgetPredictions:(NSString *)factsId {
+    _factsId = [factsId copy];
+    [_asked removeAllObjects];
+    [_served removeAllObjects];
+    [_pinned removeAllObjects];
+    _provider = kOfflineProvider;
+    _cacheState = @"offline";
+    _epoch++;
+}
+
+- (void)clearBecauseInactive {
+    if (_walk.ghosts.count > 0 || _walk.accepted > 0) SBLog(@"controller: inactive here, ghosts removed");
+    [self cancelSequences];
+    [self forgetPage];
+    _result = nil;
+    _orderedFields = @[];
+    _fields = @{};
+    _pageKey = nil;
+    [self render];
+}
+
+#pragma mark - SBAccessibilityDelegate
+
+- (void)accessibility:(SBAccessibility *)accessibility needsRescan:(SBRescanReason)reasons {
+    [self rescanForReasons:reasons];
+}
+
+- (void)accessibilityShouldHideOverlay:(SBAccessibility *)accessibility reason:(SBRescanReason)reason {
+    [self hideUntilNextRender];
+}
+
+- (void)accessibilityFocusedElementDidChange:(SBAccessibility *)accessibility {
+    if (!_running || !self.active) return;
+    [self noteFocusSignature:[self liveFocusSignature]];
+}
+
+- (void)accessibility:(SBAccessibility *)accessibility trustDidChange:(SBTrustState)state {
+    if (state != SBTrustStateTrusted) [self clearBecauseInactive];
+    [self noteStateChanged];
+}
+
+- (void)accessibilityFrontmostAppDidChange:(SBAccessibility *)accessibility {
+    // Another app in front: focus is not in this walk, whatever its window says (a Tab there is never queued).
+    if (_walkBundleId.length && ![accessibility.frontmostBundleIdentifier ?: @"" isEqualToString:_walkBundleId]) [_walk noteFocus:SBWalkFocusElsewhere];
+    [self hideUntilNextRender];
+    [self noteStateChanged];
+}
+
+/// Stale rects must never be drawn or tabbed into: nothing is visible until the next render says so.
+- (void)hideUntilNextRender {
+    [self.overlay hideImmediately];
+    _currentVisible = NO;
+    [self publish];
+}
+
+#pragma mark - rescan
+
+- (void)rescanForReasons:(SBRescanReason)reasons {
+    if (!_running) return;
+    if (_busy) { _rescanDeferred = YES; return; }   // never swap the ghost list under a write that is in flight
+    if (!self.active) { [self clearBecauseInactive]; return; }
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (reasons == SBRescanReasonValueChanged) {
+        // Every keystroke (and every write of ours) reports a value change, and a rescan is a full tree walk.
+        if (now < _quietUntil) return;
+        if (_result && _orderedFields.count == 0) return;   // a document editor: nothing here to re-map
+        if (now - _lastRescanAt < kValueRescanSpacing) { [self.accessibility setNeedsRescan:SBRescanReasonValueChanged]; return; }
+    }
+    _lastRescanAt = now;
+
+    SBAccessibility *ax = self.accessibility;
+    // Chromium and Electron give a scrolled-out node no frame at all, where WebKit gives its real off-screen one.
+    // Told which kind of app is in front, the capture keeps those frameless nodes instead of dropping them as
+    // hidden -- without this the whole part of a Chrome page below the fold is invisible to Shabang.
+    BOOL chromium = ax.frontmostNeedsEnhancedUserInterface;
+    self.capture.treatsFramelessWebNodesAsScrolledOut = chromium;
+    // Chromium answers an AX call several times slower than WebKit and exposes more nodes per page, so the same
+    // walk that finishes in Safari stops half way through a Chrome page and the form below the fold is lost.
+    SBCaptureLimits *limits = [[SBCaptureLimits defaultLimits] copy];
+    if (chromium) {
+        limits.maxNodes = kChromiumMaxNodes;
+        limits.webAreaTimeBudget = kChromiumWebAreaBudget;
+    }
+    self.capture.limits = limits;
+    SBCaptureResult *result = [ax captureFocusedWindowWithCapture:self.capture];
+    NSString *bundle = ax.frontmostBundleIdentifier ?: @"";
+    NSString *title = result ? ([ax focusedWindowTitle] ?: @"") : @"";
+    NSString *webOrigin = result.webAreaNode ? [ax originOfWebAreaNode:result.webAreaNode] : nil;
+    NSString *pageKey = [@[ bundle, webOrigin ?: @"", title ] componentsJoinedByString:@"\n"];
+    NSString *origin = [SBServerClient originForBundleId:bundle pageURL:webOrigin windowTitle:title];
+    _walkBundleId = [bundle copy];
+    [self adoptCaptureResult:result pageKey:pageKey origin:origin];
+}
+
+- (void)adoptCaptureResult:(SBCaptureResult *)result pageKey:(NSString *)pageKey origin:(NSString *)origin {
+    if (_busy) { _rescanDeferred = YES; return; }
+    if (!self.active) { [self clearBecauseInactive]; return; }
+    CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
+    if (![pageKey isEqualToString:_pageKey ?: @""]) {
+        if (_pageKey) SBLog(@"controller: new page, the walk starts over");
+        [self forgetPage];
+        _pageKey = [pageKey copy];
+    }
+    _result = result;
+    _origin = [origin copy];
+    _orderedFields = result.fields ?: @[];
+    [self applyVisionLabelsTo:_orderedFields];
+    NSMutableDictionary<NSString *, SBField *> *bySignature = [NSMutableDictionary dictionary];
+    for (SBField *field in _orderedFields) bySignature[field.signature] = field;
+    _fields = bySignature;
+
+    NSDictionary *profile = _store.profile, *settings = _store.settings;
+    NSArray<NSString *> *factKeys = [_store usableFactKeys];
+    NSString *factsId = [[factKeys sortedArrayUsingSelector:@selector(compare:)] componentsJoinedByString:@","];
+    if (![factsId isEqualToString:_factsId]) [self forgetPredictions:factsId];
+
+    // What the user answered themselves since the last capture is learned BEFORE the new ghosts are built, so
+    // the correction is already in the store when the engine proposes again.
+    [self learnUserEdits];
+
+    NSMutableDictionary *options = [NSMutableDictionary dictionary];
+    options[@"keepLock"] = @(_walk.keepLock);
+    if (_walk.lockSignature) options[@"lockSignature"] = _walk.lockSignature;
+    // Answers the user gave before (never sent anywhere), and what this walk has already accepted: a required
+    // field the user has taken a ghost for counts as met, so the Submit ghost appears at the right moment.
+    NSString *answersJSON = [_store answersJSON];
+    if (answersJSON.length) options[@"answers"] = answersJSON;
+    NSArray<NSString *> *accepted = [_walk.acceptedSignatures allObjects];
+    if (accepted.count) options[@"accepted"] = accepted;
+    if (_pageContext[@"company"].length) options[@"company"] = _pageContext[@"company"];
+
+    // Nothing is mapped to a profile fact outside a form, so no value ghost can appear in an ordinary app.
+    NSArray<NSDictionary *> *offline = (_orderedFields.count && [self windowLooksLikeAForm]) ? [_core mapFields:_orderedFields factKeys:factKeys] : @[];
+    NSMutableArray<NSDictionary *> *answers = [NSMutableArray array];
+    for (NSString *signature in _served) if (![_pinned containsObject:signature]) [answers addObject:_served[signature]];
+    // Nothing is filled in outside a form. Gating only the INPUTS was not enough: with no assignments at
+    // all the core still answered a select of its own accord, which is how an account menu in a chat client
+    // -- an AXPopUpButton whose two children look like options -- got a ghost reading "Max", and why taking
+    // it failed with `option-not-found`. There was never an option to find: it is a menu, not a question.
+    NSArray<NSDictionary *> *ghostObjects = @[];
+    if (_orderedFields.count > 0 && [self windowLooksLikeAForm]) {
+        ghostObjects = answers.count > 0
+            ? [_core upgradeGhostsForFields:_orderedFields served:answers profile:profile settings:settings source:[self ghostSource] options:options]
+            : [_core ghostsForFields:_orderedFields assignments:offline profile:profile settings:settings source:@"offline" options:options];
+    }
+    NSMutableArray<SBGhost *> *ghosts = [NSMutableArray array];
+    for (SBGhost *ghost in [SBGhost ghostsWithDictionaries:ghostObjects]) {
+        SBField *field = _fields[ghost.signature];
+        // A ghost needs a live element, and a lock ghost is only ever a captured, locked button.
+        if (!field || ![result nodeForSignature:ghost.signature]) continue;
+        if (ghost.locked && !(field.locked && [field.kind isEqualToString:SBKindButton])) continue;
+        // A file attached / an option chosen through a driver is never offered twice, whatever the page shows now.
+        if ([_sequenceDone containsObject:ghost.signature]) continue;
+        [ghosts addObject:ghost];
+    }
+    NSArray<SBGhost *> *withDrafts = [self ghostsByAddingDrafts:ghosts offline:offline answers:answers settings:settings];
+    // A thread on screen and an empty box under it: the ghost is the reply to the last thing that was said.
+    withDrafts = [self ghostsByAddingReply:withDrafts result:result];
+    // Most windows are not forms. With nothing to fill, Shabang offers the one thing this KIND of place is for.
+    withDrafts = [self ghostsByAddingNextAction:withDrafts result:result settings:settings];
+    [self updateGateWithGhosts:withDrafts accepted:accepted];
+    if ([_cacheState isEqualToString:@"offline"]) _latencyMs = @(MAX(0.0, (result.elapsed + (CFAbsoluteTimeGetCurrent() - started)) * 1000.0));
+
+    // Focus is re-read against the new capture; the walk keeps its current ghost first and follows focus second.
+    if ([self canReadLiveFocus]) [_walk noteFocus:[self liveFocusSignature]];
+    [_walk rescanWithGhosts:withDrafts];
+    [self preferVisibleCurrent];
+    [self pruneDrafts];
+    if (_shownAt == 0 && _walk.hasUnlocked) _shownAt = CFAbsoluteTimeGetCurrent();
+    [self startQueuedDrafts];
+    [self render];
+    [self requestPredictionWithFactKeys:factKeys];
+    [self askVisionToNameTheUnnamed];
+
+    // What the ghosts ARE, not just how many: an action and where it came from, per ghost. Codes only --
+    // never a label, never a value. Without this, working out which path produced a wrong ghost meant
+    // guessing, and guessing wrong three times is how this line came to exist.
+    NSMutableArray<NSString *> *shapes = [NSMutableArray array];
+    for (SBGhost *ghost in _walk.ghosts) {
+        [shapes addObject:[NSString stringWithFormat:@"%@/%@%@", ghost.action ?: @"?", ghost.source ?: @"?", ghost.locked ? @"/locked" : @""]];
+    }
+    NSString *summary = [NSString stringWithFormat:@"fields=%lu ghosts=%lu [%@] source=%@", (unsigned long)_orderedFields.count,
+                         (unsigned long)_walk.ghosts.count, [shapes componentsJoinedByString:@" "], [self ghostSource]];
+    if (![summary isEqualToString:_lastRescanLog ?: @""]) {
+        _lastRescanLog = summary;
+        SBLog(@"controller: rescan %@ in %@ (%.0f ms)", summary, self.accessibility.frontmostBundleIdentifier ?: @"?", [_latencyMs doubleValue]);
+    }
+}
+
+#pragma mark - Shabang anywhere (docs/anywhere.md)
+
+/// The next-action engine, with its role memory beside the profile. Built on first use.
+- (SBNextAction *)nextAction {
+    if (!_nextAction) {
+        NSString *directory = _store.directory ?: [SBProfileStore defaultDirectory];
+        NSString *path = [directory stringByAppendingPathComponent:@"memory.json"];
+        _nextAction = [[SBNextAction alloc] initWithCore:_core memory:[[SBRoleMemoryStore alloc] initWithPath:path core:_core]];
+    }
+    return _nextAction;
+}
+
+/**
+ * Nothing to fill: propose the one control this KIND of place is for (the video's fullscreen once it plays, the
+ * first item of a grid, the search box of a shop, the cart when it holds something). The proposal is an ordinary
+ * unlocked click ghost, so Tab, Escape, typing, focus following and the lock all behave exactly as they do in a
+ * form walk. A form walk is never disturbed: with even one value ghost on the page, this does nothing at all.
+ */
+- (NSArray<SBGhost *> *)ghostsByAddingNextAction:(NSArray<SBGhost *> *)ghosts result:(SBCaptureResult *)result settings:(NSDictionary *)settings {
+    if (ghosts.count > 0 || result.fields.count == 0) {
+        _proposal = nil;
+        return ghosts;
+    }
+    SBNextAction *engine = [self nextAction];
+    NSNumber *threshold = [settings[@"confidenceThreshold"] isKindOfClass:[NSNumber class]] ? settings[@"confidenceThreshold"] : nil;
+    if (threshold) engine.threshold = threshold.doubleValue;
+    SBPageSignals *signals = [[SBPageSignals alloc] init];
+    signals.appBundleId = _walkBundleId ?: self.accessibility.frontmostBundleIdentifier;
+    signals.previousRole = _previousRole;
+    SBNextProposal *top = [engine proposeForResult:result window:result.windowNode signals:signals];
+    SBNextProposal *proposal = [self steadyProposalFrom:engine.ranked top:top];
+    _proposal = proposal;
+    _proposalBundleId = [_walkBundleId copy];   // which app it belonged to, for the inference in -forgetPage
+    if (!proposal) return ghosts;
+    SBField *field = _fields[proposal.signature];
+    if (!field) return ghosts;
+    return [ghosts arrayByAddingObject:[proposal ghostWithDisplayText:SBProposalDisplayText(field)]];
+}
+
+/**
+ * Which ranked row actually becomes the ghost. The engine's own order is a ranking; this is the part that
+ * decides whether the ghost MOVES, and it is what stops Shabang fidgeting.
+ *
+ * Two rules, both about not moving for no reason:
+ *
+ *   - a row that was just taken or just turned down is not offered again for a moment. The page has usually
+ *     not caught up yet, and nothing anywhere else excludes it.
+ *   - the row that is already on screen keeps the ghost unless another beats it by a clear margin. On a real
+ *     page most rows tie exactly: measured on one, eight candidates came back at 0.70 with the same reason,
+ *     so the only thing separating them was capture order -- which changes on every rescan, and a live window
+ *     rescans several times a second. That is the ghost "making many guesses and keeping moving".
+ */
+- (SBNextProposal *)steadyProposalFrom:(NSArray<SBNextProposal *> *)ranked top:(SBNextProposal *)top {
+    if (CFAbsoluteTimeGetCurrent() >= _cooldownUntil) { _cooldownSignature = nil; _cooldownList = nil; }
+    NSString *cooling = _cooldownSignature ?: @"";
+    NSString *coolingList = _cooldownList ?: @"";
+    BOOL (^cool)(SBNextProposal *) = ^BOOL(SBNextProposal *row) {
+        if ([row.signature isEqualToString:cooling]) return YES;
+        // And the rest of its list with it: after taking one row, the answer is what that row opened, not
+        // the row under it. Branching is the whole point of a next-action guess.
+        NSString *list = self->_fields[row.signature].listSignature;
+        return coolingList.length > 0 && list.length > 0 && [list isEqualToString:coolingList];
+    };
+    SBNextProposal *best = (top && cool(top)) ? nil : top;
+    for (SBNextProposal *row in ranked) {
+        if (cool(row)) continue;
+        if (!best) best = row;
+        // The ghost already on screen wins any near-tie, however the rows happen to be ordered this time.
+        if ([row.signature isEqualToString:_stickySignature ?: @""] && row.confidence + kProposalStickyMargin >= best.confidence) {
+            best = row;
+            break;
+        }
+    }
+    _stickySignature = best.signature;
+    return best;
+}
+
+/// The user took the proposal, refused it, or did something else: remembered under the ROLE, so it transfers to
+/// the next video, the next shop and the next feed. Never under a label, a window or an app.
+/**
+ * Every ghost outcome, to the server and on to Sentry (SENTRY.md).
+ *
+ * This is deliberately separate from `recordProposalOutcome:`, which only fires for NEXT-ACTION proposals
+ * and so never saw a form fill at all. The learning loop is judged on the rejection stream, and a stream
+ * that silently omits two thirds of the ghosts is worse than none.
+ *
+ * Reads the ghost for its action, source, confidence and lock, so nothing about the page is passed in.
+ * Fire and forget: a failed post must never change a walk.
+ */
+- (void)reportGhostOutcome:(NSString *)outcome forSignature:(NSString *)signature {
+    SBGhost *ghost = [_walk ghostWithSignature:signature];
+    if (!ghost) return;
+    [_client reportGhostOutcomeWithAction:ghost.action
+                                   source:ghost.source
+                               confidence:ghost.confidence
+                                   locked:ghost.locked
+                                  outcome:outcome];
+}
+
+- (void)recordProposalOutcome:(NSString *)outcome forSignature:(NSString *)signature {
+    SBNextProposal *proposal = _proposal;
+    if (!proposal || ![proposal.signature isEqualToString:signature ?: @""]) return;
+    BOOL accepted = [outcome isEqualToString:SBRoleOutcomeAccepted];
+    NSString *list = _fields[proposal.signature].listSignature;
+    /*
+     * Taking the next row of the list you are already in teaches NOTHING about what follows what.
+     *
+     * Role memory is keyed (pageKind, previousRole, role), which cannot tell "I opened a video, then opened
+     * another video" from "I walked down a list because Shabang kept offering me the next row". Measured on
+     * this machine: `feed | primary-item -> primary-item` reached 16 accepts, which pins it at 0.88 -- above
+     * every prior -- purely from walking lists. Shabang then knew, with certainty, that after an item comes an
+     * item, so pressing the key again went to the next filter, and the next, instead of branching into what
+     * the first one opened. The accept loop had taught itself.
+     *
+     * So a step within one list is not written down. A refusal still is: turning something down says
+     * something about it whether or not it has neighbours.
+     */
+    BOOL sameList = accepted && list.length > 0 && [list isEqualToString:_lastAcceptedList ?: @""];
+    if (!sameList) [_nextAction recordOutcome:outcome forProposal:proposal];
+    if (accepted) {
+        _lastAcceptedList = [list copy];
+        _previousRole = proposal.role;
+        _previousRoleBundleId = [_walkBundleId copy];
+    }
+    // Taken or turned down, this one is not offered again straight away. A window rescans several times a
+    // second, and nothing anywhere excluded the row that was just dealt with, so the same ghost came
+    // immediately back -- and, because role memory is keyed by role, pulled its neighbours up with it.
+    _cooldownSignature = [proposal.signature copy];
+    _cooldownList = [_fields[proposal.signature].listSignature copy];
+    _cooldownUntil = CFAbsoluteTimeGetCurrent() + kProposalCooldownSeconds;
+    _stickySignature = nil;
+    _proposal = nil;
+}
+
+#pragma mark - the answer engine and the gate (docs/answers.md, docs/incremental.md)
+
+/// The user answered something themselves since the last capture: learn it, keyed by the question rather than by
+/// the site, so the same question is answered everywhere afterwards. No key logging: the evidence is the value the
+/// page reports now against the one it reported at the last capture, and what Shabang itself wrote is never a
+/// correction. Learned answers never leave the machine, and a value that looks like a secret is refused by the core.
+- (void)learnUserEdits {
+    if (!_core || _orderedFields.count == 0) return;
+    BOOL learning = [_store.settings[@"learningEnabled"] boolValue];
+    NSMutableDictionary<NSString *, NSString *> *now = [NSMutableDictionary dictionary];
+    NSMutableArray<SBField *> *corrected = [NSMutableArray array];
+    for (SBField *field in _orderedFields) {
+        NSString *value = field.value ?: @"";
+        now[field.signature] = value;
+        NSString *before = _seenValues[field.signature];
+        if (!before || [before isEqualToString:value] || value.length == 0) continue;
+        if ([_ghostWrote[field.signature] isEqualToString:value]) continue;   // Shabang put that there
+        [corrected addObject:field];
+    }
+    _seenValues = now;
+    if (!learning || corrected.count == 0) return;
+    NSString *answersJSON = [_store answersJSON];
+    for (SBField *field in corrected) {
+        NSDictionary *result = [_core recordCorrectionForFieldObject:[field toJSONObject] value:field.value ?: @""
+                                                              answers:answersJSON at:nil];
+        NSDictionary *snapshot = result[@"answers"];
+        if (![snapshot isKindOfClass:[NSDictionary class]]) continue;
+        if ([result[@"changed"] isEqualToString:@"refused"]) {
+            // Codes only: never the question, never the value.
+            SBLog(@"controller: correction refused (%@) label=%@", result[@"refusal"] ?: @"?", SBLogLabel(field.label));
+            continue;
+        }
+        [_store saveAnswers:snapshot error:NULL];
+        answersJSON = [_store answersJSON];
+        _correctionCount++;
+        _lastCorrectionCounter = result[@"counter"];
+        SBLog(@"controller: learned a correction (%@) label=%@", result[@"counter"] ?: @"?", SBLogLabel(field.label));
+    }
+}
+
+/// The gate's reason, for the HUD: what the Submit ghost is waiting for. Value-free (a label, a count).
+- (void)updateGateWithGhosts:(NSArray<SBGhost *> *)ghosts accepted:(NSArray<NSString *> *)accepted {
+    _gateReason = nil;
+    if (!_core || _orderedFields.count == 0) return;
+    NSMutableArray<NSDictionary *> *ghostObjects = [NSMutableArray array];
+    for (SBGhost *ghost in ghosts) [ghostObjects addObject:[ghost dictionary]];
+    NSDictionary *gate = [_core gateForFieldObjects:[SBField JSONObjectsForFields:_orderedFields]
+                                              ghosts:ghostObjects accepted:accepted ?: @[]];
+    // Only say it when it actually withheld something: an optional field left empty is nobody's business.
+    if ([gate[@"terminalAllowed"] boolValue] || ![gate[@"reason"] isKindOfClass:[NSString class]]) return;
+    NSString *label = [gate[@"firstUnmetLabel"] isKindOfClass:[NSString class]] ? gate[@"firstUnmetLabel"] : nil;
+    _gateReason = label.length ? [NSString stringWithFormat:@"%@: %@", gate[@"reason"], label] : gate[@"reason"];
+}
+
+/// A current ghost nobody can see is useless (Tab stays native for it, and the desktop has no jump pill): unless
+/// the user is ON it, the first ghost that is on screen takes over.
+- (void)preferVisibleCurrent {
+    SBGhost *current = _walk.current;
+    SBScreenLayout *layout = self.overlay.layout;
+    if (!current || current.locked || !layout) return;
+    if ([_walk.focusSignature isEqualToString:current.signature]) return;
+    CGRect window = (_result && SBRectIsUsable(_result.windowFrame)) ? _result.windowFrame : CGRectNull;
+    if ([layout isAXRectVisibleEnough:_fields[current.signature].rect inWindow:window]) return;
+    NSArray<SBGhost *> *ghosts = _walk.ghosts;
+    NSUInteger count = ghosts.count, start = (NSUInteger)MAX(_walk.currentIndex, 0);
+    for (NSUInteger step = 1; step < count; step++) {
+        SBGhost *candidate = ghosts[(start + step) % count];
+        if (candidate.locked) continue;
+        if ([layout isAXRectVisibleEnough:_fields[candidate.signature].rect inWindow:window]) { [_walk makeCurrent:candidate.signature]; return; }
+    }
+}
+
+- (NSString *)ghostSource {
+    if ([_cacheState isEqualToString:@"hit"]) return @"cache";
+    return [_cacheState isEqualToString:@"miss"] ? @"server" : @"offline";
+}
+
+#pragma mark - prediction: cache -> server, once per form
+
+/**
+ * A field somebody could actually fill IN, as opposed to a control that merely holds a value.
+ *
+ * A popup with nothing in it is a menu button, not a field. An app's "More options", "Filter" and "New from
+ * a template" menus are all AXPopUpButtons, and counting them made a chat client 43% form by field share --
+ * so Shabang asked a model to map the user's name and school onto its own menus, and put a ghost reading
+ * "Max" inside a model picker. A real form's select has options, or says they load lazily.
+ */
+static BOOL SBIsFillableField(SBField *field);
+
+static BOOL SBIsValueKind(NSString *kind) {
+    return !([kind isEqualToString:SBKindButton] || [kind isEqualToString:SBKindLink] || [kind isEqualToString:SBKindItem] ||
+             [kind isEqualToString:SBKindFile] || [kind isEqualToString:SBKindOther]);
+}
+
+/**
+ * Is this window a form somebody is filling in?
+ *
+ * A form is a window whose fields are the POINT, not a window that happens to contain a few. Counting them
+ * alone made every app with some dropdowns into a form to fill in from the user's profile: measured on a
+ * chat client with 67 controls, of which a handful were selects, Shabang asked the model to map the user's
+ * name and school onto its own menus and put a ghost reading "Max" inside a model picker.
+ *
+ * Same share as `pageKind`'s own form rule, and for the same reason. A job application is mostly fields; an
+ * app is mostly buttons.
+ */
+- (BOOL)windowLooksLikeAForm {
+    NSUInteger values = 0, actions = 0;
+    for (SBField *field in _orderedFields) {
+        if (SBIsFillableField(field)) values++;
+        else actions++;
+    }
+    if (values == 0) return NO;
+    return (double)values / (double)(values + actions) >= kFormFieldShare;
+}
+
+static BOOL SBIsFillableField(SBField *field) {
+    if (!SBIsValueKind(field.kind)) return NO;
+    if ([field.kind isEqualToString:SBKindSelect]) return field.options.count > 0 || field.lazyOptions;
+    return YES;
+}
+
+- (void)requestPredictionWithFactKeys:(NSArray<NSString *> *)factKeys {
+    if (!_client || factKeys.count == 0 || !_result) return;
+    if (![self windowLooksLikeAForm]) return;
+    NSUInteger valueFields = 0;
+    for (SBField *field in _orderedFields) if (SBIsValueKind(field.kind)) valueFields++;
+    // Not for a lone field without an offline ghost: that is a search box, not a form.
+    if (valueFields == 0 || (valueFields < kMinFormFields && !_walk.hasUnlocked)) return;
+    NSString *formSignature = _result.formSignature ?: @"";
+    if (formSignature.length == 0 || [_asked containsObject:formSignature] || _asked.count >= kMaxFormsPerPage) return;
+    [_asked addObject:formSignature];
+    _predictionRequests++;
+    NSUInteger epoch = _epoch;
+    __weak SBController *weakSelf = self;
+    [_client predictFormForFields:_orderedFields factKeys:factKeys origin:_origin ?: @"" formSignature:formSignature
+                       completion:^(SBFormPrediction *prediction, NSString *errorCode) {
+        SBController *controller = weakSelf;
+        // Server down, slow or wrong: the offline ghosts are already on screen and simply stay.
+        if (!controller || !prediction || !(controller.running || controller.assumesActive) || epoch != controller->_epoch) return;
+        [controller upgradeWithPrediction:prediction];
+    }];
+}
+
+- (BOOL)userIsOn:(SBGhost *)ghost {
+    if ([_walk.focusSignature isEqualToString:ghost.signature]) return YES;
+    if (_walk.accepted > 0 || _walk.leftSignature != nil) return YES;
+    return _shownAt > 0 && CFAbsoluteTimeGetCurrent() - _shownAt > kSettleSeconds;
+}
+
+/// New answers never touch the ghost the user is on; everything else is rebuilt like any rescan.
+- (void)upgradeWithPrediction:(SBFormPrediction *)prediction {
+    SBGhost *current = _walk.current;
+    if (current && !current.locked && [self userIsOn:current]) [_pinned addObject:current.signature];
+    for (NSDictionary *assignment in prediction.assignments) {
+        NSString *signature = assignment[@"signature"];
+        if ([signature isKindOfClass:[NSString class]]) _served[signature] = assignment;
+    }
+    _provider = prediction.provider.length ? [prediction.provider copy] : kOfflineProvider;
+    _cacheState = prediction.fromCache ? @"hit" : @"miss";
+    _latencyMs = @(prediction.elapsedMs);
+    SBLog(@"controller: form answer provider=%@ cache=%@ assignments=%lu %.0f ms", _provider, _cacheState,
+          (unsigned long)prediction.assignments.count, prediction.elapsedMs);
+    // No new tree walk: the answer is merged into the capture we already have.
+    if (_busy) _rescanDeferred = YES;
+    else [self adoptCaptureResult:_result pageKey:_pageKey ?: @"" origin:_origin ?: @""];
+}
+
+#pragma mark - drafts (free text over SSE)
+
+- (NSArray<SBGhost *> *)ghostsByAddingDrafts:(NSArray<SBGhost *> *)ghosts offline:(NSArray<NSDictionary *> *)offline
+                                     answers:(NSArray<NSDictionary *> *)answers settings:(NSDictionary *)settings {
+    if (!_client) return ghosts;
+    NSMutableDictionary<NSString *, NSDictionary *> *merged = [NSMutableDictionary dictionary];
+    for (NSDictionary *assignment in offline) if ([assignment[@"signature"] isKindOfClass:[NSString class]]) merged[assignment[@"signature"]] = assignment;
+    for (NSDictionary *assignment in answers) if ([assignment[@"signature"] isKindOfClass:[NSString class]]) merged[assignment[@"signature"]] = assignment;
+    double threshold = [settings[@"confidenceThreshold"] isKindOfClass:[NSNumber class]] ? [settings[@"confidenceThreshold"] doubleValue] : 0.7;
+
+    NSMutableDictionary<NSString *, SBGhost *> *bySignature = [NSMutableDictionary dictionary];
+    SBGhost *lock = nil;
+    NSUInteger valueGhosts = 0;
+    for (SBGhost *ghost in ghosts) {
+        if (ghost.locked) lock = ghost; else { bySignature[ghost.signature] = ghost; valueGhosts++; }
+    }
+    // Only where Shabang is already helping with a form: never a draft for a lone chat box or a notes window.
+    BOOL formInProgress = valueGhosts > 0 || _walk.accepted > 0;
+
+    NSMutableArray<SBGhost *> *out = [NSMutableArray array];
+    for (SBField *field in _orderedFields) {
+        SBGhost *known = bySignature[field.signature];
+        if (known) { [out addObject:known]; continue; }
+        NSDictionary *assignment = merged[field.signature];
+        if (![assignment[@"factKey"] isEqual:kNeedsText]) continue;
+        double confidence = [assignment[@"confidence"] isKindOfClass:[NSNumber class]] ? [assignment[@"confidence"] doubleValue] : 0;
+        BOOL textual = [field.kind isEqualToString:SBKindTextArea] || [field.kind isEqualToString:SBKindText];
+        if (!textual || confidence < threshold || field.value.length > 0 || field.label.length == 0) continue;
+        if ([_walk.dismissed containsObject:field.signature]) continue;
+        SBDraft *draft = _drafts[field.signature];
+        if (!draft) {
+            if (!formInProgress) continue;
+            draft = [[SBDraft alloc] init];
+            draft.signature = field.signature;
+            draft.confidence = confidence;
+            draft.text = [NSMutableString string];
+            _drafts[field.signature] = draft;
+        }
+        if (draft.failed) continue;
+        [out addObject:[self ghostForDraft:draft]];
+    }
+    if (lock) [out addObject:lock];
+    return out;
+}
+
+/// Every chat window has a search box as well as a compose box, and the search box is never the reply box.
+static BOOL SBLabelLooksLikeSearch(NSString *label) {
+    static NSRegularExpression *regex;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        regex = [NSRegularExpression regularExpressionWithPattern:@"\\bsearch\\b|\\bfind\\b|\\bfilter\\b"
+                                                          options:NSRegularExpressionCaseInsensitive error:NULL];
+    });
+    NSString *text = label ?: @"";
+    return text.length > 0 && [regex firstMatchInString:text options:0 range:NSMakeRange(0, text.length)] != nil;
+}
+
+#pragma mark - the eyes (docs/anywhere.md section 4)
+
+/// Built on first use, pointed at the same local server as everything else. A test injects its own, with a
+/// stub transport and a stub screenshot, so the whole path can be exercised without a window server or a key.
+- (SBVision *)vision {
+    if (!_vision) self.vision = [[SBVision alloc] initWithBaseURLString:_store.serverURLString];
+    return _vision;
+}
+
+- (void)setVision:(SBVision *)vision {
+    _vision = vision;
+    _visionLabels = [NSMutableDictionary dictionary];
+    _visionLocked = [NSMutableSet set];
+}
+
+/// A name a model gave a control, put back on the freshly captured field. Capture rebuilds its fields on every
+/// rescan, so without this the answer would be thrown away a tenth of a second after it arrived.
+- (void)applyVisionLabelsTo:(NSArray<SBField *> *)fields {
+    if (_visionLabels.count == 0 && _visionLocked.count == 0) return;
+    for (SBField *field in fields) {
+        NSString *label = _visionLabels[field.signature];
+        if (label.length && field.label.length == 0) {
+            field.label = label;
+            field.unnamed = NO;
+        }
+        // A model may LOCK a control and may never unlock one: the capture's own lock always stands.
+        if ([_visionLocked containsObject:field.signature]) field.locked = YES;
+    }
+}
+
+/**
+ * Ask the model to name the controls nothing could name.
+ *
+ * Runs AFTER the ghosts are drawn, never before, and that ordering is the whole design. Measured against the
+ * live route: one call is about 2.7 s, and Shabang's entire decision budget is 2.5 s. On the critical path it
+ * would destroy the thing that makes Shabang feel like autocomplete. Off it, it costs nothing -- the heuristic
+ * ghost is already on screen and a name merely upgrades it on the next rescan.
+ *
+ * Everything expensive is already refused inside SBVision: one call per page view, a cache keyed by the page
+ * and the exact box geometry, at most 40 boxes, and nothing at all from a window with a sensitive field on
+ * screen. This adds one more refusal of its own, because a page that rescans ten times a second would
+ * otherwise queue ten requests before the first came back.
+ */
+- (void)askVisionToNameTheUnnamed {
+    if (_visionAsked || !_nextAction || !_store.serverURLString.length) return;
+    NSArray<NSString *> *unnamed = _nextAction.unnamedSignatures;
+    if (unnamed.count == 0) return;
+    NSArray<SBVisionBox *> *boxes = [SBVision boxesForFields:_orderedFields
+                                                     unnamed:unnamed
+                                           sensitiveOnScreen:_nextAction.lastSignals.sensitiveOnScreen];
+    if (boxes.count == 0) return;
+    _visionAsked = YES;
+    NSString *pageKey = _pageKey ?: @"";
+    NSUInteger epoch = _epoch;
+    CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
+    __weak SBController *weakSelf = self;
+    [[self vision] labelBoxes:boxes pageKey:pageKey completion:^(NSDictionary<NSString *, NSString *> *labels, NSSet<NSString *> *locked, NSString *reason) {
+        SBController *controller = weakSelf;
+        if (!controller || epoch != controller->_epoch) return;   // the page moved on; the answer is stale
+        double ms = (CFAbsoluteTimeGetCurrent() - started) * 1000.0;
+        if (labels.count == 0 && locked.count == 0) {
+            SBLog(@"vision: named nothing of %lu (%@) in %.0f ms", (unsigned long)boxes.count, reason ?: @"no answer", ms);
+            return;
+        }
+        // Counts only. A label is page text, and page text never reaches a log.
+        SBLog(@"vision: named %lu of %lu controls, %lu locked, in %.0f ms", (unsigned long)labels.count,
+              (unsigned long)boxes.count, (unsigned long)locked.count, ms);
+        [controller->_visionLabels addEntriesFromDictionary:labels];
+        [controller->_visionLocked unionSet:locked];
+        // The names have to reach a ranking to be worth anything, and a rescan is how anything reaches one.
+        if (controller->_running) [controller.accessibility setNeedsRescan:SBRescanReasonManual];
+        else if (controller.assumesActive && controller->_result) {
+            [controller applyVisionLabelsTo:controller->_orderedFields];
+            [controller render];
+        }
+    }];
+}
+
+/**
+ * What a next-action proposal shows: the control's own name, but only where that name is an ACTION.
+ *
+ * On a button it is "Play" or "Cart", and worth showing. On anything you interact with by value it is the
+ * control's label, which for a search box IS its placeholder -- so the ghost read "Search" beside a box
+ * already saying "Search", and looked like a suggestion to type the word "Search".
+ *
+ * The first attempt at this excluded text and textarea only. A search box with a dropdown is a COMBOBOX, so
+ * it fell straight through and the bug survived. The rule is not about which kinds you can type into; it is
+ * about which names are worth repeating. A proposal carries no value, so unless its label names an action
+ * there is nothing to say, and the ring and the cursor carry the whole message: go here.
+ */
+NSString *SBProposalDisplayText(SBField *field) {
+    NSString *kind = field.kind ?: @"";
+    BOOL namesAnAction = [kind isEqualToString:SBKindButton] || [kind isEqualToString:SBKindLink] ||
+                         [kind isEqualToString:SBKindItem];
+    return namesAnAction ? (field.label ?: @"") : @"";
+}
+
+/**
+ * The reply ghost (docs/anywhere.md, the messaging half).
+ *
+ * A form walk is never disturbed: with even one value ghost on the page this does nothing at all, exactly
+ * like the next-action proposal. What it needs is a thread Shabang could actually read and an empty box to
+ * answer it in, and both of those come from the window itself -- no app is named anywhere in the path.
+ *
+ * The box is the one the app has put the cursor in, or else the lowest empty one in the window: every chat
+ * app in existence puts its compose box under the conversation.
+ */
+- (NSArray<SBGhost *> *)ghostsByAddingReply:(NSArray<SBGhost *> *)ghosts result:(SBCaptureResult *)result {
+    if (ghosts.count > 0 || !_client || result.fields.count == 0) return ghosts;
+    // The box FIRST, because it is what says which column the thread is in. Read the other way round, the
+    // walk starts at the window root and a sidebar of other conversations answers before the real one does.
+    SBField *box = [self replyBoxIn:result];
+    if (!box) return ghosts;
+    if (![self conversationContextForColumn:box.rect]) return ghosts;
+    if ([_walk.dismissed containsObject:box.signature]) return ghosts;
+    SBDraft *draft = _drafts[box.signature];
+    if (!draft) {
+        draft = [[SBDraft alloc] init];
+        draft.signature = box.signature;
+        draft.confidence = kReplyConfidence;
+        draft.text = [NSMutableString string];
+        _drafts[box.signature] = draft;
+    }
+    if (draft.failed) return ghosts;
+    return [ghosts arrayByAddingObject:[self ghostForDraft:draft]];
+}
+
+/**
+ * Where a reply would be typed: the LOWEST empty box in the window.
+ *
+ * Every chat app in existence puts its compose box under the conversation, and that is the only thing about
+ * the layout worth relying on. Not the focused box: in a brand new message the app puts the cursor in `To`,
+ * and a reply drafted into `To` is the right idea in exactly the wrong place.
+ *
+ * Never a box that already holds something -- that is somebody's half-written message, and it is theirs --
+ * and never the search box, which every chat window also has.
+ */
+- (SBField *)replyBoxIn:(SBCaptureResult *)result {
+    SBField *lowest = nil;
+    for (SBField *field in result.fields) {
+        BOOL typeable = [field.kind isEqualToString:SBKindText] || [field.kind isEqualToString:SBKindTextArea];
+        if (!typeable || field.value.length > 0) continue;
+        if (SBLabelLooksLikeSearch(field.label)) continue;
+        if (!lowest || CGRectGetMinY(field.rect) > CGRectGetMinY(lowest.rect)) lowest = field;
+    }
+    return lowest;
+}
+
+- (SBGhost *)ghostForDraft:(SBDraft *)draft {
+    SBGhost *ghost = [[SBGhost alloc] init];
+    ghost.signature = draft.signature;
+    ghost.action = SBGhostActionFill;
+    ghost.value = [draft.text copy];
+    ghost.displayText = draft.text.length ? [draft.text copy] : kDraftingText;
+    ghost.confidence = draft.confidence;
+    ghost.source = @"llm";
+    ghost.pending = !draft.finished;
+    return ghost;
+}
+
+- (NSUInteger)activeDraftCount {
+    NSUInteger count = 0;
+    for (SBDraft *draft in _drafts.allValues) if (draft.started && !draft.finished && !draft.failed) count++;
+    return count;
+}
+
+/// Speculative generation: drafts for later fields start while the user is still on earlier ones, 3 at a time,
+/// in reading order.
+- (void)startQueuedDrafts {
+    if (!_client) return;
+    NSUInteger active = self.activeDraftCount;
+    for (SBField *field in _orderedFields) {
+        if (active >= SBMaxConcurrentDrafts) return;
+        SBDraft *draft = _drafts[field.signature];
+        if (!draft || draft.started || draft.failed || ![_walk ghostWithSignature:field.signature]) continue;
+        draft.started = YES;
+        active++;
+        NSDictionary *page = [SBController isLongQuestionField:field] ? [self pageContext] : nil;
+        NSDictionary *context = [SBController draftContextForField:field page:page];
+        // A reply is drafted from the thread on screen, not from the applicant's profile.
+        NSDictionary *thread = [self conversationContext];
+        NSUInteger cap = thread ? kReplyMaxChars : kDraftMaxChars;
+        draft.stream = [_client streamGhostTextForFieldLabel:field.label fieldSignature:field.signature pageContext:context
+                                               conversation:thread profile:_store.profile maxChars:cap delegate:self];
+        // nil = refused locally (sensitive label, no server URL): the delegate hears the reason on the next turn.
+    }
+}
+
+/// The thread on screen, read once per page. nil in every window that is not a conversation, which is almost
+/// all of them: the reader needs messages that carry a name and a time, and finds none anywhere else.
+- (NSDictionary<NSString *, id> *)conversationContextForColumn:(CGRect)column {
+    if (_conversationRead) return _conversation;
+    _conversationRead = YES;
+    id<SBAXNode> root = _result.windowNode;
+    if (!root) return nil;
+    SBConversation *conversation = [SBConversation conversationFromNode:root maxNodes:SBConversationMaxNodes column:column];
+    _conversation = [conversation dictionary];
+    if (_conversation) SBLog(@"controller: conversation of %lu messages (%lu nodes)%@",
+                             (unsigned long)conversation.messages.count, (unsigned long)conversation.visitedNodes,
+                             CGRectIsNull(column) ? @" whole window" : @" in the compose column");
+    return _conversation;
+}
+
+/// The whole window, for callers that have no compose box to go by.
+- (NSDictionary<NSString *, id> *)conversationContext {
+    return [self conversationContextForColumn:CGRectNull];
+}
+
+/// What the posting is about, read once per page from the web area (never an input's value).
+- (NSDictionary<NSString *, NSString *> *)pageContext {
+    if (_pageContextRead) return _pageContext;
+    _pageContextRead = YES;
+    id<SBAXNode> root = _result.webAreaNode;
+    if (!root) return nil;
+    SBPageContext *context = [SBPageContext contextFromNode:root maxNodes:kPageContextNodes];
+    _pageContext = [context dictionary];
+    SBLog(@"controller: page context company=%lu role=%lu description=%lu chars (%lu nodes)", (unsigned long)context.company.length,
+          (unsigned long)context.role.length, (unsigned long)context.jobDescription.length, (unsigned long)context.visitedNodes);
+    return _pageContext;
+}
+
++ (BOOL)isLongQuestionField:(SBField *)field {
+    if ([field.kind isEqualToString:SBKindTextArea]) return YES;
+    if (![field.kind isEqualToString:SBKindText]) return NO;
+    NSString *label = [field.label stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
+    NSUInteger words = 0;
+    for (NSString *part in [label componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]) if (part.length) words++;
+    return words >= 6 || ([label hasSuffix:@"?"] && words >= 3);
+}
+
++ (NSDictionary<NSString *, NSString *> *)draftContextForField:(SBField *)field page:(NSDictionary<NSString *, NSString *> *)page {
+    NSMutableDictionary<NSString *, NSString *> *context = [NSMutableDictionary dictionary];
+    if (page.count > 0 && [self isLongQuestionField:field]) {
+        for (NSString *key in @[ @"company", @"role", @"description" ]) {
+            if ([page[key] isKindOfClass:[NSString class]] && page[key].length) context[key] = page[key];
+        }
+    }
+    if (!context[@"description"] && field.context.length) context[@"description"] = field.context;
+    return context;
+}
+
+/// Drafts whose ghost did not survive the rescan (dismissed, field filled by hand, field gone) stop streaming.
+- (void)pruneDrafts {
+    for (SBDraft *draft in _drafts.allValues) {
+        if (draft.failed || [_walk ghostWithSignature:draft.signature]) continue;
+        if (draft.started && !draft.finished) [self cancelDraft:draft];
+    }
+}
+
+- (void)cancelDraft:(SBDraft *)draft {
+    draft.failed = YES;
+    SBGhostTextStream *stream = draft.stream;
+    draft.stream = nil;
+    [stream cancel];
+}
+
+- (void)cancelAllDrafts {
+    for (SBDraft *draft in _drafts.allValues) if (!draft.finished && !draft.failed) [self cancelDraft:draft];
+}
+
+- (SBDraft *)draftForStream:(SBGhostTextStream *)stream {
+    SBDraft *draft = _drafts[stream.fieldSignature ?: @""];
+    // A refused stream was never handed back to us, so `stream` is nil on the draft: match by signature then.
+    return (draft && (draft.stream == stream || draft.stream == nil)) ? draft : nil;
+}
+
+- (void)ghostTextStream:(SBGhostTextStream *)stream didReceiveDelta:(NSString *)delta {
+    SBDraft *draft = [self draftForStream:stream];
+    if (!draft || draft.failed || draft.finished) return;
+    [draft.text appendString:delta ?: @""];
+    if (![_walk updateGhost:[self ghostForDraft:draft]] || _draftRenderQueued) return;
+    _draftRenderQueued = YES;
+    __weak SBController *weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kDraftRenderSpacing * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        SBController *controller = weakSelf;
+        if (!controller) return;
+        controller->_draftRenderQueued = NO;
+        [controller render];
+    });
+}
+
+- (void)ghostTextStream:(SBGhostTextStream *)stream didFinishWithText:(NSString *)text provider:(NSString *)provider latencyMs:(NSNumber *)latencyMs {
+    SBDraft *draft = [self draftForStream:stream];
+    if (!draft || draft.failed || draft.finished) return;
+    NSString *final = [text ?: draft.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    draft.stream = nil;
+    if (final.length == 0) { [self draftFailed:draft code:@"empty"]; return; }
+    draft.text = [final mutableCopy];
+    draft.finished = YES;
+    SBLog(@"controller: draft ready label=%@ chars=%lu provider=%@", SBLogLabel(_fields[draft.signature].label), (unsigned long)final.length, provider ?: @"?");
+    [_walk updateGhost:[self ghostForDraft:draft]];
+    [self startQueuedDrafts];
+    [self render];
+    if ([_waitingDraft isEqualToString:draft.signature]) [self endDraftWait:YES];
+}
+
+- (void)ghostTextStream:(SBGhostTextStream *)stream didFailWithCode:(NSString *)code {
+    SBDraft *draft = [self draftForStream:stream];
+    if (!draft || draft.finished) return;
+    if (draft.failed && [code isEqualToString:@"aborted"]) return;   // we cancelled it ourselves
+    draft.stream = nil;
+    [self draftFailed:draft code:code];
+}
+
+/// No draft is not an error: the field simply has no ghost (the server is optional).
+- (void)draftFailed:(SBDraft *)draft code:(NSString *)code {
+    draft.failed = YES;
+    SBLog(@"controller: no draft for label=%@ (%@)", SBLogLabel(_fields[draft.signature].label), code ?: @"failed");
+    BOOL waiting = [_waitingDraft isEqualToString:draft.signature];
+    [_walk drop:draft.signature];
+    [self startQueuedDrafts];
+    [self render];
+    if (waiting) [self endDraftWait:NO];
+}
+
+- (void)endDraftWait:(BOOL)ready {
+    void (^continuation)(BOOL) = _waitContinuation;
+    _waitContinuation = nil;
+    _waitingDraft = nil;
+    _waitToken++;
+    if (continuation) continuation(ready);
+}
+
+#pragma mark - focus
+
+/// Only a node whose role was really read can be "the window itself": an element whose role came back empty (a slow
+/// app, an element destroyed a moment ago) is somewhere Shabang cannot see.
+static BOOL SBIsWindowItself(id<SBAXNode> node) {
+    static NSSet<NSString *> *roles;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ roles = [NSSet setWithArray:@[ @"AXWindow", @"AXWebArea", @"AXApplication", @"AXScrollArea", @"AXSheet", @"AXDialog" ]]; });
+    NSString *role = node.role;
+    return role.length > 0 && [roles containsObject:role];
+}
+
+/// The node's attributes could not be read (a live node whose batch fetch failed, or no role at all).
+static BOOL SBNodeIsUnreadable(id<SBAXNode> node) {
+    if (node.role.length == 0) return YES;
+    if ([(id)node isKindOfClass:[SBAXElementNode class]]) return ((SBAXElementNode *)node).lastError != kAXErrorSuccess;
+    return NO;
+}
+
+- (NSString *)signatureOfFieldAtNode:(id<SBAXNode>)node {
+    for (SBField *field in _orderedFields) {
+        if ([field.kind isEqualToString:SBKindLink]) continue;
+        if ([[_result nodeForSignature:field.signature] isSameNode:node]) return field.signature;
+        if (![field.kind isEqualToString:SBKindRadio]) continue;
+        for (NSDictionary<NSString *, NSString *> *option in field.options) {
+            NSString *label = option[@"label"];
+            if (label && [[_result radioNodeForSignature:field.signature optionLabel:label] isSameNode:node]) return field.signature;
+        }
+    }
+    return nil;
+}
+
+- (NSString *)focusSignatureForNode:(id<SBAXNode>)node {
+    if (!node) return nil;
+    if (SBNodeIsUnreadable(node)) return SBWalkFocusElsewhere;   // fail closed: Tab stays native
+    if (SBIsWindowItself(node)) return nil;
+    id<SBAXNode> cursor = node;
+    for (NSUInteger level = 0; cursor && level <= kFocusClimb; level++) {
+        NSString *signature = [self signatureOfFieldAtNode:cursor];
+        if (signature) return signature;
+        cursor = cursor.parent;   // a combo box focuses its inner text field
+        if (cursor && SBIsWindowItself(cursor)) break;
+    }
+    return SBWalkFocusElsewhere;
+}
+
+/// Shabang can read where focus is right now: a test seam, or the live AX session.
+- (BOOL)canReadLiveFocus {
+    if (self.focusedNodeProvider) return YES;
+    SBAccessibility *ax = self.accessibility;
+    return ax.running && ax.trusted;
+}
+
+/// The focused element, read live. `*known` is NO when the read failed (never "the window itself").
+- (id<SBAXNode>)liveFocusedNodeKnown:(BOOL *)known {
+    if (self.focusedNodeProvider) { *known = YES; return self.focusedNodeProvider(); }
+    SBAccessibility *ax = self.accessibility;
+    id<SBAXNode> node = [ax focusedElementNode];
+    *known = node != nil || ax.lastError == kAXErrorSuccess;
+    return node;
+}
+
+/// Where the keyboard is, read live. A failed read is NOT "the window itself": when Shabang cannot tell where focus
+/// is, Tab stays native.
+- (NSString *)liveFocusSignature {
+    BOOL known = NO;
+    id<SBAXNode> node = [self liveFocusedNodeKnown:&known];
+    if (!known) return SBWalkFocusElsewhere;
+    return [self focusSignatureForNode:node];
+}
+
+/// The app in front is no longer the one whose window the walk belongs to (live only).
+- (BOOL)walkAppLeftTheFront {
+    if (self.focusedNodeProvider || _walkBundleId.length == 0) return NO;
+    SBAccessibility *ax = self.accessibility;
+    return ax.running && ![ax.frontmostBundleIdentifier ?: @"" isEqualToString:_walkBundleId];
+}
+
+- (void)noteFocusSignature:(NSString *)signature {
+    NSString *before = _walk.current.signature;
+    [_walk focusMoved:signature];
+    if (before == _walk.current.signature || [before isEqualToString:_walk.current.signature ?: @""]) [self publish];
+    else [self render];
+}
+
+- (void)noteFocusedNode:(id<SBAXNode>)node {
+    [self noteFocusSignature:[self focusSignatureForNode:node]];
+}
+
+#pragma mark - render
+
+- (SBOverlayInput *)overlayInput {
+    SBOverlayInput *input = [[SBOverlayInput alloc] init];
+    NSMutableArray<SBOverlayEntry *> *entries = [NSMutableArray array];
+    NSInteger currentIndex = -1;
+    SBGhost *current = _walk.current;
+    for (SBGhost *ghost in _walk.ghosts) {
+        SBField *field = _fields[ghost.signature];
+        if (!field) continue;
+        if (ghost == current) currentIndex = (NSInteger)entries.count;
+        // Tab is form-only, so it is the right label ONLY for a value ghost on the field that has focus.
+        // Everywhere else the Shabang key is what works, and a keycap that names the wrong key is worse than
+        // none: the user presses it, nothing happens, and Shabang looks broken.
+        BOOL tabWorksHere = ![ghost.action isEqualToString:SBGhostActionClick] &&
+                            [_walk.focusSignature isEqualToString:ghost.signature ?: @""];
+        NSString *keyName = tabWorksHere ? @"Tab" : SBGhostKeyDisplayName(self.eventTap.ghostKey);
+        [entries addObject:[SBOverlayEntry entryWithField:field ghost:[ghost dictionary] keyName:keyName]];
+    }
+    input.entries = entries;
+    input.currentIndex = currentIndex;
+    CGRect window = _result ? _result.windowFrame : CGRectNull;
+    input.windowAXFrame = SBRectIsUsable(window) ? window : CGRectNull;
+    BOOL somethingToShow = entries.count > 0 || _walk.accepted > 0 || _walk.error != nil;
+    if (_store.showHud && somethingToShow) {
+        input.hud = [SBOverlayHUDInfo infoWithProvider:_provider ?: kOfflineProvider latencyMs:_latencyMs cache:_cacheState keystrokesSaved:_walk.keystrokesSaved];
+    }
+    input.error = _walk.error;
+    // A withheld Submit always says why, so the walk ending on a field never reads as "the form is done".
+    input.status = _walk.error ? nil : (_hudStatus ?: (entries.count > 0 ? _gateReason : nil));
+    return input;
+}
+
+- (void)render {
+    SBOverlayWindow *overlay = self.overlay;
+    if (!self.active || !overlay) {
+        [overlay hideImmediately];
+        _currentVisible = NO;
+    } else {
+        SBOverlayInput *input = [self overlayInput];
+        if (input.entries.count == 0 && !input.hud && !input.error && !input.status) {
+            [overlay hideImmediately];
+            _currentVisible = NO;
+        } else {
+            SBOverlayModel *model = [SBOverlayModel modelWithInput:input layout:overlay.layout];
+            [overlay render:model];
+            _currentVisible = model.currentVisible;
+        }
+    }
+    [self publish];
+    [self noteStateChanged];
+}
+
+- (void)publish {
+    SBWalkSnapshot snapshot = [_walk snapshotWithActive:self.active currentVisible:_currentVisible busy:_busy];
+    SBGhost *current = _walk.current;
+    if (current && _currentVisible && [_jumpFailedSignature isEqualToString:current.signature]) _jumpFailedSignature = nil;
+    snapshot.canJump = current != nil && !_currentVisible && self.overlay != nil && [_result nodeForSignature:current.signature] != nil
+                       && ![_jumpFailedSignature isEqualToString:current.signature];
+    // The two facts the Tab rule needs that the walk cannot see: whether the ghost is a proposal rather than a
+    // value, and whether focus is in something the user types into. Both need the capture's field kinds.
+    snapshot.currentIsProposal = current != nil && !current.locked && [current.action isEqualToString:SBGhostActionClick];
+    snapshot.focusOnTypeable = [self focusIsOnATypeableField];
+    [self.eventTap publishSnapshot:snapshot];
+}
+
+/// Is the keyboard in a box somebody types into? A Tab from there is always the app's, whatever is on screen.
+/// A list row, a sidebar or the window itself is not: Tab there only moves focus around.
+- (BOOL)focusIsOnATypeableField {
+    NSString *signature = _walk.focusSignature;
+    if (signature.length == 0 || [signature isEqualToString:SBWalkFocusElsewhere]) return NO;
+    NSString *kind = _fields[signature].kind ?: @"";
+    return [kind isEqualToString:SBKindText] || [kind isEqualToString:SBKindTextArea] || [kind isEqualToString:SBKindSelect];
+}
+
+/// Re-reads the rect of one ghost's element. NO when the element is gone.
+- (BOOL)refreshRectOfSignature:(NSString *)signature {
+    SBField *field = _fields[signature];
+    id<SBAXNode> node = [_result nodeForSignature:signature];
+    if (!field || !node) return NO;
+    if ([field.kind isEqualToString:SBKindRadio]) {
+        CGRect box = CGRectNull;
+        for (NSDictionary<NSString *, NSString *> *option in field.options) {
+            id<SBAXNode> radio = [_result radioNodeForSignature:signature optionLabel:option[@"label"] ?: @""];
+            id<SBAXNode> fresh = radio ? [self.writer.actuator refreshedNode:radio] : nil;
+            if (fresh && SBRectIsUsable(fresh.frame)) box = CGRectIsNull(box) ? fresh.frame : CGRectUnion(box, fresh.frame);
+        }
+        if (CGRectIsNull(box)) return NO;
+        field.rect = box;
+        return YES;
+    }
+    id<SBAXNode> fresh = [self.writer.actuator refreshedNode:node];
+    if (!fresh) return NO;
+    if (SBRectIsUsable(fresh.frame)) field.rect = fresh.frame;
+    return YES;
+}
+
+/// True when the current ghost can be seen right now, judged on a freshly read rect (no write the user cannot see).
+- (BOOL)currentIsVisibleNow {
+    SBGhost *current = _walk.current;
+    if (!current || !self.overlay) return NO;
+    [self refreshRectOfSignature:current.signature];
+    SBOverlayModel *model = [SBOverlayModel modelWithInput:[self overlayInput] layout:self.overlay.layout];
+    return model.currentVisible;
+}
+
+- (BOOL)revealCurrent {
+    return [self revealCurrentScrolled:NULL];
+}
+
+/// AXScrollToVisible on the current ghost's element when it is off screen, then every rect is read again (the page
+/// scrolled) and the overlay redrawn. Writes nothing. YES when the ghost is on screen afterwards. `*scrolled` says
+/// whether the page accepted the scroll: then the rects are read again a little later too (smooth scrolling), and a
+/// ghost still off screen after that is not jumped to again.
+- (BOOL)revealCurrentScrolled:(BOOL *)scrolled {
+    if (scrolled) *scrolled = NO;
+    SBGhost *current = _walk.current;
+    id<SBAXNode> node = current ? [_result nodeForSignature:current.signature] : nil;
+    if (!node || !self.overlay) return NO;
+    if ([self currentIsVisibleNow]) return YES;
+    id<SBAXNode> fresh = [self.writer.actuator refreshedNode:node];
+    if (!fresh || ![self.writer.actuator scrollToVisible:fresh]) {
+        [self render];
+        return NO;
+    }
+    if (scrolled) *scrolled = YES;
+    for (SBGhost *ghost in _walk.ghosts) [self refreshRectOfSignature:ghost.signature];
+    [self render];
+    if (!_currentVisible) [self settleAfterScrollingTo:current.signature];
+    return _currentVisible;
+}
+
+- (void)settleAfterScrollingTo:(NSString *)signature {
+    NSUInteger generation = ++_scrollGeneration;   // a newer scroll (ours or the user's) supersedes these reads
+    __weak SBController *weakSelf = self;
+    for (NSNumber *delay in @[ @(kScrollSettleFirst), @(kScrollSettleLast) ]) {
+        BOOL last = delay.doubleValue >= kScrollSettleLast;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            SBController *controller = weakSelf;
+            if (!controller || generation != controller->_scrollGeneration || !(controller.running || controller.assumesActive)) return;
+            if (controller->_busy) return;   // the step in flight renders when it is done
+            for (SBGhost *ghost in controller.walk.ghosts) [controller refreshRectOfSignature:ghost.signature];
+            [controller render];
+            SBGhost *current = controller.walk.current;
+            if (!last || controller->_currentVisible || ![current.signature isEqualToString:signature]) return;
+            controller->_jumpFailedSignature = [signature copy];   // Tab is native for it from now on
+            SBLog(@"controller: scrolled to label=%@ but it stayed off screen", SBLogLabel(controller->_fields[signature].label));
+            [controller publish];
+        });
+    }
+}
+
+/// The desktop jump: Tab while the current ghost is off screen and focus is on the page. Nothing is written; when the
+/// page cannot bring the ghost into view the Tab goes back to the app and the next one stays native.
+- (void)jumpForTab {
+    _stepStartedAt = CFAbsoluteTimeGetCurrent();
+    SBGhost *current = _walk.current;
+    if (!current || !self.active) { [self recordStep:@"inactive" reason:nil ghost:current]; [self publish]; return; }
+    if ([self userLeftTheWalk]) {
+        [self recordStep:@"handed-back" reason:nil ghost:current];
+        [self handBackTab];
+        return;
+    }
+    BOOL scrolled = NO;
+    if ([self revealCurrentScrolled:&scrolled] || scrolled) {
+        // On screen, or the page is still scrolling to it: either way this Tab was the jump (nothing written).
+        [self recordStep:@"jumped" reason:nil ghost:current];
+        SBLog(@"controller: jumped to label=%@ (scrolled into view, nothing written)", SBLogLabel(_fields[current.signature].label));
+        return;
+    }
+    _jumpFailedSignature = [current.signature copy];
+    [self recordStep:@"not-visible" reason:nil ghost:current];
+    [self publish];
+    [self handBackTab];
+}
+
+#pragma mark - SBEventTapDelegate
+
+- (void)eventTap:(SBEventTap *)tap didConsumeTab:(SBKeyDecision)decision isRepeat:(BOOL)isRepeat {
+    [self acceptFromKey:decision isRepeat:isRepeat ghostKey:NO];
+}
+
+- (void)acceptFromKey:(SBKeyDecision)decision isRepeat:(BOOL)isRepeat ghostKey:(BOOL)ghostKey {
+    if (!_running && !self.assumesActive) return;
+    if (ghostKey) _stepFromGhostKey = YES;
+    if (_busy) {
+        // A fresh press during a write is queued (the tap only queues it while focus is in the walk); a repeat is
+        // dropped. Every queued press is checked against live focus again right before its own step runs.
+        if (!isRepeat) _pendingTabs = MIN(_pendingTabs + 1, (NSInteger)_walk.ghosts.count);
+        return;
+    }
+    if (decision == SBKeyDecisionJump) { [self jumpForTab]; return; }
+    _drainIsRepeat = isRepeat;
+    _stepMayHandBack = !isRepeat && decision != SBKeyDecisionQueue;
+    _pendingTabs++;
+    [self drain];
+}
+
+/**
+ * The Shabang key: a lone tap of right Option accepts the current ghost (docs/accept-key.md).
+ *
+ * Tab is the right key only where Tab already means "take this and move on" - walking a form. Everywhere
+ * else the app owns it: a video page, a mail client, an editor, a spreadsheet, most SPAs. Stealing it there
+ * is a bug, so Shabang offers a key nobody binds. The modifier event is never consumed, so right Option keeps
+ * working as a modifier and for accented characters; only a down-and-up with no other key counts as a tap.
+ *
+ * Deliberately simple: it takes the same path as an accepted Tab, including the lock rule, so a locked
+ * action still cannot be taken by a tap.
+ *
+ * One thing it does NOT share with Tab: the focus gate. A Tab whose focus has moved out of the walk belongs to
+ * the thing the user is focused on and is handed back. A lone right Option belongs to nobody, so there is
+ * nothing to hand back -- and insisting on focus is what made the accept do nothing in every native app, where
+ * focus sits on a list row while the ghost is on a toolbar button. Only "another app came to the front" still
+ * stops it, because then the capture is stale.
+ */
+- (void)eventTapDidTapGhostKey:(SBEventTap *)tap {
+    [self acceptFromKey:SBKeyDecisionAccept isRepeat:NO ghostKey:YES];
+}
+
+- (void)eventTapDidConsumeEscape:(SBEventTap *)tap {
+    SBGhost *ghost = _walk.current;
+    if (_busy || !ghost) return;
+    SBLog(@"controller: dismissed (escape) label=%@", SBLogLabel(_fields[ghost.signature].label));
+    [self dismissSignature:ghost.signature];
+}
+
+- (void)eventTapDidSeeTypingInField:(SBEventTap *)tap {
+    NSString *signature = _walk.focusSignature;
+    if (_busy || !signature || [signature isEqualToString:SBWalkFocusElsewhere]) return;
+    if ([_walk ghostWithSignature:signature]) SBLog(@"controller: dismissed (typed) label=%@", SBLogLabel(_fields[signature].label));
+    SBDraft *draft = _drafts[signature];
+    if (draft && !draft.failed) [self cancelDraft:draft];
+    // The strongest signal there is: Shabang proposed something and the user wrote their own answer instead.
+    [self reportGhostOutcome:@"typed-over" forSignature:signature];
+    [_walk typedOver:signature];
+    [self render];
+}
+
+- (void)eventTapDidSeeScroll:(SBEventTap *)tap {
+    if (_walk.ghosts.count == 0) return;
+    [self hideUntilNextRender];
+    NSUInteger generation = ++_scrollGeneration;
+    __weak SBController *weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kScrollSettleSeconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        SBController *controller = weakSelf;
+        if (!controller || generation != controller->_scrollGeneration || controller->_busy || !controller.running) return;
+        for (SBGhost *ghost in controller.walk.ghosts) [controller refreshRectOfSignature:ghost.signature];
+        [controller render];
+        // Fields that scrolled into the window since the last walk still need a real capture.
+        [controller.accessibility setNeedsRescan:SBRescanReasonLayoutChanged];
+    });
+}
+
+- (void)dismissSignature:(NSString *)signature {
+    SBDraft *draft = _drafts[signature];
+    if (draft && !draft.failed && !draft.finished) [self cancelDraft:draft];
+    [self recordProposalOutcome:SBRoleOutcomeDismissed forSignature:signature];
+    [self reportGhostOutcome:@"escaped" forSignature:signature];
+    [_walk dismiss:signature];
+    [self render];
+}
+
+#pragma mark - accepting
+
+- (void)drain {
+    if (_busy) return;
+    _busy = YES;
+    [self publish];
+    [self drainStep];
+}
+
+- (void)drainStep {
+    if (_pendingTabs <= 0 || (!_running && !self.assumesActive)) { [self finishDrain]; return; }
+    _pendingTabs--;
+    _stepStartedAt = CFAbsoluteTimeGetCurrent();
+    _stepDirect = YES;
+    __weak SBController *weakSelf = self;
+    [self acceptCurrentThen:^{ [weakSelf drainStep]; }];
+}
+
+- (void)finishDrain {
+    _busy = NO;
+    _pendingTabs = 0;
+    _stepMayHandBack = NO;
+    _stepFromGhostKey = NO;
+    [self publish];
+    if (_rescanDeferred) {
+        _rescanDeferred = NO;
+        if (_running) [self.accessibility setNeedsRescan:SBRescanReasonManual];
+        else if (self.assumesActive && _result) {
+            SBCaptureResult *fresh = self.captureProvider ? self.captureProvider() : nil;
+            [self adoptCaptureResult:fresh ?: _result pageKey:_pageKey ?: @"" origin:_origin ?: @""];
+        }
+    }
+}
+
+/// The snapshot the tap decided on can be a few milliseconds old. If the user has meanwhile put focus somewhere
+/// that is not part of the walk, the Tab was theirs: hand it back instead of filling anything.
+- (BOOL)userLeftTheWalk {
+    if (![self canReadLiveFocus]) return NO;
+    if ([self walkAppLeftTheFront]) { [_walk noteFocus:SBWalkFocusElsewhere]; return YES; }
+    [_walk noteFocus:[self liveFocusSignature]];
+    // The Shabang key has nothing to give back to the app, so where focus happens to be does not decide it.
+    if (_stepFromGhostKey) return NO;
+    return ![_walk snapshotWithActive:YES currentVisible:YES busy:NO].focusInWalk;
+}
+
+/// After a write: focus is still where the write left it (the field just written, anything inside an upload widget,
+/// the window itself, or the next ghost the page moved it to). Anything else means the user went somewhere else
+/// meanwhile, and Shabang does not pull focus away from there.
+- (BOOL)focusStayedWithWrite:(NSString *)signature {
+    if (![self canReadLiveFocus]) return YES;
+    if ([self walkAppLeftTheFront]) return NO;
+    BOOL known = NO;
+    id<SBAXNode> focused = [self liveFocusedNodeKnown:&known];
+    if (!known) return NO;
+    NSString *focus = [self focusSignatureForNode:focused];
+    [_walk noteFocus:focus];
+    if (!focus || [focus isEqualToString:signature] || [focus isEqualToString:_walk.current.signature ?: @""]) return YES;
+    // An upload leaves focus on the widget's own controls (Attach, Remove) or on its file input.
+    for (id<SBAXNode> anchor in @[ [_result uploadNodeForSignature:signature] ?: (id)NSNull.null, [_result nodeForSignature:signature] ?: (id)NSNull.null ]) {
+        if ((id)anchor == (id)NSNull.null) continue;
+        id<SBAXNode> fresh = [self.writer.actuator refreshedNode:anchor] ?: anchor;
+        id<SBAXNode> widget = [SBWriter uploadWidgetOfInput:fresh];
+        if ([SBOpenPanelDriver node:focused isInside:widget ?: fresh]) return YES;
+    }
+    return NO;
+}
+
+- (void)stopTheHold {
+    _pendingTabs = 0;
+    [self.eventTap haltHold];
+}
+
+- (void)acceptCurrentThen:(dispatch_block_t)done {
+    SBGhost *ghost = _walk.current;
+    // Paused, disabled or handed to the extension between the key press and now: nothing is written.
+    if (!ghost || !self.active) { [self recordStep:@"inactive" reason:nil ghost:ghost]; [self stopTheHold]; done(); return; }
+    // Every step, whatever brought it here (a fresh press, a queued press, a hold, the end of a draft wait), checks
+    // live focus first. Only the first step of a fresh press gives its Tab back; any later one is simply dropped.
+    BOOL mayHandBack = _stepMayHandBack;
+    _stepMayHandBack = NO;
+    if ([self userLeftTheWalk]) {
+        [self stopTheHold];
+        if (mayHandBack) {
+            SBLog(@"controller: focus left the walk before the write; Tab handed back to the app");
+            [self recordStep:@"handed-back" reason:nil ghost:ghost];
+            [self handBackTab];
+        } else {
+            SBLog(@"controller: focus left the walk; the queued or delayed Tab is dropped");
+            [self recordStep:@"focus-left" reason:nil ghost:ghost];
+            [self publish];
+        }
+        done();
+        return;
+    }
+    SBField *field = _fields[ghost.signature];
+    id<SBAXNode> node = [_result nodeForSignature:ghost.signature];
+    if (!field || !node) {
+        [self recordStep:@"gone" reason:SBWriteReasonGone ghost:ghost];
+        [_walk drop:ghost.signature];
+        _rescanDeferred = YES;
+        [self render];
+        done();
+        return;
+    }
+    // Rule 3: a locked ghost is never activated. Focus lands on it so Enter or a click can confirm.
+    if (ghost.locked) {
+        [self revealCurrent];
+        [self recordStep:@"parked" reason:SBWriteReasonLocked ghost:ghost];
+        [self parkOn:node];
+        done();
+        return;
+    }
+    if (ghost.pending) { [self acceptPending:ghost then:done]; return; }
+    // Rule: hold-Tab never accepts a guess (docs/answers.md section 3). The hold stops ON it, visible, so the
+    // user reads it before Submit; one deliberate press takes it. A held Tab can therefore never fill a
+    // required field with a guess and unlock Submit in the same breath.
+    if (_drainIsRepeat && ghost.needsReview) {
+        [self revealCurrent];
+        [self recordStep:@"needs-press" reason:ghost.guess ? @"guess" : @"check-this" ghost:ghost];
+        [self stopTheHold];
+        [self render];
+        done();
+        return;
+    }
+    if (_drainIsRepeat && [SBWriter ghostRunsSequence:ghost field:field]) {
+        // Hold-Tab never starts an upload or a combobox sequence: its own repeats (user keys) would abort it. The
+        // hold stops here, on screen; one fresh press starts it.
+        [self revealCurrent];
+        [self recordStep:@"needs-press" reason:nil ghost:ghost];
+        [self stopTheHold];
+        [self render];
+        done();
+        return;
+    }
+    if (![self currentIsVisibleNow]) {
+        // Never a write the user cannot see: the ghost is scrolled into view (and drawn) first; the next Tab writes.
+        BOOL shown = [self revealCurrent];
+        [self recordStep:shown ? @"jumped" : @"not-visible" reason:nil ghost:ghost];
+        _pendingTabs = 0;
+        if (!shown) _rescanDeferred = YES;
+        [self render];
+        done();
+        return;
+    }
+    [self write:ghost field:field node:node then:done];
+}
+
+- (void)parkOn:(id<SBAXNode>)node {
+    [self stopTheHold];
+    [self.writer focusLockedNode:node];
+    [self render];
+}
+
+/// Hold-Tab never accepts a pending draft (it skips to the next ready ghost, or stops). A deliberate press waits
+/// up to 4 s for the draft to finish.
+- (void)acceptPending:(SBGhost *)ghost then:(dispatch_block_t)done {
+    if (_drainIsRepeat) {
+        if ([_walk skipPendingCurrent]) { [self render]; [self acceptCurrentThen:done]; return; }
+        [self recordStep:@"draft-not-ready" reason:SBWriteReasonPending ghost:ghost];
+        [self stopTheHold];
+        done();
+        return;
+    }
+    NSString *signature = ghost.signature;
+    _waitingDraft = signature;
+    // Seconds may pass: the step that follows is no longer the press itself (focus is checked again when it runs,
+    // and it never parks focus on a lock).
+    _stepDirect = NO;
+    _stepMayHandBack = NO;
+    NSUInteger token = ++_waitToken;
+    __weak SBController *weakSelf = self;
+    _waitContinuation = ^(BOOL ready) {
+        SBController *controller = weakSelf;
+        if (!controller) return;
+        SBGhost *now = [controller.walk ghostWithSignature:signature];
+        if (!ready || !now || now.pending || controller.walk.current != now) {
+            [controller recordStep:@"draft-not-ready" reason:SBWriteReasonPending ghost:now];
+            [controller stopTheHold];
+            done();
+            return;
+        }
+        [controller acceptCurrentThen:done];
+    };
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(SBDraftWaitSeconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        SBController *controller = weakSelf;
+        if (!controller || controller->_waitToken != token || !controller->_waitContinuation) return;
+        SBLog(@"controller: the draft was not ready after %.0f s; Tab dropped", SBDraftWaitSeconds);
+        [controller endDraftWait:NO];
+    });
+}
+
+- (BOOL)radioGroupAlreadyAnswered:(SBField *)field {
+    for (NSDictionary<NSString *, NSString *> *option in field.options) {
+        id<SBAXNode> radio = [_result radioNodeForSignature:field.signature optionLabel:option[@"label"] ?: @""];
+        id<SBAXNode> fresh = radio ? [self.writer.actuator refreshedNode:radio] : nil;
+        if ([fresh.value isEqualToString:@"1"]) return YES;
+    }
+    return NO;
+}
+
+- (void)write:(SBGhost *)ghost field:(SBField *)field node:(id<SBAXNode>)node then:(dispatch_block_t)done {
+    id<SBAXNode> optionNode = nil;
+    if ([field.kind isEqualToString:SBKindRadio]) {
+        // Rule 9 for radio groups: a group the user already answered is left alone.
+        if ([self radioGroupAlreadyAnswered:field]) { [self dismissSignature:ghost.signature]; done(); return; }
+        for (NSDictionary<NSString *, NSString *> *option in field.options) {
+            if (![option[@"value"] isEqualToString:ghost.value ?: @""]) continue;
+            optionNode = [_result radioNodeForSignature:field.signature optionLabel:option[@"label"] ?: @""];
+            break;
+        }
+    }
+    BOOL upload = [ghost.action isEqualToString:SBGhostActionUpload];
+    BOOL hadRemoveControl = NO;
+    id<SBAXNode> uploadWidget = nil;
+    if (upload) {
+        // For a file field the writer presses the widget's Attach control; the page's file input is the fallback.
+        optionNode = [_result uploadNodeForSignature:ghost.signature];
+        id<SBAXNode> input = optionNode ? [self.writer.actuator refreshedNode:optionNode] : nil;
+        uploadWidget = [SBWriter uploadWidgetOfInput:input];
+        hadRemoveControl = [SBWriter widgetHasRemoveControl:uploadWidget];
+    }
+    if ([SBWriter ghostRunsSequence:ghost field:field]) [self prepareDriversOf:self.writer];
+    _hudStatus = nil;
+    _quietUntil = CFAbsoluteTimeGetCurrent() + 2.0;   // until the write reports back
+    [self runWrite:ghost field:field node:node optionNode:optionNode upload:upload widget:uploadWidget
+      widgetRect:uploadWidget ? uploadWidget.frame : field.rect hadRemoveControl:hadRemoveControl mayRetry:YES then:done];
+}
+
+- (void)runWrite:(SBGhost *)ghost field:(SBField *)field node:(id<SBAXNode>)node optionNode:(id<SBAXNode>)optionNode
+          upload:(BOOL)upload widget:(id<SBAXNode>)widget widgetRect:(CGRect)widgetRect
+hadRemoveControl:(BOOL)hadRemoveControl mayRetry:(BOOL)mayRetry then:(dispatch_block_t)done {
+    NSString *signature = ghost.signature;
+    NSString *filename = upload ? ghost.displayText : nil;
+    __weak SBController *weakSelf = self;
+    [self.writer executeGhost:ghost field:field node:node optionNode:optionNode completion:^(SBWriteResult *result) {
+        SBController *controller = weakSelf;
+        if (!controller) return;
+        if (upload && result.ok) {
+            [controller whenUploadShowsFile:filename signature:signature widget:widget widgetRect:widgetRect
+                          hadRemoveControl:hadRemoveControl tries:kUploadVerifyTries completion:^(BOOL shown) {
+                SBWriteResult *outcome = shown ? result : [SBWriteResult failureWithReason:kUploadNotVerified method:SBWriteMethodOpenPanel sequence:YES];
+                [controller finishedWriting:signature result:outcome];
+                done();
+            }];
+            return;
+        }
+        // The page replaced the element while Shabang was writing into it (React does, on the first field of a
+        // Greenhouse form). The write is not necessarily lost: a fresh capture either shows the new element holding
+        // the value, or hands it over for ONE retry. Never for a sequence: an upload or a list is never redriven.
+        if (mayRetry && !result.ok && !result.sequence && [result.reason isEqualToString:SBWriteReasonGone]) {
+            SBCaptureResult *fresh = [controller freshCapture];
+            SBField *freshField = nil;
+            for (SBField *candidate in fresh.fields) {
+                if ([candidate.signature isEqualToString:signature]) { freshField = candidate; break; }
+            }
+            id<SBAXNode> freshNode = [fresh nodeForSignature:signature];
+            NSString *wanted = ghost.value.length ? ghost.value : (ghost.displayText ?: @"");
+            if (freshField && freshNode && wanted.length && [SBWriter value:freshField.value holds:wanted]) {
+                SBLog(@"controller: the element was replaced during the write; the new one holds the value");
+                [controller finishedWriting:signature result:[SBWriteResult okWithMethod:result.method]];
+                done();
+                return;
+            }
+            if (freshField && freshNode) {
+                SBLog(@"controller: the element was replaced during the write; one retry on the new one");
+                [controller runWrite:ghost field:freshField node:freshNode optionNode:optionNode upload:upload widget:widget
+                          widgetRect:widgetRect hadRemoveControl:hadRemoveControl mayRetry:NO then:done];
+                return;
+            }
+        }
+        [controller finishedWriting:signature result:result];
+        done();
+    }];
+}
+
+/// The upload check, repeated while the page catches up (it uploads the file before it names it). Every look is a
+/// fresh capture, so the polling stops as soon as one of them shows the file.
+- (void)whenUploadShowsFile:(NSString *)filename signature:(NSString *)signature widget:(id<SBAXNode>)widget
+                 widgetRect:(CGRect)widgetRect hadRemoveControl:(BOOL)hadRemoveControl tries:(NSUInteger)tries
+                 completion:(void (^)(BOOL))completion {
+    if ([self uploadShowsFile:filename signature:signature widget:widget widgetRect:widgetRect hadRemoveControl:hadRemoveControl]) {
+        completion(YES);
+        return;
+    }
+    if (tries == 0 || (!_running && !self.assumesActive)) { completion(NO); return; }
+    __weak SBController *weakSelf = self;
+    [self after:kUploadVerifyPoll do:^{
+        SBController *controller = weakSelf;
+        if (!controller) { completion(NO); return; }
+        [controller whenUploadShowsFile:filename signature:signature widget:widget widgetRect:widgetRect
+                       hadRemoveControl:hadRemoveControl tries:tries - 1 completion:completion];
+    }];
+}
+
+- (void)after:(NSTimeInterval)delay do:(dispatch_block_t)block {
+    if (self.after) { self.after(delay, block); return; }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), block);
+}
+
+/// After the panel closed and the page named the file: a fresh capture must agree. The upload field now holds the
+/// file's name, or its widget names the file or shows a Remove control it did not have before.
+- (BOOL)uploadShowsFile:(NSString *)filename signature:(NSString *)signature widget:(id<SBAXNode>)widget
+             widgetRect:(CGRect)widgetRect hadRemoveControl:(BOOL)hadRemoveControl {
+    if (filename.length == 0) return NO;
+    SBCaptureResult *fresh = [self freshCapture];
+    for (SBField *field in fresh.fields) {
+        if (![field.signature isEqualToString:signature]) continue;
+        if ([field.value rangeOfString:filename options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
+    }
+    id<SBAXNode> input = [fresh uploadNodeForSignature:signature];
+    if (!input) {
+        id<SBAXNode> old = [_result uploadNodeForSignature:signature];
+        input = old ? [self.writer.actuator refreshedNode:old] : nil;
+    }
+    id<SBAXNode> around = [SBWriter uploadWidgetOfInput:input] ?: (widget ? [self.writer.actuator refreshedNode:widget] : nil);
+    if ([SBWriter widget:around mentionsFile:filename]) return YES;
+    if (!hadRemoveControl && [SBWriter widgetHasRemoveControl:around]) return YES;
+    // Live, Safari: Greenhouse takes the file input AND the Attach button out of the page once the file is attached,
+    // so neither the field nor its widget can be found again. What it leaves behind is the file name and a Remove
+    // button where the upload field was: the fresh capture is searched there.
+    if (hadRemoveControl || !SBRectIsUsable(widgetRect)) return NO;
+    CGRect box = CGRectInset(widgetRect, -16, -16);
+    for (SBField *field in fresh.fields) {
+        if (![field.kind isEqualToString:SBKindButton] && ![field.kind isEqualToString:SBKindLink]) continue;
+        if (![SBWriter labelIsRemoveControl:field.label]) continue;
+        CGRect rect = field.rect;
+        if (!SBRectIsUsable(rect)) continue;
+        if (CGRectContainsPoint(box, CGPointMake(CGRectGetMidX(rect), CGRectGetMidY(rect)))) return YES;
+    }
+    return NO;
+}
+
+- (void)finishedWriting:(NSString *)signature result:(SBWriteResult *)result {
+    _quietUntil = CFAbsoluteTimeGetCurrent() + kOwnWriteQuietSeconds;
+    if (!_running && !self.assumesActive) return;
+    [self recordStep:result.ok ? @"accepted" : (result.refused ? @"refused" : @"failed") reason:result.ok ? nil : (result.reason ?: @"failed")
+               ghost:[_walk ghostWithSignature:signature]];
+    if (result.sequence) {
+        // Keys pressed while the panel or the list was being driven are never replayed as more accepts.
+        [self stopTheHold];
+        if (result.ok) [_sequenceDone addObject:signature];
+        else _hudStatus = nil;
+        SBLog(@"controller: sequence label=%@ %@", SBLogLabel(_fields[signature].label), result.ok ? @"done" : (result.reason ?: @"failed"));
+    }
+    if (result.ok) {
+        [self rememberWrittenValueOf:[_walk ghostWithSignature:signature]];
+        // docs/anywhere.md section 6: an accepted proposal is remembered under its ROLE, so "fullscreen after
+        // starting a video" carries to the next video Shabang has never seen.
+        [self recordProposalOutcome:SBRoleOutcomeAccepted forSignature:signature];
+        [self reportGhostOutcome:@"accepted" forSignature:signature];
+        [_walk accept:signature];
+        if ([self focusStayedWithWrite:signature]) {
+            // A lock only ever gets focus straight from the user's press, never after a draft wait or a sequence.
+            [self focusCurrentAllowingLock:_stepDirect && !result.sequence];
+        } else {
+            SBLog(@"controller: focus moved away during the write; it stays where the user put it");
+            [self stopTheHold];
+        }
+        [self render];
+        if (_walk.finished) SBLog(@"controller: walk finished accepted=%ld keystrokesSaved=%ld", (long)_walk.accepted, (long)_walk.keystrokesSaved);
+        _rescanDeferred = YES;   // the page may react to the value (dependent fields, validation)
+        return;
+    }
+    NSString *reason = result.reason ?: @"failed";
+    if ([reason isEqualToString:SBWriteReasonBusy]) return;
+    if ([reason isEqualToString:SBWriteReasonLocked]) { [self stopTheHold]; [self render]; return; }
+    if ([reason isEqualToString:SBWriteReasonGone]) {
+        [_walk drop:signature];
+        _rescanDeferred = YES;
+        [self render];
+        return;
+    }
+    if (result.refused && ![reason isEqualToString:SBWriteReasonUnsupported] && ![reason isEqualToString:SBWriteReasonOptionNotFound]) {
+        // Rule 9 and the safety re-check: the ghost goes away for good, without an error (nothing is broken).
+        [self dismissSignature:signature];
+        return;
+    }
+    // Rule 8: stop the walk, keep the rest pending, say why. The reason is a short code, never content.
+    [self stopTheHold];
+    [_walk fail:signature reason:reason];
+    [self render];
+}
+
+/// Our copy of the capture is older than the write: without this, merging a late server answer into it would
+/// offer the field we just filled a second time. (A real rescan replaces the copy anyway.)
+- (void)rememberWrittenValueOf:(SBGhost *)ghost {
+    SBField *field = ghost ? _fields[ghost.signature] : nil;
+    if (!field) return;
+    if ([ghost.action isEqualToString:SBGhostActionCheck]) field.value = @"true";
+    else if ([ghost.action isEqualToString:SBGhostActionUpload]) field.value = ghost.displayText;   // the name the page shows
+    else field.value = ghost.value.length ? ghost.value : ghost.displayText;
+    // What Shabang wrote is never read back as a correction by the next capture (docs/answers.md section 4);
+    // a lazy select lands as the option's own wording, so both are remembered.
+    _ghostWrote[field.signature] = field.value ?: @"";
+    _seenValues[field.signature] = field.value ?: @"";
+}
+
+#pragma mark - harness
+
+/// Labels and short codes only. `ghost` may already have left the walk; nil records a step without a label.
+- (void)recordStep:(NSString *)outcome reason:(NSString *)reason ghost:(SBGhost *)ghost {
+    NSMutableDictionary<NSString *, id> *step = [NSMutableDictionary dictionary];
+    step[@"outcome"] = outcome;
+    step[@"verified"] = @([outcome isEqualToString:@"accepted"]);
+    if (reason) step[@"reason"] = reason;
+    if (ghost) {
+        step[@"label"] = _fields[ghost.signature].label ?: @"";
+        step[@"action"] = ghost.action ?: @"";
+        step[@"locked"] = @(ghost.locked);
+    }
+    step[@"ms"] = @(round((CFAbsoluteTimeGetCurrent() - _stepStartedAt) * 1000.0));
+    _lastStep = step;
+    _stepCount++;
+}
+
+- (NSDictionary<NSString *, id> *)harnessState {
+    NSUInteger unlocked = 0;
+    for (SBGhost *ghost in _walk.ghosts) if (!ghost.locked) unlocked++;
+    NSMutableDictionary<NSString *, id> *state = [@{
+        @"running": @(_running), @"active": @(self.active), @"busy": @(_busy),
+        @"ghosts": @(_walk.ghosts.count), @"unlocked": @(unlocked), @"accepted": @(_walk.accepted),
+        @"provider": _provider ?: @"", @"statusLine": [self statusLine] ?: @"",
+    } mutableCopy];
+    if (_hudStatus.length) state[@"status"] = _hudStatus;
+    SBGhost *current = _walk.current;
+    if (current) {
+        state[@"current"] = @{ @"label": _fields[current.signature].label ?: @"", @"action": current.action ?: @"",
+                               @"locked": @(current.locked), @"pending": @(current.pending), @"visible": @(_currentVisible) };
+    }
+    return state;
+}
+
+/// Rule 2: focus moves onto the next ghost's element. Cosmetic: when the app ignores AXFocused, focus stays on the
+/// field the walk just left, which still counts as "in the walk".
+- (void)focusCurrentAllowingLock:(BOOL)lockAllowed {
+    SBGhost *next = _walk.current;
+    id<SBAXNode> node = next ? [_result nodeForSignature:next.signature] : nil;
+    if (!node) return;
+    if (next.locked) {
+        // Parked (drawn, current) either way; keyboard focus lands on it only when the user's Tab just caused it.
+        if (lockAllowed) [self.writer focusLockedNode:node];
+        [self stopTheHold];
+    } else {
+        [self.writer focusNode:node];
+    }
+    [self refreshRectOfSignature:next.signature];
+    // AXScrollToVisible before the next ghost is drawn: focusing an element does not always scroll it into view.
+    if (![self currentIsVisibleNow]) [self revealCurrent];
+}
+
+@end

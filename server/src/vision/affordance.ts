@@ -1,4 +1,4 @@
-import { classifyAffordance, MEDIA_ROLES, type AffordanceRole } from "@ghost/shared";
+import { classifyAffordance, MEDIA_ROLES, type AffordanceRole } from "@shabang/shared";
 
 /**
  * Adapter: a vision label becomes an affordance role through the ONE shared classifier
@@ -6,7 +6,7 @@ import { classifyAffordance, MEDIA_ROLES, type AffordanceRole } from "@ghost/sha
  *
  * docs/anywhere.md section 4: "The returned label feeds the same affordance mapping, so one vision call can turn a row
  * of icon buttons into `play`, `fullscreen`, `captions`." Same mapping means the same module, not a second copy of the
- * vocabulary: a role Ghost learned from a DOM label and the same role read off pixels must be the same string, scored
+ * vocabulary: a role Shabang learned from a DOM label and the same role read off pixels must be the same string, scored
  * the same way, or role-keyed memory cannot transfer between them.
  *
  * Nothing here reads a hostname, an app name or a brand. The only page-level input is a path PATTERN, which the shared

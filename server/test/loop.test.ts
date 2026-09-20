@@ -1,4 +1,4 @@
-import { DEMO_PROFILE, MASKED_VALUE, synthesizeProgram } from "@ghost/shared";
+import { DEMO_PROFILE, MASKED_VALUE, synthesizeProgram } from "@shabang/shared";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
@@ -85,7 +85,7 @@ describe("unresolved steps without a model", () => {
   });
 
   it("is wired into the app, behind the same access rules as every other POST", async () => {
-    const app = createApp(loadConfig({ GHOST_PROVIDER: "heuristic" }));
+    const app = createApp(loadConfig({ SHABANG_PROVIDER: "heuristic" }));
     const body = JSON.stringify(synthesizeBody(SHORTHAND_INVOICES));
     const ok = await app.request(ROUTE, { method: "POST", headers: JSON_HEADERS, body });
     expect(ok.status).toBe(200);

@@ -15,15 +15,15 @@ import { parseLabelRequest, parseLocateRequest, VISION_LIMITS, type LabelRequest
 const LABEL_ROUTE = "/v1/vision/label";
 const LOCATE_ROUTE = "/v1/vision/locate";
 const PROVIDER = "openai";
-const WEB_CALLER = "vision is only available to Ghost (the extension or Ghost Desktop), not to web pages or other extensions";
+const WEB_CALLER = "vision is only available to Shabang (the extension or Shabang Desktop), not to web pages or other extensions";
 const UNPINNED_EXTENSION =
-  "vision from a browser extension needs a pinned caller: set GHOST_EXTENSION_ID to the Ghost extension's id (chrome://extensions), or GHOST_EXECUTE_TOKEN and send it as X-Ghost-Token";
+  "vision from a browser extension needs a pinned caller: set SHABANG_EXTENSION_ID to the Shabang extension's id (chrome://extensions), or SHABANG_EXECUTE_TOKEN and send it as X-Shabang-Token";
 
 /**
  * Vision spends the user's paid OpenAI quota and carries screen pixels, so it takes the loop routes' caller rules
  * (executors/access.ts), not just the local-only guard: a web page never reaches it, not even one on localhost; a
- * browser extension must be the pinned Ghost extension or send X-Ghost-Token; a caller without an Origin is a local
- * process (Ghost Desktop, a script) and may send the token but need not. A wrong token is 401.
+ * browser extension must be the pinned Shabang extension or send X-Shabang-Token; a caller without an Origin is a local
+ * process (Shabang Desktop, a script) and may send the token but need not. A wrong token is 401.
  */
 function refuseVisionCaller(c: Context, access: AccessConfig): Response | undefined {
   const origin = c.req.header("origin");
@@ -58,8 +58,8 @@ interface RouteCache<Req> {
 export function registerVisionRoutes(app: Hono, config: ServerConfig, deps: VisionRouteDeps = {}): void {
   const env = deps.env ?? process.env;
   const vision = visionConfigFrom(config, env);
-  const budget = deps.budget ?? processVisionBudget(budgetLimitFrom(env.GHOST_VISION_BUDGET));
-  const cache = deps.cache ?? new LabelCache(cacheLimitFrom(env.GHOST_VISION_CACHE));
+  const budget = deps.budget ?? processVisionBudget(budgetLimitFrom(env.SHABANG_VISION_BUDGET));
+  const cache = deps.cache ?? new LabelCache(cacheLimitFrom(env.SHABANG_VISION_CACHE));
   const metrics = deps.metrics ?? getMetrics(config);
   const log = deps.log ?? ((line: string) => (process.env.VITEST ? undefined : console.log(line)));
   const doFetch = deps.fetch ?? fetch;

@@ -1,4 +1,4 @@
-import { DEMO_PROFILE } from "@ghost/shared";
+import { DEMO_PROFILE } from "@shabang/shared";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config";
@@ -10,7 +10,7 @@ import { registerTextRoutes } from "../../src/routes/text";
 // Live only (pnpm test:live), skipped without BASETEN_API_KEY. At most 5 real calls per run, well under the cap of 8:
 // one decision = at most 3 samples + 1 hedge (clamped here whatever the .env says), plus one streamed draft.
 // The account this was written against allows 15 requests per minute, so do not run it in a loop.
-const config = loadConfig({ ...process.env, GHOST_PROVIDER: undefined, GHOST_DECISION_PROVIDER: "baseten", GHOST_TEXT_PROVIDER: "baseten", GHOST_WARMUP: "0" });
+const config = loadConfig({ ...process.env, SHABANG_PROVIDER: undefined, SHABANG_DECISION_PROVIDER: "baseten", SHABANG_TEXT_PROVIDER: "baseten", SHABANG_WARMUP: "0" });
 const baseten = config.baseten ? { ...config.baseten, samples: Math.min(config.baseten.samples, 3), hedge: Math.min(config.baseten.hedge, 1) } : undefined;
 // Generous on purpose: this test measures. The server itself gives the vote 2.3 s.
 const LIVE_TIMEOUT_MS = 20_000;
@@ -53,7 +53,7 @@ describe.skipIf(!baseten)("live: Baseten", () => {
     const app = new Hono();
     registerTextRoutes(app, config);
     const { school, major, graduationDate } = DEMO_PROFILE.facts;
-    const res = await app.request("/v1/ghost-text", {
+    const res = await app.request("/v1/shabang-text", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

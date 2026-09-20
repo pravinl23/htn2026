@@ -1,4 +1,4 @@
-import { isLockedAction, isSensitive } from "@ghost/shared";
+import { isLockedAction, isSensitive } from "@shabang/shared";
 import { isRecord } from "../providers/errors";
 import { affordanceRolesFor, type AffordanceHints, type AffordanceRole } from "./affordance";
 import type { VisionImage } from "./image";

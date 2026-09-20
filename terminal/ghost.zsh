@@ -8,7 +8,7 @@
 #
 #   source /path/to/htn2026/terminal/ghost.zsh   # in ~/.zshrc, AFTER plugins that rebind Tab (fzf, zsh-autosuggestions)
 #
-# GHOST_TERMINAL_URL             prediction server, default http://127.0.0.1:8787 (pnpm --filter @ghost/server start)
+# GHOST_TERMINAL_URL             prediction server, default http://127.0.0.1:8787 (pnpm --filter @shabang/server start)
 # GHOST_TERMINAL_DISABLE=1       turns it off (checked at load and before every request)
 # GHOST_TERMINAL_MIN_CONFIDENCE  default 0.7: a wrong ghost is worse than no ghost
 # GHOST_TERMINAL_HIGHLIGHT       default fg=8 (gray)

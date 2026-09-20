@@ -12,7 +12,7 @@ type Env = Record<string, string | undefined>;
 
 /**
  * Vision rides on the OpenAI key of the server's LLM config, so every offline switch that drops that config
- * (GHOST_PROVIDER=heuristic in e2e, heuristic + template overrides) also switches vision off: zero network.
+ * (SHABANG_PROVIDER=heuristic in e2e, heuristic + template overrides) also switches vision off: zero network.
  * An xAI or Baseten key is not an OpenAI key and does not enable it.
  */
 export function visionConfigFrom(config: ServerConfig, env: Env = process.env): VisionModelConfig | undefined {

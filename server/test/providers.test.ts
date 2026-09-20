@@ -1,4 +1,4 @@
-import type { Questions } from "@ghost/shared";
+import type { Questions } from "@shabang/shared";
 import { describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../src/config";
 import { buildFormDecision } from "../src/providers/formQuestions";
@@ -328,15 +328,15 @@ describe("createDecisionProvider precedence", () => {
     expect(pick({}).calibrated).toBe(false);
   });
 
-  it("honors the GHOST_DECISION_PROVIDER override", () => {
-    expect(pick({ TYPESAFE_API_KEY: FAKE_KEY, GHOST_DECISION_PROVIDER: "heuristic" }).name).toBe("heuristic");
-    expect(pick({ TYPESAFE_API_KEY: FAKE_KEY, OPENAI_API_KEY: FAKE_KEY, GHOST_DECISION_PROVIDER: "llm" }).name).toBe("llm");
+  it("honors the SHABANG_DECISION_PROVIDER override", () => {
+    expect(pick({ TYPESAFE_API_KEY: FAKE_KEY, SHABANG_DECISION_PROVIDER: "heuristic" }).name).toBe("heuristic");
+    expect(pick({ TYPESAFE_API_KEY: FAKE_KEY, OPENAI_API_KEY: FAKE_KEY, SHABANG_DECISION_PROVIDER: "llm" }).name).toBe("llm");
   });
 
   it("degrades to the heuristic when the forced provider has no credentials or is unknown", () => {
-    expect(pick({ GHOST_DECISION_PROVIDER: "typesafe" }).name).toBe("heuristic");
-    expect(pick({ GHOST_DECISION_PROVIDER: "jev-gateway" }).name).toBe("heuristic");
-    expect(pick({ GHOST_DECISION_PROVIDER: "bogus" }).name).toBe("heuristic");
+    expect(pick({ SHABANG_DECISION_PROVIDER: "typesafe" }).name).toBe("heuristic");
+    expect(pick({ SHABANG_DECISION_PROVIDER: "jev-gateway" }).name).toBe("heuristic");
+    expect(pick({ SHABANG_DECISION_PROVIDER: "bogus" }).name).toBe("heuristic");
   });
 
   it("names the model for /v1/health", () => {

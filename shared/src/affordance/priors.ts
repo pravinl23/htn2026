@@ -1,6 +1,6 @@
 // Priors by place (docs/anywhere.md section 3). What people usually want next HERE, before anything is asked of a
 // model and before this user has any history. Deliberately weak (0.55 to 0.7, never above) so one real accept in
-// role memory outranks them. A prior alone is enough to propose something on a page Ghost has never seen.
+// role memory outranks them. A prior alone is enough to propose something on a page Shabang has never seen.
 import { classifyAffordance } from "./roles";
 import type { AffordanceCandidate, AffordanceContext, AffordanceRole } from "./roles";
 import type { PageKind } from "./pageKind";
@@ -32,7 +32,7 @@ export interface PriorState {
    * The app itself has put the keyboard in an empty box somebody types in.
    *
    * The strongest sequence signal there is, and the only one that needs no history: an app that opens a
-   * compose window and drops the cursor in `To` has already said what happens next. Without it Ghost reached
+   * compose window and drops the cursor in `To` has already said what happens next. Without it Shabang reached
    * for the search box in that moment, which is the guess that makes no sense to a person.
    */
   focusedEmptyField?: boolean;
@@ -44,9 +44,9 @@ export const PRIOR_MIN = 0.55;
 /**
  * The ordered list of roles people usually want next in this kind of place, strongest first.
  *
- * The strongest prior of a place Ghost recognizes is exactly PRIOR_MAX, which is the default gate: on a page it can
- * place, Ghost always has one thing to offer, even the first time it sees that page. Two states deliberately offer
- * nothing above the gate: `app`/`unknown` (a place Ghost cannot read, where a wrong ghost is worse than none, rule 4)
+ * The strongest prior of a place Shabang recognizes is exactly PRIOR_MAX, which is the default gate: on a page it can
+ * place, Shabang always has one thing to offer, even the first time it sees that page. Two states deliberately offer
+ * nothing above the gate: `app`/`unknown` (a place Shabang cannot read, where a wrong ghost is worse than none, rule 4)
  * and a video that is already playing fullscreen (nagging someone who is watching is the wrong product).
  */
 export function priorsFor(kind: PageKind, state: PriorState = {}): RolePrior[] {
@@ -60,7 +60,7 @@ export function priorsFor(kind: PageKind, state: PriorState = {}): RolePrior[] {
 /**
  * `search` can never be a confident offer, in any kind of place.
  *
- * Putting a cursor in a search box is only worth a keystroke if Ghost knows what goes in it, and it does
+ * Putting a cursor in a search box is only worth a keystroke if Shabang knows what goes in it, and it does
  * not: there is no honest way to guess what somebody is about to look for. It stays available -- role
  * memory can still lift it for a person who really does always search here -- but as a prior it sits at the
  * floor, under the gate, so it is drawn as a guess and never as the answer.
@@ -90,7 +90,7 @@ function capped(prior: RolePrior): number {
  */
 const AFTER: Partial<Record<AffordanceRole, RolePrior[]>> = {
   // You made a new, empty thing: the next step is saying who it is for, never writing the body. What was
-  // wrong here was never the transition, it was PROPOSING compose in the first place -- Ghost does not know
+  // wrong here was never the transition, it was PROPOSING compose in the first place -- Shabang does not know
   // who you are writing to, so it must not start that flow. Once somebody starts it themselves, following
   // them to the recipient is exactly right. `compose` therefore sits at the prior floor (see `mail`) while
   // this transition stays.
@@ -119,7 +119,7 @@ function focusedField(state: PriorState): RolePrior[] {
 /**
  * Somebody is waiting for an answer. That outranks whatever else the screen offers, in any kind of place:
  * an unread message, an unread mail, a notification badge. It is also the only thing on a messaging screen
- * that Ghost can follow all the way through -- open it, read the thread, draft the reply -- because the one
+ * that Shabang can follow all the way through -- open it, read the thread, draft the reply -- because the one
  * fact it needs, who the conversation is with, is written on the row.
  */
 function unread(state: PriorState): RolePrior[] {
@@ -154,7 +154,7 @@ function build(kind: PageKind, state: PriorState): RolePrior[] {
       return state.readingItem === true
         ? [{ role: "reply", weight: 0.7 }, { role: "back", weight: 0.6 }, { role: "compose", weight: 0.55 }]
         // `compose` sits at the floor on purpose: starting a new message is only useful to somebody who
-        // already knows who it is for, which is exactly what Ghost does not know. Reading the one that came
+        // already knows who it is for, which is exactly what Shabang does not know. Reading the one that came
         // in is the thing it can actually help with, so the item leads by a wide margin.
         : [{ role: "primary-item", weight: 0.7 }, { role: "search", weight: 0.57 }, { role: "compose", weight: PRIOR_MIN }];
     case "form":
@@ -195,7 +195,7 @@ function commerce(state: PriorState): RolePrior[] {
   }
   // An empty cart: the shopper is still looking, so the thing in front of them is a product. This used to
   // lead with the search box, which is what "it always goes to search on shopping sites" actually was --
-  // and a search box is no use to Ghost, because it cannot know what anyone is about to look for.
+  // and a search box is no use to Shabang, because it cannot know what anyone is about to look for.
   return [
     { role: "primary-item", weight: 0.7 },
     { role: "search", weight: 0.6 },

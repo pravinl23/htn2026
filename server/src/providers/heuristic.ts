@@ -10,7 +10,7 @@ import {
   type DecisionState,
   type Question,
   type Questions,
-} from "@ghost/shared";
+} from "@shabang/shared";
 import { isRecord } from "./errors";
 import type { FormStateField } from "./formQuestions";
 import { NEXT_QUESTION, pickNextFromMemory, type NextState } from "./nextQuestions";

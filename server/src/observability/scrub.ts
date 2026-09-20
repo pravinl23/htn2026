@@ -1,7 +1,7 @@
 /**
  * The one gate every byte passes before it leaves for Sentry.
  *
- * Ghost's telemetry is allowed to carry NAMES, COUNTS, DURATIONS, PROVIDER NAMES, CONFIDENCE BUCKETS and BOOLEANS.
+ * Shabang's telemetry is allowed to carry NAMES, COUNTS, DURATIONS, PROVIDER NAMES, CONFIDENCE BUCKETS and BOOLEANS.
  * It is never allowed to carry a field value, a page label, a profile fact, a learned answer, a URL with a query
  * string or a path on the user's disk. Everything in this folder is written so that it only ever builds the allowed
  * kinds; this module is the second line of defence, applied to EVERY event, transaction, log and metric, so a mistake

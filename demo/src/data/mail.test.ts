@@ -24,7 +24,7 @@ describe("inbox data", () => {
     for (const person of [ME, ...MESSAGES.map((m) => m.from)]) expect(person.email).toMatch(/@example\.com$/);
   });
 
-  it("keeps subjects unique and free of words Ghost locks", () => {
+  it("keeps subjects unique and free of words Shabang locks", () => {
     expect(new Set(MESSAGES.map((m) => m.subject)).size).toBe(MESSAGES.length);
     for (const m of MESSAGES) expect(m.subject).not.toMatch(LOCK_WORDS);
   });

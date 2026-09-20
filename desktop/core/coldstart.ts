@@ -1,7 +1,7 @@
 // Cold start (docs/cold-start.md), the bridge half. The pure rules live in shared/src/coldstart; this file only
 // makes them callable from Objective-C through JavaScriptCore: strings in, JSON strings out, no state.
 //
-// The native side (desktop/src/GHScanSources.m, desktop/src/GHColdStart.m) is the only part that touches the
+// The native side (desktop/src/SBScanSources.m, desktop/src/SBColdStart.m) is the only part that touches the
 // machine: it counts with Spotlight, checks what is readable, opens a bounded number of files and hands the TEXT
 // in here. Nothing in this file reads a file, opens a database, asks for a permission or makes a network call.
 //
@@ -21,7 +21,7 @@ import {
   extractFromResumeText,
   extractFromVCard,
   mergeResults,
-} from "@ghost/shared";
+} from "@shabang/shared";
 import type {
   ApplyColdStartInput,
   ColdStartSourceKind,
@@ -39,7 +39,7 @@ import type {
   SurfaceOptions,
   SurfaceTransitionObservation,
   VCardOptions,
-} from "@ghost/shared";
+} from "@shabang/shared";
 // The résumé rules are the server's own pure regex file (server/src/lib/resumeRegex.ts), injected rather than
 // copied: shared/ must not depend on server/, and two copies of these rules would drift within a day.
 import { extractFactsByRegex } from "../../server/src/lib/resumeRegex";
@@ -62,7 +62,7 @@ function asOrigin(json: string): ProposalOrigin {
     return { source: object.source as unknown as FactSource, sourceKind };
   }
   // A file name is the only provenance a local scan has. It stays on the machine: the report the user (or an
-  // agent) sees is written value-free by GHColdStart, and only the private pending store keeps it.
+  // agent) sees is written value-free by SBColdStart, and only the private pending store keeps it.
   const name = typeof object.fileName === "string" && object.fileName !== "" ? object.fileName : "local file";
   return { source: { kind: "file", name }, sourceKind };
 }
@@ -76,7 +76,7 @@ function emptyResult(): ExtractionResult {
 /**
  * The first-run panel, in data: one row per source in tier order, what it reads, what it yields, how many items
  * this scan would open, an estimate and the caps. `descriptorsJson` is `SourceDescriptor[]` — what
- * GHScanSources counted and, for each source, whether its permission is there and whether the user switched it on.
+ * SBScanSources counted and, for each source, whether its permission is there and whether the user switched it on.
  */
 export function coldStartPlan(descriptorsJson: string, optionsJson?: string): string {
   const raw = parse<unknown>(descriptorsJson, "descriptors");
@@ -185,7 +185,7 @@ export function coldStartGraphApply(inputJson: string): string {
   return JSON.stringify(applyColdStart(input));
 }
 
-/** What Ghost knows: counts per screen kind, per source, the file size, and the most used surfaces. */
+/** What Shabang knows: counts per screen kind, per source, the file size, and the most used surfaces. */
 export function coldStartGraphDescribe(fileText: string, topJson?: string): string {
   const top = topJson === undefined ? 10 : Number.parseInt(topJson, 10);
   return JSON.stringify(describeKnowledge(typeof fileText === "string" ? fileText : "", Number.isFinite(top) ? top : 10));

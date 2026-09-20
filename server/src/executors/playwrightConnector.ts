@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { FactLocator, StepTarget } from "@ghost/shared";
+import type { FactLocator, StepTarget } from "@shabang/shared";
 import type { Locator, Page } from "playwright-core";
 import type { CdpConnector, RemotePage } from "./browserbase";
 

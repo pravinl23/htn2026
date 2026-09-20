@@ -1,4 +1,4 @@
-// overlay-demo: shows the real GHOverlayWindow over a window of fake fields for 4 seconds, renders both layer trees
+// overlay-demo: shows the real SBOverlayWindow over a window of fake fields for 4 seconds, renders both layer trees
 // into a PNG, and exits. This is how the overlay is LOOKED at without Accessibility permission or a browser.
 //
 //   build/overlay-demo [--out path.png] [--scene form|lock|dark] [--seconds 4] [--offscreen] [--reduce-motion]
@@ -7,9 +7,9 @@
 // Fictional demo profile only ("Alex Chen").
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
-#import "GHGeometry.h"
-#import "GHOverlayModel.h"
-#import "GHOverlayWindow.h"
+#import "SBGeometry.h"
+#import "SBOverlayModel.h"
+#import "SBOverlayWindow.h"
 
 static const CGSize kCanvas = {900, 640};
 
@@ -103,21 +103,21 @@ static CALayer *BuildForm(BOOL dark, CGFloat scale) {
     return form;
 }
 
-static GHOverlayInput *BuildInput(CGRect canvasAX, NSInteger currentIndex, BOOL withError) {
-    NSMutableArray<GHOverlayEntry *> *entries = [NSMutableArray array];
+static SBOverlayInput *BuildInput(CGRect canvasAX, NSInteger currentIndex, BOOL withError) {
+    NSMutableArray<SBOverlayEntry *> *entries = [NSMutableArray array];
     for (NSUInteger i = 0; i < kFieldCount; i++) {
         DemoField f = kFields[i];
         CGRect ax = CGRectOffset(f.rect, canvasAX.origin.x, canvasAX.origin.y);
-        GHOverlayEntry *entry = [GHOverlayEntry entryWithSignature:@(f.signature) kind:@(f.kind) displayText:@(f.ghost)
+        SBOverlayEntry *entry = [SBOverlayEntry entryWithSignature:@(f.signature) kind:@(f.kind) displayText:@(f.ghost)
                                                             axRect:ax locked:f.locked];
         entry.streaming = f.streaming;
         [entries addObject:entry];
     }
-    GHOverlayInput *input = [[GHOverlayInput alloc] init];
+    SBOverlayInput *input = [[SBOverlayInput alloc] init];
     input.entries = entries;
     input.currentIndex = currentIndex;
     input.windowAXFrame = canvasAX;
-    input.hud = [GHOverlayHUDInfo infoWithProvider:@"jev (ai-gateway)" latencyMs:@182 cache:@"miss" keystrokesSaved:124];
+    input.hud = [SBOverlayHUDInfo infoWithProvider:@"jev (ai-gateway)" latencyMs:@182 cache:@"miss" keystrokesSaved:124];
     input.error = withError ? @"Email: the page rejected the value" : nil;
     return input;
 }
@@ -160,10 +160,10 @@ int main(int argc, const char *argv[]) {
         NSApplication *app = NSApplication.sharedApplication;
         app.activationPolicy = NSApplicationActivationPolicyAccessory;
 
-        GHOverlayWindow *overlay = [[GHOverlayWindow alloc] init];
+        SBOverlayWindow *overlay = [[SBOverlayWindow alloc] init];
         overlay.offscreen = offscreen;
         if ([args containsObject:@"--reduce-motion"]) overlay.reduceMotionOverride = @YES;
-        GHScreenLayout *layout = overlay.layout;
+        SBScreenLayout *layout = overlay.layout;
         if (layout.count == 0) {
             fprintf(stderr, "overlay-demo: no display attached\n");
             return 2;
@@ -191,7 +191,7 @@ int main(int argc, const char *argv[]) {
         }
 
         NSInteger current = [scene isEqualToString:@"lock"] ? (NSInteger)kFieldCount - 1 : [Option(args, @"--current", @"2") integerValue];
-        GHOverlayInput *input = BuildInput(canvasAX, current, [scene isEqualToString:@"lock"]);
+        SBOverlayInput *input = BuildInput(canvasAX, current, [scene isEqualToString:@"lock"]);
         [overlay renderInput:input];
 
         if (!offscreen && seconds > 0) {

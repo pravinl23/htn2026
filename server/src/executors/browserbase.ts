@@ -1,4 +1,4 @@
-import { isSensitive, pathPatternOf, type FactLocator, type StepTarget } from "@ghost/shared";
+import { isSensitive, pathPatternOf, type FactLocator, type StepTarget } from "@shabang/shared";
 import { applyLoopTransform, type ServerLoopStep } from "../loop/transforms";
 import { isPrivateHost, resolvesPublicly, systemLookup, type HostLookup } from "./netguard";
 import { createSemaphore, runPool, type Semaphore } from "./pool";
@@ -12,7 +12,7 @@ export { isPrivateHost } from "./netguard";
  * POST /v1/sessions { projectId } with header X-BB-API-Key answers 201 { id, connectUrl, status, ... };
  * POST /v1/sessions/{id} { projectId, status: "REQUEST_RELEASE" } ends the session (and its billing) before the timeout.
  * Contexts (https://docs.browserbase.com/features/contexts): `browserSettings: { context: { id, persist } }` on create loads a
- * saved browser profile (cookies, storage). Ghost only ever READS a context (persist: false): parallel sessions that all
+ * saved browser profile (cookies, storage). Shabang only ever READS a context (persist: false): parallel sessions that all
  * persisted into one context would overwrite each other. MUST be confirmed against the live docs before the first real run.
  */
 export const BROWSERBASE_SESSIONS_URL = "https://api.browserbase.com/v1/sessions";

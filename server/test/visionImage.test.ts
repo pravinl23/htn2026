@@ -216,7 +216,7 @@ describe("budget and config", () => {
     expect(budget.snapshot()).toEqual({ limit: 2, used: 2, remaining: 0 });
   });
 
-  it("GHOST_VISION_BUDGET parses whole numbers, 0 included, and keeps the default otherwise", () => {
+  it("SHABANG_VISION_BUDGET parses whole numbers, 0 included, and keeps the default otherwise", () => {
     expect(budgetLimitFrom(undefined)).toBe(DEFAULT_VISION_BUDGET);
     expect(budgetLimitFrom("")).toBe(200);
     expect(budgetLimitFrom("50")).toBe(50);
@@ -235,7 +235,7 @@ describe("budget and config", () => {
     expect(visionConfigFrom(loadConfig({ OPENAI_API_KEY: "k" }), {})).toMatchObject({ model: "gpt-5.6-luna", baseUrl: "https://api.openai.com/v1" });
     expect(visionConfigFrom(loadConfig({ OPENAI_API_KEY: "k" }), { OPENAI_VISION_MODEL: " gpt-5.6-terra " })?.model).toBe("gpt-5.6-terra");
     expect(visionConfigFrom(loadConfig({ XAI_API_KEY: "k" }), {})).toBeUndefined();
-    expect(visionConfigFrom(loadConfig({ OPENAI_API_KEY: "k", GHOST_PROVIDER: "heuristic" }), {})).toBeUndefined();
-    expect(visionConfigFrom(loadConfig({ OPENAI_API_KEY: "k", GHOST_DECISION_PROVIDER: "heuristic", GHOST_TEXT_PROVIDER: "template" }), {})).toBeUndefined();
+    expect(visionConfigFrom(loadConfig({ OPENAI_API_KEY: "k", SHABANG_PROVIDER: "heuristic" }), {})).toBeUndefined();
+    expect(visionConfigFrom(loadConfig({ OPENAI_API_KEY: "k", SHABANG_DECISION_PROVIDER: "heuristic", SHABANG_TEXT_PROVIDER: "template" }), {})).toBeUndefined();
   });
 });

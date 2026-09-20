@@ -11,7 +11,7 @@ It is a single zsh file, `ghost.zsh`, with no dependencies beyond `curl` (which 
 
 ## Install
 
-1. Start the server: `pnpm --filter @ghost/server start` from the repo (or the background LaunchAgent from the main README). It listens on `http://127.0.0.1:8787`.
+1. Start the server: `pnpm --filter @shabang/server start` from the repo (or the background LaunchAgent from the main README). It listens on `http://127.0.0.1:8787`.
 2. Add this line to your `~/.zshrc`, **after** any plugin that rebinds Tab (fzf, fzf-tab, zsh-autosuggestions, oh-my-zsh):
 
    ```zsh
@@ -87,7 +87,7 @@ The request body goes to `curl` on stdin, so it never appears in `ps`, and `curl
 
 ```bash
 pnpm test:terminal            # zsh + zsh/zpty + node + curl; skips with a message when one is missing
-pnpm --filter @ghost/server test command       # the route, candidates, n-gram, filters (vitest, no keys)
+pnpm --filter @shabang/server test command       # the route, candidates, n-gram, filters (vitest, no keys)
 pnpm test:live command        # one real Jev call when TYPESAFE_API_KEY or AI_GATEWAY_API_KEY is set
 ```
 

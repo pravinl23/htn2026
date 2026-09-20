@@ -1,4 +1,4 @@
-import { isSensitive } from "@ghost/shared";
+import { isSensitive } from "@shabang/shared";
 import { isRecord } from "../providers/errors";
 import { BadRequest } from "../providers/validation";
 import { MAX_IMAGE_BYTES, parseImage, type VisionImage } from "./image";
@@ -181,7 +181,7 @@ export function parseLocateRequest(body: unknown): LocateRequest {
   if (reordersText(body.instruction)) throw new BadRequest("instruction must not contain bidirectional control characters");
   const instruction = cleanText(body.instruction);
   if (!instruction || instruction.length > VISION_LIMITS.instructionChars) throw new BadRequest(`instruction must be 1 to ${VISION_LIMITS.instructionChars} characters`);
-  // Rule 3: Ghost never points at a password, card or government-ID field, so it never asks where one is.
+  // Rule 3: Shabang never points at a password, card or government-ID field, so it never asks where one is.
   if (isSensitive({ label: instruction })) throw new BadRequest("instruction refers to a sensitive field");
   const image = parseImage(body.image);
   return { image, instruction, boxes: parseBoxes(body.boxes, image, false) };

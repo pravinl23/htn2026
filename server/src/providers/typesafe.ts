@@ -1,4 +1,4 @@
-import { JEV_MODEL, type Answer, type Answers, type DecisionProvider, type DecisionState, type Questions } from "@ghost/shared";
+import { JEV_MODEL, type Answer, type Answers, type DecisionProvider, type DecisionState, type Questions } from "@shabang/shared";
 import { DecisionProviderError, isRecord } from "./errors";
 import { maxProbability } from "./probabilities";
 import { DECISION_TIMEOUT_MS, sleep, withDeadline } from "./timeout";

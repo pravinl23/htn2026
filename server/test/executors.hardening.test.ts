@@ -59,7 +59,7 @@ describe("finding 2: SSRF guard for cloud browsers", () => {
     const bb = fakeBrowserbase();
     const cloud = new FakeCloud({ texts: { body: "secret-credentials" } });
     const hono = new Hono();
-    registerExecuteRoutes(hono, loadConfig({ BROWSERBASE_API_KEY: "k", BROWSERBASE_PROJECT_ID: "p", GHOST_EXTENSION_ID: "abcdefghijklmnopabcdefghijklmnop" }), { fetch: bb.fetch, connect: cloud.connect, lookup: publicLookup });
+    registerExecuteRoutes(hono, loadConfig({ BROWSERBASE_API_KEY: "k", BROWSERBASE_PROJECT_ID: "p", SHABANG_EXTENSION_ID: "abcdefghijklmnopabcdefghijklmnop" }), { fetch: bb.fetch, connect: cloud.connect, lookup: publicLookup });
     const base = "http://[::ffff:169.254.169.254]";
     const at = { origin: "https://evil.example.com", pathPattern: "/collect" };
     const program = {

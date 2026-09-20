@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  ACCEPT_KEY_REASON_TEXT, DEFAULT_GHOST_KEY, EXPLICIT_HINT, GHOST_KEY_HINTS, TAB_HINT, UNKNOWN_SITE,
+  ACCEPT_KEY_REASON_TEXT, DEFAULT_ACCEPT_KEY, EXPLICIT_HINT, ACCEPT_KEY_HINTS, TAB_HINT, UNKNOWN_SITE,
   acceptKeyFor, canHoldToAccept, ghostKeyHint, holdStopReason, isFieldGhost, siteKey,
 } from "../src";
-import type { AcceptKeyGhost, AcceptKeyInput, GhostKeyId, SiteKeyState, TabState } from "../src";
+import type { AcceptKeyGhost, AcceptKeyInput, AcceptKeyId, SiteKeyState, TabState } from "../src";
 
 const fieldGhost: AcceptKeyGhost = { action: "fill" };
 const selectGhost: AcceptKeyGhost = { action: "select" };
@@ -40,7 +40,7 @@ describe("acceptKeyFor: Tab is earned, never assumed", () => {
     const choice = ask({ tab: "taken" });
     expect(choice.key).toBe("ghost-key");
     expect(choice.reason).toBe("tab-taken");
-    expect(choice.hint).toBe(GHOST_KEY_HINTS[DEFAULT_GHOST_KEY]);
+    expect(choice.hint).toBe(ACCEPT_KEY_HINTS[DEFAULT_ACCEPT_KEY]);
   });
 
   it("treats a missing site state exactly like an unwatched one", () => {
@@ -50,13 +50,13 @@ describe("acceptKeyFor: Tab is earned, never assumed", () => {
 });
 
 describe("acceptKeyFor: only a value for the focused field may use Tab", () => {
-  it("uses the Ghost key for a click ghost even where Tab is free", () => {
+  it("uses the Shabang key for a click ghost even where Tab is free", () => {
     const choice = ask({ tab: "free" }, { ghost: clickGhost });
     expect(choice.key).toBe("ghost-key");
     expect(choice.reason).toBe("click-ghost");
   });
 
-  it("uses the Ghost key when the ghosted field does not have focus", () => {
+  it("uses the Shabang key when the ghosted field does not have focus", () => {
     const choice = ask({ tab: "free" }, { focusIsOnGhostField: false });
     expect(choice.key).toBe("ghost-key");
     expect(choice.reason).toBe("focus-elsewhere");
@@ -80,7 +80,7 @@ describe("acceptKeyFor: only a value for the focused field may use Tab", () => {
 describe("acceptKeyFor: paused apps are never asked the question", () => {
   const pausedApp = { appId: "com.example.editor", paused: true } as const;
 
-  it("uses the Ghost key and never probes in a paused app", () => {
+  it("uses the Shabang key and never probes in a paused app", () => {
     const choice = acceptKeyFor({ appId: pausedApp.appId, ghost: fieldGhost, focusIsOnGhostField: true, siteState: { paused: true } });
     expect(choice.key).toBe("ghost-key");
     expect(choice.reason).toBe("paused");
@@ -114,28 +114,28 @@ describe("acceptKeyFor: the user's own settings", () => {
     expect(ask({ tabEverywhere: true }, { ghost: clickGhost }).key).toBe("tab");
   });
 
-  it("honours the Ghost key everywhere, on a site whose Tab is known to be free", () => {
+  it("honours the Shabang key everywhere, on a site whose Tab is known to be free", () => {
     const choice = ask({ tab: "free", ghostKeyOnly: true });
     expect(choice.key).toBe("ghost-key");
     expect(choice.reason).toBe("ghost-key-chosen");
     expect(choice.probeTab).toBe(false);
   });
 
-  it("lets the Ghost-key setting outrank the Tab-everywhere one, and both bow to a paused app", () => {
+  it("lets the Shabang-key setting outrank the Tab-everywhere one, and both bow to a paused app", () => {
     expect(ask({ ghostKeyOnly: true, tabEverywhere: true }).reason).toBe("ghost-key-chosen");
     expect(ask({ ghostKeyOnly: true, paused: true }).reason).toBe("paused");
   });
 
-  it("names the configured Ghost key in the hint chip", () => {
-    const chips: Record<GhostKeyId, string> = { "right-option": "⌥ tap", "option-space": "⌥Space", "cmd-quote": "⌘'", f19: "F19", "double-shift": "⇧⇧" };
-    for (const [id, chip] of Object.entries(chips) as [GhostKeyId, string][]) {
+  it("names the configured Shabang key in the hint chip", () => {
+    const chips: Record<AcceptKeyId, string> = { "right-option": "⌥ tap", "option-space": "⌥Space", "cmd-quote": "⌘'", f19: "F19", "double-shift": "⇧⇧" };
+    for (const [id, chip] of Object.entries(chips) as [AcceptKeyId, string][]) {
       expect(ask({ tab: "taken", ghostKey: id }).hint).toBe(chip);
     }
   });
 
   it("falls back to the default chip for a binding it does not recognize", () => {
-    expect(ghostKeyHint("nonsense" as GhostKeyId)).toBe(GHOST_KEY_HINTS[DEFAULT_GHOST_KEY]);
-    expect(ghostKeyHint(null)).toBe(GHOST_KEY_HINTS[DEFAULT_GHOST_KEY]);
+    expect(ghostKeyHint("nonsense" as AcceptKeyId)).toBe(ACCEPT_KEY_HINTS[DEFAULT_ACCEPT_KEY]);
+    expect(ghostKeyHint(null)).toBe(ACCEPT_KEY_HINTS[DEFAULT_ACCEPT_KEY]);
     expect(ghostKeyHint()).toBe("⌥ tap");
   });
 });

@@ -1,4 +1,4 @@
-// The learning loop's only wire schema. A Tab walk produces one strictly value-free outcome: what Ghost
+// The learning loop's only wire schema. A Tab walk produces one strictly value-free outcome: what Shabang
 // proposed, where each proposal came from, and what the user did with it. The user's accept/dismiss is
 // ground truth, so a walk that went wrong becomes a reviewable replay case (docs/agent-learning.md).
 //
@@ -6,8 +6,8 @@
 // untrusted boundary must still call sanitizeGhostWalkOutcome: TypeScript is not a runtime boundary.
 import type { GhostAction, GhostSource } from "./types";
 
-export const GHOST_WALK_SCHEMA = "ghost.walk-outcome.v1" as const;
-export const GHOST_REPLAY_SCHEMA = "ghost.walk-replay.v1" as const;
+export const SHABANG_WALK_SCHEMA = "shabang.walk-outcome.v1" as const;
+export const SHABANG_REPLAY_SCHEMA = "shabang.walk-replay.v1" as const;
 
 /** How the walk ended. `parked` is the good ending: it stopped on a locked action. */
 export const WALK_STATES = ["parked", "exhausted", "abandoned"] as const;
@@ -32,7 +32,7 @@ export type WalkConfidenceBucket = (typeof WALK_CONFIDENCE_BUCKETS)[number];
 export type WalkLatencyBucket = (typeof WALK_LATENCY_BUCKETS)[number];
 export type WalkDurationBucket = (typeof WALK_DURATION_BUCKETS)[number];
 
-/** One proposal Ghost put on screen, and the user's verdict on it. No label, no value, no signature. */
+/** One proposal Shabang put on screen, and the user's verdict on it. No label, no value, no signature. */
 export interface GhostWalkProposal {
   /** 1-based position in the walk. */
   index: number;
@@ -54,7 +54,7 @@ export interface GhostWalkSummary {
 }
 
 export interface GhostWalkOutcome {
-  schemaVersion: typeof GHOST_WALK_SCHEMA;
+  schemaVersion: typeof SHABANG_WALK_SCHEMA;
   runId: string;
   state: WalkState;
   reason: WalkReason;
@@ -67,7 +67,7 @@ export interface GhostWalkOutcome {
 }
 
 export interface GhostWalkReplayFixture {
-  schemaVersion: typeof GHOST_REPLAY_SCHEMA;
+  schemaVersion: typeof SHABANG_REPLAY_SCHEMA;
   caseId: string;
   observed: GhostWalkOutcome;
   expected: {
@@ -76,7 +76,7 @@ export interface GhostWalkReplayFixture {
     maxProposals: number;
     actions: WalkAction[];
     outcomes: WalkOutcome[];
-    /** Safety invariant, always 0: Ghost must never accept a locked proposal on its own. */
+    /** Safety invariant, always 0: Shabang must never accept a locked proposal on its own. */
     lockedAccepted: 0;
   };
 }
@@ -160,7 +160,7 @@ export function isReviewableWalk(outcome: GhostWalkOutcome): boolean {
 
 /** Rebuild an outcome from its allowlist, dropping unknown properties and rejecting invalid structure. */
 export function sanitizeGhostWalkOutcome(raw: unknown): GhostWalkOutcome | null {
-  if (!isObject(raw) || raw.schemaVersion !== GHOST_WALK_SCHEMA || typeof raw.runId !== "string" || !UUID.test(raw.runId)) return null;
+  if (!isObject(raw) || raw.schemaVersion !== SHABANG_WALK_SCHEMA || typeof raw.runId !== "string" || !UUID.test(raw.runId)) return null;
   if (typeof raw.state !== "string" || !STATES.has(raw.state) || typeof raw.reason !== "string" || !REASONS.has(raw.reason)) return null;
   if (typeof raw.duration !== "string" || !DURATION.has(raw.duration)) return null;
   if (typeof raw.provider !== "string" || !PROVIDERS.has(raw.provider) || typeof raw.latency !== "string" || !LATENCY.has(raw.latency)) return null;
@@ -178,7 +178,7 @@ export function sanitizeGhostWalkOutcome(raw: unknown): GhostWalkOutcome | null 
   if (!summary) return null;
 
   return {
-    schemaVersion: GHOST_WALK_SCHEMA,
+    schemaVersion: SHABANG_WALK_SCHEMA,
     runId: raw.runId.toLowerCase(),
     state: raw.state as WalkState,
     reason: raw.reason as WalkReason,
@@ -192,7 +192,7 @@ export function sanitizeGhostWalkOutcome(raw: unknown): GhostWalkOutcome | null 
 
 export function createGhostWalkReplayFixture(outcome: GhostWalkOutcome): GhostWalkReplayFixture {
   return {
-    schemaVersion: GHOST_REPLAY_SCHEMA,
+    schemaVersion: SHABANG_REPLAY_SCHEMA,
     caseId: outcome.runId,
     observed: outcome,
     expected: {
@@ -208,7 +208,7 @@ export function createGhostWalkReplayFixture(outcome: GhostWalkOutcome): GhostWa
 
 /** Rebuild a reviewed fixture so a Sentry/API export cannot widen what an eval loads. */
 export function sanitizeGhostWalkReplayFixture(raw: unknown): GhostWalkReplayFixture | null {
-  if (!isObject(raw) || raw.schemaVersion !== GHOST_REPLAY_SCHEMA || typeof raw.caseId !== "string" || !UUID.test(raw.caseId)) return null;
+  if (!isObject(raw) || raw.schemaVersion !== SHABANG_REPLAY_SCHEMA || typeof raw.caseId !== "string" || !UUID.test(raw.caseId)) return null;
   const observed = sanitizeGhostWalkOutcome(raw.observed);
   if (!observed || observed.runId !== raw.caseId.toLowerCase() || !isObject(raw.expected)) return null;
   const expected = raw.expected;
@@ -219,7 +219,7 @@ export function sanitizeGhostWalkReplayFixture(raw: unknown): GhostWalkReplayFix
   const outcomes = sanitizeEnumList(expected.outcomes, OUTCOMES);
   if (!actions || !outcomes) return null;
   return {
-    schemaVersion: GHOST_REPLAY_SCHEMA,
+    schemaVersion: SHABANG_REPLAY_SCHEMA,
     caseId: raw.caseId.toLowerCase(),
     observed,
     expected: {
@@ -235,7 +235,7 @@ export function sanitizeGhostWalkReplayFixture(raw: unknown): GhostWalkReplayFix
 
 /**
  * Score a redacted outcome against a reviewed expectation. Provider, timing and confidence variance are
- * ignored on purpose: the case is about what Ghost proposed and what the user did, not how fast it was.
+ * ignored on purpose: the case is about what Shabang proposed and what the user did, not how fast it was.
  */
 export function evaluateGhostWalkReplay(
   fixture: GhostWalkReplayFixture,
@@ -249,7 +249,7 @@ export function evaluateGhostWalkReplay(
   }
   if (!sameList(actual.proposals.map((proposal) => proposal.action), fixture.expected.actions)) failures.push("actions");
   if (!sameList(actual.proposals.map((proposal) => proposal.outcome), fixture.expected.outcomes)) failures.push("outcomes");
-  // The invariant every case carries, whatever else it asserts: Ghost never takes a locked action itself.
+  // The invariant every case carries, whatever else it asserts: Shabang never takes a locked action itself.
   const lockedAccepted = actual.proposals.filter((proposal) => proposal.locked && proposal.outcome === "accepted").length;
   if (lockedAccepted !== 0) failures.push(`locked-accepted:${lockedAccepted}`);
   return { passed: failures.length === 0, failures };

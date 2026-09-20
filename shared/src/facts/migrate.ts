@@ -34,7 +34,7 @@ export function profileToGraph(profile: Profile, source: FactSource = { kind: "u
 }
 
 /**
- * The graph as the flat facts the rest of Ghost still reads. Sensitive facts are left out: they are the
+ * The graph as the flat facts the rest of Shabang still reads. Sensitive facts are left out: they are the
  * user's to type into a field themselves, and `Profile.facts` keys travel to the server.
  */
 export function graphToProfileFacts(graph: FactGraph): Record<string, string> {

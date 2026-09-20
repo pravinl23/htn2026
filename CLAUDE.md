@@ -37,14 +37,14 @@ Read `PLAN.md` (what to build, in order), `PROGRESS.md` (what previous runs did)
    benchmarked, and `desktop/core/knowledge.ts` consumes it. The desktop's next-action path is
    `GHController -> GHNextAction -> desktop/core/anywhere.ts -> shared/src/affordance`, all in process.
    **`server/src/providers/nextPredict.ts` is NOT on that path at all** — the desktop only ever posts
-   `/v1/predict/form` and `/v1/ghost-text` — and it still answers `none` on real pages. Leave it alone
+   `/v1/predict/form` and `/v1/shabang-text` — and it still answers `none` on real pages. Leave it alone
    unless something is actually going to call it.
 4. `server/src/observability/walkSink.ts` is the Sentry sink for the rejection stream, and it is wired.
    `/v1/walk/replays` stays near-empty on purpose: `isReviewableWalk` keeps only abandoned walks, locked
    accepts and confident rejections. A healthy accepted walk is a counter and a Sentry event, not a fixture.
 5. **`GHVision` is written, unit-tested and called from nowhere.** It is what would name the icon-only
    controls that currently classify `unknown`. Wiring it is the top remaining item.
-6. A conversation on screen is read by `GHConversation` and answered through `/v1/ghost-text`'s optional
+6. A conversation on screen is read by `GHConversation` and answered through `/v1/shabang-text`'s optional
    `conversation` field. It keys on the accessible-description shape `"<who>, <what>, <when>"` that macOS
    asks messaging apps to publish — not on any app. See `MORNING.md` for what is proven live.
 
@@ -94,7 +94,7 @@ shared/      The brain, and the only place prediction logic lives
 server/      Node 22 + TypeScript (Hono) prediction service on http://localhost:8787
   src/providers/   decision providers (TypeSafe Jev direct, Jev via Gateway, Baseten, LLM, heuristic)
   src/observability/  Sentry: tracing, logs, metrics, profiling, and walkSink (the rejection stream)
-  src/routes/      /v1/health, /v1/predict/form, /v1/predict/next, /v1/ghost-text, /v1/walk/outcomes, /v1/metrics
+  src/routes/      /v1/health, /v1/predict/form, /v1/predict/next, /v1/shabang-text, /v1/walk/outcomes, /v1/metrics
 demo/        Local demo sites on http://localhost:5173. Kept as the SAFE test surface: rule 5 below
              says never drive a real site in an automated test, so the native agent rehearses here
 terminal/    zsh line-editor ghost (`source terminal/ghost.zsh`)

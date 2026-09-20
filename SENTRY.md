@@ -199,7 +199,7 @@ Start the server and confirm the one line it prints. It never lies about state:
 line says `profiling=off` and you silently lose a product.
 
 ```bash
-PATH="/opt/homebrew/opt/node@22/bin:$PATH" pnpm --filter @ghost/server dev
+PATH="/opt/homebrew/opt/node@22/bin:$PATH" pnpm --filter @shabang/server dev
 ```
 
 ### The desktop agent loads ONE OF TWO libraries

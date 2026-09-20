@@ -90,7 +90,7 @@ export type GhostSource = "offline" | "server" | "cache" | "llm" | "loop";
 
 /**
  * How sure a proposal is, and therefore how it is DRAWN (docs/always-propose.md). The confidence threshold
- * picks the tier; it never decides whether a ghost exists. Ghost always proposes something it can see.
+ * picks the tier; it never decides whether a ghost exists. Shabang always proposes something it can see.
  *
  * | tier        | drawn as                                                            |
  * | ----------- | ------------------------------------------------------------------- |
@@ -122,11 +122,11 @@ export function ghostTier(confidence: number, threshold: number, guessed = false
 export type SkipReason =
   /** Password, payment card or government ID: never captured, never proposed, never filled. */
   | "sensitive"
-  /** The field already carries a value (or a ticked box). Ghost never overwrites what is there. */
+  /** The field already carries a value (or a ticked box). Shabang never overwrites what is there. */
   | "already-answered"
   /** Nothing to propose with: no fact, no learned answer, no option to pick, no draft, no control. */
   | "no-candidate"
-  /** Ghost is switched off or paused for this page or app. */
+  /** Shabang is switched off or paused for this page or app. */
   | "paused";
 
 /** A named refusal to propose. The type makes every silent `return null` impossible to write by accident. */
@@ -135,7 +135,7 @@ export interface GhostSkip {
 }
 
 /** One step of the fallback chain: a proposal, a named skip, or null meaning "try the next fallback". */
-export type GhostStep = Ghost | GhostSkip | null;
+export type GhostStep = Shabang | GhostSkip | null;
 
 export function skipGhost(reason: SkipReason): GhostSkip {
   return { skip: reason };
@@ -147,13 +147,13 @@ export function isSkip<T extends object>(step: T | GhostSkip | null): step is Gh
 }
 
 /**
- * What a question is, as far as Ghost is allowed to answer it (docs/answers.md section 1). Structurally the
- * same union as `QuestionClass` in ./answers/classify; spelled here so `Ghost` does not depend on that module.
+ * What a question is, as far as Shabang is allowed to answer it (docs/answers.md section 1). Structurally the
+ * same union as `QuestionClass` in ./answers/classify; spelled here so `Shabang` does not depend on that module.
  */
 export type AnswerClass = "ordinary" | "protected" | "declaration";
 
 /** One precomputed suggestion. Tab walks these in memory. */
-export interface Ghost {
+export interface Shabang {
   signature: string;
   action: GhostAction;
   /** Value to write (fill), option value (select/radio), "true"/"false" (check). Unused for click. */
@@ -171,7 +171,7 @@ export interface Ghost {
    */
   tier?: GhostTier;
   /**
-   * Ghost inferred this rather than knowing it, or it came in under the threshold (docs/answers.md section 3
+   * Shabang inferred this rather than knowing it, or it came in under the threshold (docs/answers.md section 3
    * and docs/always-propose.md). A guess is drawn with a dotted underline and a "guess" chip, and hold-to-
    * accept always stops at the first one. Set for every tier other than "confident".
    */
@@ -198,7 +198,7 @@ export interface GhostSettings {
   /**
    * Answer a protected question (gender, race, veteran or disability status...) with the form's OWN
    * "prefer not to answer" option. On by default (docs/answers.md section 1): declining is a true answer
-   * for anyone and it completes the form. Ghost never invents a characteristic either way.
+   * for anyone and it completes the form. Shabang never invents a characteristic either way.
    */
   answerProtectedWithDecline: boolean;
 }

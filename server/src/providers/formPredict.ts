@@ -7,7 +7,7 @@ import {
   type FieldAssignment,
   type FormPredictRequest,
   type FormPredictResponse,
-} from "@ghost/shared";
+} from "@shabang/shared";
 import { LruCache } from "../lib/cache";
 import { buildFormDecision, cleanFactKeys, factCriteria, isModelCandidate, readFormAnswer, wordingFor } from "./formQuestions";
 import { DECISION_TIMEOUT_MS, withDeadline } from "./timeout";

@@ -202,7 +202,7 @@ function segmentIsDestructive(words: string[]): boolean {
   return false;
 }
 
-/** True for commands Ghost must never suggest (rm -rf, force pushes, sudo, DROP TABLE, ...). Over-blocking is fine. */
+/** True for commands Shabang must never suggest (rm -rf, force pushes, sudo, DROP TABLE, ...). Over-blocking is fine. */
 export function isDestructive(command: string): boolean {
   if (LINE_RULES.some((re) => re.test(command))) return true;
   return command.split(SEPARATORS).some((segment) => segmentIsDestructive(tokens(segment)));

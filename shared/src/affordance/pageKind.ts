@@ -137,7 +137,7 @@ export function inferPageKind(signals: PageSignals): PageKindGuess {
 
   // A form is a page whose fields are the POINT, not a page that happens to contain three of them. Counting
   // them alone made YouTube a form -- 140 candidates, a handful of boxes, evidence "field-count, submit-role"
-  // -- and `form` leads with `field 0.70`, which is why Ghost reached for the search box on every page with
+  // -- and `form` leads with `field 0.70`, which is why Shabang reached for the search box on every page with
   // a search box. Measured: a job application is two thirds fields; a video site is a few per cent.
   const fieldShare = fields + controls > 0 ? fields / (fields + controls) : 0;
   const looksLikeAForm = fields >= 3 && fieldShare >= FORM_FIELD_SHARE;
@@ -154,7 +154,7 @@ export function inferPageKind(signals: PageSignals): PageKindGuess {
     for (const hint of PATH_HINTS) if (scores.of(hint.kind) > 0 && hint.re.test(path)) scores.add(hint.kind, 0.08, "path-pattern");
   }
 
-  // The floor: a window that offers controls at all is at least an app, so Ghost always has SOME place to reason about.
+  // The floor: a window that offers controls at all is at least an app, so Shabang always has SOME place to reason about.
   if (classified.length >= 1) scores.add("app", classified.length >= 2 ? SPECIFIC_FLOOR : 0.35, "has-controls");
   if (typeof signals.appBundleId === "string" && signals.appBundleId !== "") scores.add("app", 0.08, "app-bundle");
   if (classified.length === 0) scores.add("unknown", MIN_CONFIDENCE, "no-candidates");

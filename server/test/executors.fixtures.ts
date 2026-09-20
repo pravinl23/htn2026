@@ -1,4 +1,4 @@
-import type { FactLocator, LoopProgram, StepTarget } from "@ghost/shared";
+import type { FactLocator, LoopProgram, StepTarget } from "@shabang/shared";
 import type { CdpConnector, RemotePage } from "../src/executors/browserbase";
 import type { HostLookup } from "../src/executors/netguard";
 import type { ExecuteItem, ExecuteJob } from "../src/executors/types";

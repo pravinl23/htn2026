@@ -1,6 +1,6 @@
 // The open fact graph (docs/profile-sources.md section 1).
 //
-// Ghost used to carry a résumé: 19 fixed keys. That is why it shone on a job form and went blank on a
+// Shabang used to carry a résumé: 19 fixed keys. That is why it shone on a job form and went blank on a
 // shipping address, a support ticket or a conference signup. A fact graph has no fixed key set: a fact is
 // a dotted key, a value, a human label, the phrasings a form might use for it, and where it came from.
 // Adding a fact teaches every form at once, because the mapper matches labels, never key names.

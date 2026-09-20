@@ -17,7 +17,7 @@ Code: `server/src/observability/**`. Turned on by `SENTRY_DSN` and nothing else.
 
 ```
 SENTRY_DSN=...            # the ghost-server (Node) project
-GHOST_ENV=demo            # environment tag, default "dev"
+SHABANG_ENV=demo            # environment tag, default "dev"
 ```
 
 Everything else has a working default: traces are sampled at 1.0, profiling at 1.0, logs and metrics are on, and the
@@ -60,7 +60,7 @@ Free text is streamed, so it gets a different shape. The transaction is delibera
 token**, because the HTTP response returns after a few milliseconds while the user is still waiting for the draft:
 
 ```
-POST /v1/ghost-text                       http.server          1519 ms
+POST /v1/shabang-text                       http.server          1519 ms
 └── ghost.text                            ghost.predict           6 ms
     └── llm.stream                        gen_ai.chat          1515 ms   model=zai-org/GLM-5.3-Flash streaming=true
         └── llm.first-token               gen_ai.chat.first_token 850 ms
@@ -186,7 +186,7 @@ The walk telemetry modules themselves are owned elsewhere and are not written he
   nothing), and the startup line says so. Run the server on Node 22 to get profiles.
 - **The single-file bundle has no Sentry.** `server/build.mjs` produces one file for the background LaunchAgent, and
   the SDK is deliberately left out of it (it has a native dependency). The import specifier is assembled at run time,
-  so the bundle simply starts with observability off. `pnpm --filter @ghost/server dev` / `start` have it.
+  so the bundle simply starts with observability off. `pnpm --filter @shabang/server dev` / `start` have it.
 - **Inside `predict.form` there is one span, not four.** `cache.lookup`, `answers.propose` and `gate.evaluate` happen
   inside `server/src/providers/formPredict.ts`, which this instrumentation does not modify; their outcome is on the
   `predict.form` span and in the decision log (`ghost.cache`, `ghost.fast_path`, the bucket counts) rather than as

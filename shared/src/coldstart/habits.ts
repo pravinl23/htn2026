@@ -372,7 +372,7 @@ const PLACE_PHRASE: Record<PageKind, string> = {
   mail: "in a mailbox",
   form: "filling something in",
   app: "in an app",
-  unknown: "somewhere Ghost cannot place",
+  unknown: "somewhere Shabang cannot place",
 };
 
 const BUCKET_PHRASE: Record<TimeBucket, string> = {

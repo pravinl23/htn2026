@@ -4,7 +4,7 @@
 // buckets, the kinds of page seen and the actions taken, plus role-keyed counters with no host attached at all.
 // This is the one-way door on the other side: aggregates in, habit counters out, and nothing else crosses.
 //
-// It is how a first-run Ghost is useful before the user has taught it anything, and it is the only thing that
+// It is how a first-run Shabang is useful before the user has taught it anything, and it is the only thing that
 // makes the middle column of the benchmark (docs/knowledge.md section 6) real rather than imagined.
 import type { HabitAggregate, OriginHabit, TimeBucket } from "../coldstart/habits";
 import { OTHER_ORIGIN } from "../coldstart/habits";

@@ -1,4 +1,4 @@
-import { isSensitive, normalizeUrl, type FactLocator, type FactsByUrl, type FieldKind, type LoopCandidate, type PageFact, type TraceEvent, type TraceEventType, type TraceTarget } from "@ghost/shared";
+import { isSensitive, normalizeUrl, type FactLocator, type FactsByUrl, type FieldKind, type LoopCandidate, type PageFact, type TraceEvent, type TraceEventType, type TraceTarget } from "@shabang/shared";
 import { isRecord } from "../providers/errors";
 import { BadRequest } from "../providers/validation";
 import { isIdOrCardNumber } from "./secrets";

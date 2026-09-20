@@ -1,5 +1,5 @@
-// Ghost anywhere on the native side (docs/anywhere.md). The desktop half of the core bridge: turns the
-// candidates GHAffordance built from an accessibility tree into ONE ranked proposal, using the SHARED
+// Shabang anywhere on the native side (docs/anywhere.md). The desktop half of the core bridge: turns the
+// candidates SBAffordance built from an accessibility tree into ONE ranked proposal, using the SHARED
 // affordance layer (`shared/src/affordance/**`) that the extension ranker and the vision adapter also use.
 //
 // Nothing here may name an app, a bundle id, a host or a brand: every rule reads what the window OFFERS.
@@ -13,7 +13,7 @@ import {
   lockedForRole,
   predictByRole,
   priorsFor,
-} from "@ghost/shared";
+} from "@shabang/shared";
 import type {
   AffordanceCandidate,
   AffordanceContext,
@@ -23,7 +23,7 @@ import type {
   RankedAffordance,
   RoleMemorySnapshot,
   RoleOutcome,
-} from "@ghost/shared";
+} from "@shabang/shared";
 
 /** What the native capture measured about the window, plus the moment's prior state. All of it generic. */
 export interface NextActionSignals extends PriorState {
@@ -65,7 +65,7 @@ export interface NextActionResult {
   threshold: number;
   /** Ranked, best first. Never longer than `limit`. */
   proposals: NextActionRow[];
-  /** The one Ghost proposes. Null only when the window offers nothing at all to act on. */
+  /** The one Shabang proposes. Null only when the window offers nothing at all to act on. */
   top: NextActionRow | null;
   /** Ids that classified `unknown` with nothing readable on them: what the vision fallback exists for. */
   unnamed: string[];
@@ -232,7 +232,7 @@ function looksUnnamed(candidate: AffordanceCandidate): boolean {
 
 /**
  * The whole native next-action pass: classify, infer the place, take its priors, rank with role memory.
- * Returns JSON; `top` is the one thing Ghost would propose, already gated on the caller's threshold.
+ * Returns JSON; `top` is the one thing Shabang would propose, already gated on the caller's threshold.
  */
 export function nextAction(candidatesJson: string, signalsJson: string, memoryJson?: string, optionsJson?: string): string {
   const candidates = asCandidates(candidatesJson);

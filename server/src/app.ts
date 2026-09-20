@@ -22,7 +22,7 @@ export function createApp(config: ServerConfig = loadConfig()): Hono {
   if (observability.middleware) app.use("*", observability.middleware); // one transaction per request (docs/observability.md)
   registerPredictRoutes(app, config, observability.predict); // /v1/health, /v1/predict/form, /v1/predict/next
   registerWalkTelemetryRoutes(app, config); // /v1/walk/outcomes, /v1/walk/replays
-  registerTextRoutes(app, config, observability.text); // /v1/ghost-text, /v1/profile/extract
+  registerTextRoutes(app, config, observability.text); // /v1/shabang-text, /v1/profile/extract
   registerMetricsRoutes(app, config); // /v1/metrics
   registerPresenceRoutes(app, config); // /v1/presence (extension and desktop heartbeats)
   registerLoopRoutes(app, config, observability.loop); // /v1/loop/synthesize
