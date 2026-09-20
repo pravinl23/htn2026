@@ -10,7 +10,7 @@ import type { LearnerDeps } from "../src/content/learning";
 import type { ToastRequest } from "../src/content/learnToast";
 import { createEmitter } from "../src/lib/events";
 import type { GhostEmitter } from "../src/lib/events";
-import { getProfile, resetMemoryStorage, saveProfile } from "../src/lib/storage";
+import { getLearnedAnswers, getProfile, resetMemoryStorage, saveProfile } from "../src/lib/storage";
 
 const ZERO = { x: 0, y: 0, width: 0, height: 0 };
 const field = (over: Partial<CapturedField> & { signature: string; label: string }): CapturedField => ({ kind: "text", rect: ZERO, ...over });
@@ -266,6 +266,19 @@ describe("Learner", () => {
     await settle();
     expect((await getProfile()).facts.phone).toBe("+1 519 555 0142");
     expect(toasts.map((t) => t.text)).toEqual(["Ghost learned: phone"]);
+  });
+
+  it("persists a manual choice in the site-independent answer store", async () => {
+    const authorization = field({
+      signature: "auth",
+      label: "Are you legally authorized to work in the United States?",
+      kind: "select",
+      options: [{ value: "no", label: "No" }, { value: "yes", label: "Yes" }],
+    });
+    await start({ capture: () => [FIRST, authorization] });
+    typed(authorization, "yes");
+    await settle();
+    expect((await getLearnedAnswers()).get(authorization)).toMatchObject({ value: "yes", optionLabel: "Yes", count: 1 });
   });
 
   it("debounces per field: the last committed value is the one lesson", async () => {

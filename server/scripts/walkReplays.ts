@@ -1,11 +1,20 @@
-import { createGhostWalkReplayFixture, evaluateGhostWalkReplay, sanitizeGhostWalkReplayFixture, sanitizeGhostWalkOutcome } from "@ghost/shared";
-import type { GhostWalkReplayFixture } from "@ghost/shared";
+import {
+  GHOST_LEARNING_REPLAY_SCHEMA,
+  createGhostWalkReplayFixture,
+  evaluateGhostLearningReplay,
+  evaluateGhostWalkReplay,
+  sanitizeGhostLearningReplayFixture,
+  sanitizeGhostWalkReplayFixture,
+  sanitizeGhostWalkOutcome,
+} from "@ghost/shared";
+import type { GhostLearningReplayFixture, GhostWalkReplayFixture } from "@ghost/shared";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_DIR = join(REPO, "evals/walk-replays");
+const DEFAULT_LEARNING_DIR = join(REPO, "evals/learning-replays");
 
 async function main(): Promise<void> {
   const [command = "eval", ...args] = process.argv.slice(2);
@@ -16,11 +25,23 @@ async function main(): Promise<void> {
 }
 
 async function evaluateFiles(args: string[]): Promise<void> {
-  const paths = args.length > 0 ? args.map(repoPath) : (await readdir(DEFAULT_DIR)).filter((name) => name.endsWith(".json")).map((name) => join(DEFAULT_DIR, name));
+  const paths = args.length > 0 ? args.map(repoPath) : [
+    ...(await readdir(DEFAULT_DIR)).filter((name) => name.endsWith(".json")).map((name) => join(DEFAULT_DIR, name)),
+    ...(await readdir(DEFAULT_LEARNING_DIR)).filter((name) => name.endsWith(".json")).map((name) => join(DEFAULT_LEARNING_DIR, name)),
+  ];
   if (paths.length === 0) usage("no replay fixtures found");
   let cases = 0;
   const failures: string[] = [];
   for (const path of paths) {
+    const raw = JSON.parse(await readFile(path, "utf8")) as unknown;
+    if (isObject(raw) && raw.schemaVersion === GHOST_LEARNING_REPLAY_SCHEMA) {
+      const fixture = sanitizeGhostLearningReplayFixture(raw);
+      if (!fixture) throw new Error(`invalid learning replay: ${relative(path)}`);
+      cases++;
+      const result = evaluateGhostLearningReplay(fixture);
+      if (!result.passed) failures.push(`${fixture.caseId}: ${result.failures.join(", ")}`);
+      continue;
+    }
     const fixtures = await fixturesFromFile(path);
     for (const fixture of fixtures) {
       cases++;
@@ -32,7 +53,7 @@ async function evaluateFiles(args: string[]): Promise<void> {
     for (const failure of failures) console.error(`FAIL ${failure}`);
     throw new Error(`${failures.length}/${cases} walk replay evals failed`);
   }
-  console.log(`walk replay evals: ${cases} passed from ${paths.length} file(s)`);
+  console.log(`learning-loop replay evals: ${cases} passed from ${paths.length} file(s)`);
 }
 
 async function exportLocal(args: string[]): Promise<void> {

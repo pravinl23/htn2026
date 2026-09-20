@@ -84,6 +84,18 @@ describe("WalkOutcomeReporter", () => {
     expect(sent[0]?.summary).toMatchObject({ shown: 3, accepted: 0, dismissed: 3 });
   });
 
+  it("keeps only closed, value-free answer metadata for Sentry", () => {
+    const { events, sent } = setup();
+    events.emit("ghosts:shown", { count: 1, source: "offline" });
+    events.emit("ghost:dismissed", {
+      ghost: ghost({ source: "offline", answer: { class: "declaration", source: "guess", needsReview: true } }),
+      reason: "typed",
+    });
+    events.emit("walk:finished");
+    expect(sent[0]?.proposals[0]?.answer).toEqual({ class: "declaration", source: "guess", needsReview: true });
+    expect(JSON.stringify(sent[0])).not.toMatch(/authorized|greenhouse|yes/i);
+  });
+
   it("reports the walk as exhausted when nothing locked is left", () => {
     const { events, sent } = setup({ remaining: [] });
     events.emit("ghosts:shown", { count: 1, source: "cache" });

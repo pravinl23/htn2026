@@ -1,68 +1,110 @@
-# Redacted walk outcomes, Sentry, and replay evals
+# Ghost learning loop: local memory, Jev context, Sentry, and replay evals
 
-Ghost has a controlled learning loop for the Tab walk — the path the extension and Ghost Desktop both drive
-through `POST /v1/predict/form`. It learns by turning reviewed failures into regression fixtures. It never
-changes prompts, thresholds, code, or model behavior in production.
+Ghost has one product learning loop with two deliberately different latency tiers:
 
-The ground truth is the user. Every ghost is either accepted (Tab), escaped, typed over, or left unresolved,
-and that verdict is the label. A walk that went wrong becomes a reviewable case; a healthy walk stays a counter.
+1. **Runtime learning is local.** A correction or repeated action is persisted on-device and can change the
+   next ghost without waiting for Sentry, Jev, an LLM, or the Ghost server.
+2. **Reliability learning is asynchronous.** Every Tab walk emits a value-free outcome. Sentry is the durable
+   failure inbox, and reviewed failures become deterministic replay fixtures that gate later code changes.
+
+Sentry is observability, not the runtime memory database. Putting Sentry reads on the Tab path would make the
+experience slower and less reliable. The two tiers meet at the same proposal metadata and the same user verdict:
+accepted, escaped, typed over, refused, or unresolved.
 
 ```text
-one Tab walk
-  -> content script builds a value-free outcome from controller events
-  -> background worker rebuilds it from an allowlist
-  -> local server validates it again
-     -> Sentry event + reviewable-walk JSON attachment (when SENTRY_DSN is set)
-     -> bounded in-memory replay review queue
-  -> human reviews and promotes a fixture
-  -> deterministic replay eval runs in CI/local tests
+user action / correction
+  ├─ local fast path
+  │    ├─ form answer -> ghost.answers -> proposeAnswer() on the next scan/site
+  │    └─ generic action -> FastLaneMemory -> immediate next-action suggestion
+  │                                  └─ relevant examples -> Jev state.memory (async refinement)
+  └─ value-free outcome
+       -> extension allowlist -> server allowlist -> one Sentry client + one scrubber
+       -> reviewable replay -> policy eval and/or synthetic semantic learning eval
 ```
 
-## What is captured
+## How form corrections reach the next site
 
-The versioned `ghost.walk-outcome.v1` envelope can represent only:
+With **Learn from what I type** enabled, `extension/src/content/learning.ts` records a manual answer through the
+shared `recordCorrection` policy. `LearnedAnswerStore` persists it in `chrome.storage.local` under
+`ghost.answers`. The key is a site-independent normalized question signature; company names and harmless ATS
+wording such as “legally” and “for any employer” are removed, and choice answers also retain their visible
+option label so a site-specific value can be remapped.
 
-- how the walk ended (`parked`, `exhausted`, `abandoned`) and a closed reason code;
-- per proposal: the closed action kind (`fill`, `select`, `check`, `click`), the closed source
-  (`offline`, `server`, `cache`, `llm`, `loop`), a `calibrated` and a `locked` boolean, a coarse confidence
-  bucket, and the user's closed verdict (`accepted`, `escaped`, `typed-over`, `refused`, `unresolved`);
-- bounded counts of what was shown, accepted, dismissed and locked;
-- provider category and coarse latency/duration buckets;
-- a random run UUID used to join the event to its replay.
+On every form scan, `proposeAnswer()` applies answers in this order:
 
-It has no fields for labels, question text, field signatures, values, typed or generated text, the URL,
-origin or page title, the profile, the DOM, or screenshots. Unknown provider, source and dismissal strings
-collapse onto the closed vocabulary; they are never forwarded verbatim. The summary must agree with the
-proposals it describes, or the whole envelope is rejected.
+1. a learned correction;
+2. a supported profile fact;
+3. a visible conservative guess;
+4. no proposal for sensitive or unsafe-to-invent answers.
 
-The content script creates the envelope, the background worker sanitizes it, and the server sanitizes it
-again. Sentry initializes only when a valid `SENTRY_DSN` exists, with default integrations disabled, default
-PII disabled, and tracing disabled. Its `beforeSend` hook discards the proposed SDK event and reconstructs a
-new one from the validated outcome, so future request, user, breadcrumb, exception, or scope data cannot be
-added accidentally.
+Learned answers are applied locally before the model result. `predictableFields(fields, answers)` removes a
+field with a learned answer from `FormPredictRequest`, so its value, signature, and question wording do not go
+to the server or Jev. This is faster than passing the correction through model state and makes the privacy
+boundary structural. The options page's **Learned** tab lists and deletes this local memory.
 
-### Why no question signature
+A guess has `answer.needsReview: true`, renders with a dotted treatment, and stops held Tab. One fresh Tab can
+still accept it. A learned answer does not stop held Tab.
 
-`docs/answers.md` proposes learning a correction against a `questionSignature` so an answer learned on
-Greenhouse applies on Lever. That signature is derived from normalized question text, which is page content,
-and this envelope deliberately carries none. The two are compatible but separate: learned answers stay on the
-device (`chrome.storage.local`, `answers.json`), and only the value-free counters above cross the wire. If a
-future case genuinely needs to identify a question, it must use an explicitly synthetic, reviewed page fixture
-rather than production telemetry.
+## How generic action learning reaches Jev
 
-## What counts as reviewable
+Forms and generic computer-use actions have different state:
 
-Only three things put a walk in the review queue, so the corpus stays small and every case means something:
+- A form correction already contains the user's answer, so asking Jev to decide it again adds latency and can
+  only make the result worse. It stays local.
+- For buttons, links, search/results flows, and repeated navigation, the background worker stores value-free
+  state-to-action pairs in `FastLaneMemory`. It returns a matching local suggestion immediately.
 
-1. **A safety violation** — a locked proposal was accepted. This must never happen, and every fixture asserts
-   `lockedAccepted: 0` whatever else it checks.
-2. **A calibration failure** — a *calibrated* provider proposed something with high confidence and the user
-   rejected it. An uncalibrated rejection is not a failure: its confidence was never a promise.
-3. **An abandoned walk** — the user left mid-walk or switched Ghost off.
+When the server is configured, the visible local suggestion never waits for it. `/v1/predict/next` runs in the
+background and warms a short-lived upgrade for the next rescan. The server's `buildNextDecision()` passes the
+relevant examples to Jev in the typed state object:
 
-## Configure Sentry
+```ts
+type NextState = {
+  page: { origin: string; url: string };
+  recentActions: TraceEvent[];
+  candidates: NextCandidate[];
+  memory: EpisodicPair[];
+};
+```
 
-Create a Sentry **Node.js** project, then put its client-key DSN in the gitignored root `.env`:
+Opaque signatures are removed before model state is built, sensitive actions are filtered again on the server,
+and recall is constrained by evidence from the current origin. Local query values never enter `state.memory`.
+
+## Where the LLM fits without slowing Tab
+
+Jev picks from closed choices; it does not generate text. Free-text fields use the existing speculative draft
+path: `DraftScheduler` starts `/v1/ghost-text` while the user is still on earlier fields and caches the result.
+Tab consumes an in-memory draft; it does not start an LLM call. A pending draft stops held Tab, just like a
+guess. A template fallback keeps the path functional without a key.
+
+The LLM does not rewrite prompts, thresholds, learned answers, or production policy. Semantic learning
+regressions are exercised by reviewed synthetic fixtures in code, not by a model running in the critical path.
+
+## Sentry: one client, one scrubber
+
+`server/src/observability/instrument.ts` is the only module allowed to call `Sentry.init`. Server startup calls it
+once. Default integrations, tracing, loader hooks, and default PII are disabled. `normalizeDepth` is 6 so the
+nested proposal array reaches `beforeSend` intact.
+
+`server/src/observability/scrub.ts` is the only outbound boundary. It rejects non-walk events, validates the
+outcome again, then rebuilds the event and any replay attachment from an allowlist. The event may contain only:
+
+- closed walk state/reason/provider/action/source/verdict values;
+- coarse confidence, latency, and duration buckets;
+- booleans and bounded counts;
+- value-free answer metadata: class (`ordinary`, `protected`, `declaration`), source
+  (`fact`, `learned`, `guess`), and `needsReview`;
+- a random run UUID.
+
+It cannot represent a field label, question, value, signature, typed/generated text, URL, origin, page title,
+profile, DOM, breadcrumb, request, user, exception, or screenshot. Unknown properties are dropped; invalid
+closed-vocabulary values reject the envelope.
+
+`captureEvent()` returns an ID before transport. The sink therefore waits for `Sentry.flush(2000)` and reports
+`captured: true` only after the real SDK drains successfully. This happens after the walk through a best-effort
+message path and never gates a ghost or a Tab press.
+
+Configure a Sentry **Node.js** project in the gitignored root `.env`:
 
 ```dotenv
 SENTRY_DSN=https://PUBLIC_KEY@o123.ingest.sentry.io/456
@@ -70,55 +112,58 @@ SENTRY_ENVIRONMENT=hackathon
 SENTRY_RELEASE=ghost@YOUR_GIT_SHA
 ```
 
-No Sentry auth token is required to send SDK events. Keep API/auth tokens out of the repo. With no
-`SENTRY_DSN` the route still accepts outcomes and queues replays locally, reporting `captured: false`; adding
-the DSN activates the live sink without a code change. `GHOST_PROVIDER=heuristic` intentionally disables
-Sentry so deterministic e2e cannot make external calls even if the shell contains a DSN.
+No auth token is needed for SDK ingestion. With no DSN, outcomes are still accepted and reviewable cases enter
+the bounded local queue, but `captured` is false. `GHOST_PROVIDER=heuristic` disables Sentry for deterministic
+e2e. `GET /v1/health` reports `sentry: "on" | "off"` from the validated configuration.
 
-If Ghost is installed as a LaunchAgent, add the same three variables to `~/.config/ghost/env` and restart it:
+## Reviewed replay loop
+
+There are two fixture types because the production privacy boundary is intentional:
+
+- `ghost.walk-replay.v1` contains only value-free proposal verdicts. `replayGhostWalkPolicy()` recomputes the
+  terminal state, reason, counts, reviewability, and locked-action invariant instead of comparing telemetry to
+  itself.
+- `ghost.learning-replay.v1` is a checked-in, synthetic, human-reviewed fixture that may contain fake question
+  wording and fake values. It runs the real `LearnedAnswerStore`, `recordCorrection()`, and `proposeAnswer()`
+  across site variants. Production Sentry events can never be promoted into this format without a human
+  supplying synthetic data.
+
+A walk is reviewable when a locked proposal was accepted, a high-confidence calibrated proposal was rejected,
+or the walk was abandoned. The local queue keeps the newest 100 cases; Sentry is the durable inbox.
 
 ```bash
-launchctl kickstart -k gui/$(id -u)/dev.ghost.server
-```
+# Run both the value-free policy replay and semantic learning fixtures.
+pnpm eval:learning-loop
 
-## Inspect, export, and promote
+# Legacy command name; it now runs the same combined corpus.
+pnpm eval:walk-replays
 
-Every reviewable walk becomes a `ghost.walk-replay.v1` case in a newest-first, process-local queue capped at
-100. The same case goes into the Sentry event extras and is attached as `walk-replay-<run-id>.json` when
-Sentry is configured.
-
-```bash
-# Inspect the volatile local review queue.
+# Inspect/export the volatile queue.
 curl -s http://127.0.0.1:8787/v1/walk/replays
-
-# Export it to canonical, schema-validated JSON.
 pnpm eval:walk-replays export --out evals/walk-replays/captured.json
 
-# Promote a local bundle or a Sentry event JSON containing
-# extra.walk_replay or extra.walk_outcome.
+# Promote a reviewed local bundle or scrubbed Sentry event.
 pnpm eval:walk-replays promote sentry-event.json \
   --out evals/walk-replays/reviewed-case.json
-
-# Run every checked-in replay expectation.
-pnpm eval:walk-replays
 ```
 
-Review the page-independent failure signature and edit `expected` to describe the behavior the fixed system
-should produce before committing the fixture. The evaluator compares how the walk ended, the proposal
-ceiling, the action sequence and the verdict sequence, and always re-checks that no locked proposal was
-accepted; provider and timing variance are ignored. The checked-in seed
-(`evals/walk-replays/rejected-confident-fill.json`) is a calibration failure: a 95%+ calibrated `select` the
-user typed over, on a walk that still parked correctly on the locked Submit.
+The real SDK transport is tested against a local fake ingest in `server/test/sentryWalk.integration.test.ts`.
+That test verifies a depth-four outcome and its attachment reach the transport without Sentry's old `[Object]`
+normalization failure. It proves SDK/scrubber/transport behavior without external credentials.
 
-The local queue is intentionally not durable and disappears on server restart. Sentry is the durable failure
-inbox. The Sentry MCP or API can retrieve the redacted event and attachment, but neither is a runtime
-dependency.
+## Cross-site proof
 
-## Current boundary and next improvement
+`e2e/tests/learning-loop.spec.ts` runs the built extension against local, non-submitting replicas at:
 
-These outcome replays catch policy and control-flow regressions and cluster recurring failure signatures.
-They cannot reproduce semantic page interpretation, because labels and page text are intentionally absent.
+- `greenhouse.localhost`: Ghost makes a conservative work-authorization guess; the user corrects it to Yes;
+- `amazon.localhost`: Ghost immediately proposes the learned Yes through Amazon's different radio value;
+- `airbnb.localhost`: Ghost reuses the same correction through another wording and another value.
 
-The next improvement is to feed the same pipeline from Ghost Desktop, which drives the identical
-`/v1/predict/form` walk over the Accessibility tree. The envelope is already client-agnostic; the native
-client only needs to emit it.
+The test uses trusted browser clicks and real `chrome.storage.local`, asserts that exactly one lesson was stored,
+and never presses Submit. The checked-in semantic replay covers the same transfer without a browser.
+
+## Current boundary
+
+The extension form and generic next-action paths are connected. Ghost Desktop still needs to emit the same walk
+outcome and consume the shared learned-answer store. A live Sentry project remains an environment check: the
+real SDK path is integration-tested locally, but no external event can be confirmed without a valid DSN.

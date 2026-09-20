@@ -2,7 +2,7 @@
 
 Keys stay on the server. The Chrome extension calls form prediction, next-action prediction, ghost text, profile extraction, metrics, presence, walk telemetry and loop/executor routes while retaining instant local fallback. Ghost Desktop calls form/free-text/health/presence. The atomic workflow lab calls `/v1/workflows/*` directly, while the tested native `GHWorkflowCoordinator` seam is not yet connected to the desktop pipeline. All non-SSE bodies are JSON. CORS allows `chrome-extension://*` and `http://localhost:*` only.
 
-Browserbase and Composio paths are unit/mock-tested and fall back to simulated executors without credentials. On the audited developer machine, direct TypeSafe/Jev is configured: a live 12-field decision and the three-action atomic workflow passed with calibrated Jev choices. Browserbase and Composio keys are present, but their real executor/account effects have not been live-verified. Sentry has no DSN yet. The ignored `.env` must never be committed.
+Browserbase and Composio paths are unit/mock-tested and fall back to simulated executors without credentials. On the audited developer machine, direct TypeSafe/Jev is configured: a live 12-field decision and the three-action atomic workflow passed with calibrated Jev choices. Browserbase and Composio keys are present, but their real executor/account effects have not been live-verified. Sentry has no DSN in this checkout; its real Node SDK transport is integration-tested against a local fake ingest, including the scrubbed attachment. The ignored `.env` must never be committed.
 
 ## Access rules (the API is unauthenticated and spends paid model quota)
 
@@ -62,7 +62,7 @@ Sentry outcome capture:
 | `SENTRY_ENVIRONMENT` | Optional safe label, default `development`. |
 | `SENTRY_RELEASE` | Optional safe release label. |
 
-Default Sentry integrations, request tracing and default PII are disabled. `beforeSend` rebuilds each event from the strict shared outcome schema. `GHOST_PROVIDER=heuristic` also disables the Sentry config to keep e2e fully offline.
+Exactly one process-wide initializer owns Sentry. Default integrations, request tracing, loader hooks and default PII are disabled; normalization depth is 6. `beforeSend` rebuilds each event and attachment from the strict shared outcome schema. `GHOST_PROVIDER=heuristic` also disables the Sentry config to keep e2e fully offline.
 
 Overrides used by tests and e2e so they never need keys: `GHOST_DECISION_PROVIDER=heuristic`, `GHOST_TEXT_PROVIDER=template`. `GHOST_PROVIDER=heuristic` is shorthand for both. `GHOST_FAST_PATH=0` disables the heuristic fast path. Both overrides also accept `baseten` (and the other provider names); a forced provider without credentials degrades to `heuristic` / `template`. Forcing `heuristic` + `template` removes the Baseten config from the server entirely: no client, no warm-up, zero network.
 
@@ -104,12 +104,14 @@ The shared TypeScript mirror of this lives in `shared/src/decision.ts` (`Decisio
 ## Routes
 
 ### `GET /v1/health`
-`{ ok: true, provider: "typesafe"|"jev-gateway"|"baseten"|"llm"|"heuristic", calibrated: boolean, textProvider: "baseten"|"openai"|"xai"|"template", model?: string, textModel?: string, sampling?: { samples, hedge, confidenceSource: "consensus" }, version: string }`. `model` is the decision model, `textModel` the ghost-text model; `sampling` is present only for `baseten`.
+`{ ok: true, provider: "typesafe"|"jev-gateway"|"baseten"|"llm"|"heuristic", calibrated: boolean, textProvider: "baseten"|"openai"|"xai"|"template", model?: string, textModel?: string, sentry: "on"|"off", sampling?: { samples, hedge, confidenceSource: "consensus" }, version: string }`. `model` is the decision model, `textModel` the ghost-text model; `sentry` reports validated configuration and `sampling` is present only for `baseten`.
 
 ### `POST /v1/predict/form`
 Request: `FormPredictRequest` from `@ghost/shared` (`origin`, `formSignature`, `fields: CapturedField[]`, `factKeys: string[]`). The server never receives profile VALUES for this route, only fact KEYS.
 
 Behavior:
+- The extension applies `ghost.answers` before building this request. A field with a learned answer is omitted,
+  so its question, signature, and private answer never reach this route or Jev.
 - Build ONE decision call: state `{ page: { origin }, fields: [{ label, kind, name, placeholder, autocomplete, options (labels only, max 12), context }] }`, and one `choice` question per field named `f0..fN` whose criteria are `{ ...factKeys with FACT_DESCRIPTIONS, needs_text: "free-text answer the applicant must write", none: "no profile fact fits" }`. Instructions refer to the state with backticked paths, e.g. "Which profile fact should fill `fields[3]`?".
 - Fast path: run the shared heuristic first. A field skips the model only on structural evidence: a standard `autocomplete` token that maps to the fact on its own, or a confident `none` (consent checkbox). Label-regex matches are NEVER trusted, whatever their confidence ("First language" scores 0.95 for `firstName`): they go to the model in the same ONE call. A form with structural evidence for every field makes zero model calls (`fastPath: true`).
 - Buttons, links, file inputs and sensitive fields are never sent to the model (filter candidates in code first) and are forced to `none` on every response, cached or not.
@@ -125,14 +127,15 @@ Response: `FormPredictResponse` plus `cache` and optional `fallbackFrom` / `fast
 ### `POST /v1/predict/next`
 Request: `{ origin, url, recentActions: TraceEvent[] (max 20), candidates: NextCandidate[] (max 60), memory?: EpisodicPair[] (max 5) }` where `NextCandidate = { id: string, kind: "button"|"link"|"field", label: string, locked: boolean, context?: string, group?: string }`. `group` is an optional value-free structural shape for repeated results/feeds.
 One `choice` question over candidate ids. The heuristic provider prefers learned behavior, otherwise returns a low-confidence semantic best guess. Search/results and play/view-mode transitions use the last action as context. Locked actions remain eligible predictions but execution still requires explicit confirmation.
+The extension returns a local `FastLaneMemory` answer first. The remote request runs asynchronously and warms the next rescan; it never blocks the visible suggestion. The server passes the bounded `memory` array into Jev as `state.memory`, alongside `page`, `recentActions`, and aliased `candidates`.
 Sensitive candidates (password, card, government ID labels), and recent actions or memories that touch one, are dropped on the server before the heuristic or any model sees them, so they can never be the prediction.
 Response: `{ candidateId: string | "none", confidence, provider, calibrated, latencyMs }`.
 
 ### `POST /v1/walk/outcomes`
 
-Accepts the value-free `GhostWalkOutcome` contract from `@ghost/shared` (64 KB maximum): one redacted outcome per Tab walk. The extension and server both reconstruct this object from an allowlist. Unknown properties are dropped; invalid or widened actions, sources, verdicts, counts, buckets or IDs return `400`, as does a summary that contradicts the proposals it describes.
+Accepts the value-free `GhostWalkOutcome` contract from `@ghost/shared` (64 KB maximum): one redacted outcome per Tab walk. The extension and server both reconstruct this object from an allowlist. Optional answer metadata is limited to class, `fact|learned|guess`, and `needsReview`; labels, values and signatures are impossible in the sanitized output. Unknown properties are dropped; invalid or widened actions, sources, verdicts, counts, buckets or IDs return `400`, as does a summary that contradicts the proposals it describes.
 
-Response: `{ accepted: true, captured: boolean, replayId?: string }`. `captured` means a configured Sentry SDK accepted the event for delivery; telemetry failures never fail, delay or change a walk. `replayId` is present when the walk was reviewable (a locked proposal was accepted, a confident calibrated proposal was rejected, or the walk was abandoned) and was added to the review queue.
+Response: `{ accepted: true, captured: boolean, replayId?: string }`. `captured` is true only after the configured Sentry SDK successfully flushes the scrubbed event; a synchronous event id alone is not treated as delivery. Telemetry failures never fail or change a walk. `replayId` is present when the walk was reviewable (a locked proposal was accepted, a confident calibrated proposal was rejected, or the walk was abandoned) and was added to the review queue.
 
 ### `GET /v1/walk/replays`
 

@@ -21,6 +21,8 @@ export const WALK_PROVIDERS = ["typesafe", "jev-gateway", "baseten", "llm", "heu
 export const WALK_CONFIDENCE_BUCKETS = ["under-55", "55-69", "70-84", "85-94", "95-plus"] as const;
 export const WALK_LATENCY_BUCKETS = ["none", "under-100ms", "100-249ms", "250-499ms", "500-999ms", "1s-plus"] as const;
 export const WALK_DURATION_BUCKETS = ["under-250ms", "250-999ms", "1s-4.9s", "5s-14.9s", "15s-plus"] as const;
+export const WALK_ANSWER_CLASSES = ["ordinary", "protected", "declaration"] as const;
+export const WALK_ANSWER_SOURCES = ["fact", "learned", "guess"] as const;
 
 export type WalkState = (typeof WALK_STATES)[number];
 export type WalkReason = (typeof WALK_REASONS)[number];
@@ -31,6 +33,8 @@ export type WalkProvider = (typeof WALK_PROVIDERS)[number];
 export type WalkConfidenceBucket = (typeof WALK_CONFIDENCE_BUCKETS)[number];
 export type WalkLatencyBucket = (typeof WALK_LATENCY_BUCKETS)[number];
 export type WalkDurationBucket = (typeof WALK_DURATION_BUCKETS)[number];
+export type WalkAnswerClass = (typeof WALK_ANSWER_CLASSES)[number];
+export type WalkAnswerSource = (typeof WALK_ANSWER_SOURCES)[number];
 
 /** One proposal Ghost put on screen, and the user's verdict on it. No label, no value, no signature. */
 export interface GhostWalkProposal {
@@ -43,6 +47,8 @@ export interface GhostWalkProposal {
   confidence: WalkConfidenceBucket;
   locked: boolean;
   outcome: WalkOutcome;
+  /** Optional answer-policy attribution; still value-free and site-independent. */
+  answer?: { class: WalkAnswerClass; source: WalkAnswerSource; needsReview: boolean };
 }
 
 /** Bounded counts only. Derived from the proposals, but sent so a reader never has to recompute them. */
@@ -86,6 +92,13 @@ export interface GhostWalkReplayEvaluation {
   failures: string[];
 }
 
+export interface ReplayedWalkPolicy {
+  state: WalkState;
+  reason: WalkReason;
+  summary: GhostWalkSummary;
+  reviewable: boolean;
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_PROPOSALS = 200;
 const STATES = new Set<string>(WALK_STATES);
@@ -97,6 +110,8 @@ const PROVIDERS = new Set<string>(WALK_PROVIDERS);
 const CONFIDENCE = new Set<string>(WALK_CONFIDENCE_BUCKETS);
 const LATENCY = new Set<string>(WALK_LATENCY_BUCKETS);
 const DURATION = new Set<string>(WALK_DURATION_BUCKETS);
+const ANSWER_CLASSES = new Set<string>(WALK_ANSWER_CLASSES);
+const ANSWER_SOURCES = new Set<string>(WALK_ANSWER_SOURCES);
 
 export function walkConfidenceBucket(confidence: number): WalkConfidenceBucket {
   const value = Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0;
@@ -206,6 +221,29 @@ export function createGhostWalkReplayFixture(outcome: GhostWalkOutcome): GhostWa
   };
 }
 
+/**
+ * Re-run the value-free walk policy instead of trusting the state/summary that telemetry observed. The proposal
+ * verdicts are the replay input; the terminal state, counts and review decision are recomputed exactly as the
+ * runtime should. Abandonment is the sole external signal (page-left/disabled) and is intentionally preserved.
+ */
+export function replayGhostWalkPolicy(input: GhostWalkOutcome): ReplayedWalkPolicy {
+  const abandoned = input.state === "abandoned" || input.reason === "page-left" || input.reason === "disabled";
+  const parked = input.proposals.some((proposal) => proposal.locked && proposal.outcome === "unresolved");
+  const state: WalkState = abandoned ? "abandoned" : parked ? "parked" : "exhausted";
+  const reason: WalkReason = abandoned
+    ? input.reason === "page-left" || input.reason === "disabled" ? input.reason : "other"
+    : parked ? "locked-action" : "no-ghosts-left";
+  const summary: GhostWalkSummary = {
+    shown: input.proposals.length,
+    accepted: input.proposals.filter((proposal) => proposal.outcome === "accepted").length,
+    dismissed: input.proposals.filter((proposal) =>
+      proposal.outcome === "escaped" || proposal.outcome === "typed-over" || proposal.outcome === "refused").length,
+    locked: input.proposals.filter((proposal) => proposal.locked).length,
+  };
+  const replayed: GhostWalkOutcome = { ...input, state, reason, summary };
+  return { state, reason, summary, reviewable: isReviewableWalk(replayed) };
+}
+
 /** Rebuild a reviewed fixture so a Sentry/API export cannot widen what an eval loads. */
 export function sanitizeGhostWalkReplayFixture(raw: unknown): GhostWalkReplayFixture | null {
   if (!isObject(raw) || raw.schemaVersion !== GHOST_REPLAY_SCHEMA || typeof raw.caseId !== "string" || !UUID.test(raw.caseId)) return null;
@@ -242,8 +280,9 @@ export function evaluateGhostWalkReplay(
   actual: GhostWalkOutcome = fixture.observed,
 ): GhostWalkReplayEvaluation {
   const failures: string[] = [];
-  if (actual.state !== fixture.expected.state) failures.push(`state:${actual.state}`);
-  if (actual.reason !== fixture.expected.reason) failures.push(`reason:${actual.reason}`);
+  const replayed = replayGhostWalkPolicy(actual);
+  if (replayed.state !== fixture.expected.state) failures.push(`state:${replayed.state}`);
+  if (replayed.reason !== fixture.expected.reason) failures.push(`reason:${replayed.reason}`);
   if (actual.proposals.length > fixture.expected.maxProposals) {
     failures.push(`proposals:${actual.proposals.length}>${fixture.expected.maxProposals}`);
   }
@@ -262,6 +301,18 @@ function sanitizeProposal(raw: unknown): GhostWalkProposal | null {
   if (typeof raw.calibrated !== "boolean" || typeof raw.locked !== "boolean") return null;
   if (typeof raw.confidence !== "string" || !CONFIDENCE.has(raw.confidence)) return null;
   if (typeof raw.outcome !== "string" || !OUTCOMES.has(raw.outcome)) return null;
+  let answer: GhostWalkProposal["answer"];
+  if (raw.answer !== undefined) {
+    if (!isObject(raw.answer)) return null;
+    if (typeof raw.answer.class !== "string" || !ANSWER_CLASSES.has(raw.answer.class)) return null;
+    if (typeof raw.answer.source !== "string" || !ANSWER_SOURCES.has(raw.answer.source)) return null;
+    if (typeof raw.answer.needsReview !== "boolean") return null;
+    answer = {
+      class: raw.answer.class as WalkAnswerClass,
+      source: raw.answer.source as WalkAnswerSource,
+      needsReview: raw.answer.needsReview,
+    };
+  }
   return {
     index: raw.index,
     action: raw.action as WalkAction,
@@ -270,6 +321,7 @@ function sanitizeProposal(raw: unknown): GhostWalkProposal | null {
     confidence: raw.confidence as WalkConfidenceBucket,
     locked: raw.locked,
     outcome: raw.outcome as WalkOutcome,
+    ...(answer ? { answer } : {}),
   };
 }
 

@@ -1,11 +1,11 @@
 // Opt-in learning (settings.learningEnabled, off by default). What the user types into a field Ghost
 // recognizes becomes a profile fact; what they write (or accept) in an essay field becomes a past answer.
 // Every rule here errs toward learning nothing: a wrong fact turns into wrong ghosts on every later form.
-import { FACT_DESCRIPTIONS, isSensitive, mapFormHeuristically, NEEDS_TEXT, NONE } from "@ghost/shared";
-import type { CapturedField, FieldAssignment, FieldKind, GhostSettings, PastAnswer, Profile } from "@ghost/shared";
+import { FACT_DESCRIPTIONS, isSensitive, mapFormHeuristically, NEEDS_TEXT, NONE, recordCorrection } from "@ghost/shared";
+import type { AnswerCorrectedEvent, CapturedField, FieldAssignment, FieldKind, GhostSettings, LearnedAnswerStore, PastAnswer, Profile } from "@ghost/shared";
 import type { GhostEmitter } from "../lib/events";
 import type { ServedAssignment } from "../lib/messages";
-import { updateProfile } from "../lib/storage";
+import { updateLearnedAnswers, updateProfile } from "../lib/storage";
 import { captureFields, isElementSensitive } from "./capture";
 import type { ToastRequest } from "./learnToast";
 
@@ -20,6 +20,9 @@ const FACT_KEY = /^[A-Za-z][\w.-]{0,63}$/;
 /** Facts come from what is TYPED. A select's or radio's value is the site's own code, not the user's words. */
 const TYPED_KINDS: ReadonlySet<FieldKind> = new Set<FieldKind>(["text", "email", "tel", "url", "number", "date", "month"]);
 const PROSE_KINDS: ReadonlySet<FieldKind> = new Set<FieldKind>(["text", "textarea"]);
+const ANSWERABLE_KINDS: ReadonlySet<FieldKind> = new Set<FieldKind>([
+  "text", "email", "tel", "url", "number", "date", "month", "textarea", "select", "radio", "checkbox",
+]);
 
 export type LearnDecision =
   | { kind: "fact"; key: string; value: string }
@@ -145,6 +148,10 @@ export interface LearnerDeps {
   capture?: () => CapturedField[];
   isSensitiveElement?: (el: Element) => boolean;
   update?: typeof updateProfile;
+  /** Site-independent correction store. Values remain in chrome.storage.local and never enter telemetry. */
+  updateAnswers?: typeof updateLearnedAnswers;
+  /** Optional value-free counter seam. */
+  onAnswerEvent?: (event: AnswerCorrectedEvent) => void;
   origin?: () => string;
   now?: () => Date;
   debounceMs?: number;
@@ -155,11 +162,13 @@ interface Pending {
   field: CapturedField;
   value: string;
   el: HTMLElement | null;
+  correction: boolean;
   timer: ReturnType<typeof setTimeout>;
 }
 
 export class Learner {
   private readonly pending = new Map<string, Pending>();
+  private readonly previous = new Map<string, { source: "fact" | "learned" | "guess" }>();
   private unsubscribe: Array<() => void> = [];
 
   constructor(private readonly deps: LearnerDeps) {}
@@ -170,10 +179,13 @@ export class Learner {
     const win = this.deps.win ?? window;
     win.addEventListener("pagehide", this.onPageHide);
     this.unsubscribe = [
-      events.on("user:input", ({ field, value, el }) => this.consider(field, value, el)),
+      events.on("user:input", ({ field, value, el }) => this.consider(field, value, el, true)),
+      events.on("ghost:dismissed", ({ ghost, reason }) => {
+        if (reason === "typed" && ghost.answer) this.previous.set(ghost.signature, { source: ghost.answer.source });
+      }),
       // An accepted draft is an answer the user chose; if they edit it afterwards, that edit replaces it.
       events.on("ghost:accepted", ({ ghost, field }) => {
-        if (ghost.source === "llm" && ghost.action === "fill") this.consider(field, ghost.value ?? "", null);
+        if (ghost.source === "llm" && ghost.action === "fill") this.consider(field, ghost.value ?? "", null, false);
       }),
       () => win.removeEventListener("pagehide", this.onPageHide),
     ];
@@ -184,6 +196,7 @@ export class Learner {
     this.unsubscribe = [];
     for (const entry of this.pending.values()) clearTimeout(entry.timer);
     this.pending.clear();
+    this.previous.clear();
   }
 
   /** Runs everything still waiting on its debounce. Resolves once storage has it. */
@@ -195,11 +208,11 @@ export class Learner {
   }
 
   /** Debounced per field: an edit, a blur, a return to fix a typo and another blur is ONE lesson. */
-  private consider(field: CapturedField, value: string, el: HTMLElement | null): void {
-    if (!this.deps.getSettings().learningEnabled || !(TYPED_KINDS.has(field.kind) || PROSE_KINDS.has(field.kind))) return;
+  private consider(field: CapturedField, value: string, el: HTMLElement | null, correction: boolean): void {
+    if (!this.deps.getSettings().learningEnabled || !ANSWERABLE_KINDS.has(field.kind)) return;
     const waiting = this.pending.get(field.signature);
     if (waiting) clearTimeout(waiting.timer);
-    const entry: Pending = { field, value, el, timer: setTimeout(() => this.fire(field.signature), this.deps.debounceMs ?? LEARN_DEBOUNCE_MS) };
+    const entry: Pending = { field, value, el, correction, timer: setTimeout(() => this.fire(field.signature), this.deps.debounceMs ?? LEARN_DEBOUNCE_MS) };
     this.pending.set(field.signature, entry);
   }
 
@@ -209,15 +222,38 @@ export class Learner {
     if (entry) void this.commit(entry).catch((error: unknown) => console.debug("[ghost] learning skipped", error));
   }
 
-  private async commit({ field, value, el }: Pending): Promise<void> {
+  private async commit({ field, value, el, correction }: Pending): Promise<void> {
     if (!this.deps.getSettings().learningEnabled) return;
     if (el?.isConnected && (this.deps.isSensitiveElement ?? isElementSensitive)(el)) return;
     const mapping = this.mappingFor(field);
+    if (correction) await this.learnCorrection(field, value, optionLabel(field, value), this.previous.get(field.signature) ?? null);
+    this.previous.delete(field.signature);
     const decide = (profile: Profile): LearnDecision | null => decideLearning({ field, value, mapping, profile, enabled: true });
     const first = decide(this.deps.getProfile());
     if (!first) return;
     if (first.kind === "fact") await this.learnFact(decide);
     else await this.learnAnswer(first);
+  }
+
+  private async learnCorrection(
+    field: CapturedField,
+    value: string,
+    selectedLabel: string | undefined,
+    previous: { source: "fact" | "learned" | "guess" } | null,
+  ): Promise<void> {
+    const update = this.deps.updateAnswers ?? updateLearnedAnswers;
+    let event: AnswerCorrectedEvent | undefined;
+    await update((store: LearnedAnswerStore) => {
+      const result = recordCorrection(field, value, store, {
+        optionLabel: selectedLabel,
+        origin: (this.deps.origin ?? (() => location.origin))(),
+        now: (this.deps.now ?? (() => new Date()))().getTime(),
+        previous,
+      });
+      event = result.event;
+      return result.changed !== "refused";
+    });
+    if (event) this.deps.onAnswerEvent?.(event);
   }
 
   /** The heuristic sees the whole form (a lone email box is a login, not a fact), over every key it knows. */
@@ -276,4 +312,8 @@ export function undoAnswer(profile: Profile, entry: PastAnswer, replaced: PastAn
   if (index < 0) return null;
   const pastAnswers = profile.pastAnswers.filter((_, i) => i !== index);
   return { ...profile, pastAnswers: replaced ? mergePastAnswer(pastAnswers, replaced) : pastAnswers };
+}
+
+function optionLabel(field: CapturedField, value: string): string | undefined {
+  return field.options?.find((option) => option.value === value)?.label;
 }

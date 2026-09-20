@@ -1,17 +1,20 @@
-import { DEFAULT_SETTINGS, DEMO_PROFILE } from "@ghost/shared";
-import type { GhostSettings, PastAnswer, Profile } from "@ghost/shared";
+import { DEFAULT_SETTINGS, DEMO_PROFILE, LearnedAnswerStore } from "@ghost/shared";
+import type { GhostSettings, LearnedAnswersSnapshot, PastAnswer, Profile } from "@ghost/shared";
 import { cleanCounters, cleanPair, COUNTER_NAMES } from "./messages";
 import type { MetricsBatch, MetricsCounters, MetricsPair } from "./messages";
 
 export const PROFILE_KEY = "ghost.profile";
 export const SETTINGS_KEY = "ghost.settings";
 export const METRICS_KEY = "ghost.metrics";
+/** Site-independent answers stay on the device. They are never copied into a server request. */
+export const LEARNED_ANSWERS_KEY = "ghost.answers";
 /** The reliability chart reads the newest pairs; older ones fall off. */
 export const MAX_CALIBRATION_PAIRS = 1000;
 
 export interface StorageChanges {
   profile?: Profile;
   settings?: GhostSettings;
+  answers?: LearnedAnswersSnapshot;
 }
 
 type RawChanges = Record<string, { newValue?: unknown }>;
@@ -123,6 +126,28 @@ export function updateProfile(mutate: (current: Profile) => Profile | null): Pro
   return result;
 }
 
+export async function getLearnedAnswers(): Promise<LearnedAnswerStore> {
+  return LearnedAnswerStore.fromJSON(await backend().get(LEARNED_ANSWERS_KEY) as LearnedAnswersSnapshot | null | undefined);
+}
+
+let learnedAnswerWrites: Promise<unknown> = Promise.resolve();
+
+/**
+ * Serial read-modify-write for corrections arriving from several frames/tabs. The callback mutates a fresh
+ * store and returns whether it changed; only its JSON snapshot ever crosses the storage boundary.
+ */
+export function updateLearnedAnswers(mutate: (current: LearnedAnswerStore) => boolean): Promise<LearnedAnswerStore | null> {
+  const write = async (): Promise<LearnedAnswerStore | null> => {
+    const store = await getLearnedAnswers();
+    if (!mutate(store)) return null;
+    await backend().set(LEARNED_ANSWERS_KEY, store.toJSON());
+    return store;
+  };
+  const result = learnedAnswerWrites.then(write, write);
+  learnedAnswerWrites = result.catch(() => undefined);
+  return result;
+}
+
 export async function getSettings(): Promise<GhostSettings> {
   return normalizeSettings(await backend().get(SETTINGS_KEY));
 }
@@ -145,13 +170,15 @@ function toStorageChanges(raw: RawChanges): StorageChanges {
   if (profileChange) out.profile = normalizeProfile(profileChange.newValue) ?? structuredCloneSafe(DEMO_PROFILE);
   const settingsChange = raw[SETTINGS_KEY];
   if (settingsChange) out.settings = normalizeSettings(settingsChange.newValue);
+  const answersChange = raw[LEARNED_ANSWERS_KEY];
+  if (answersChange) out.answers = LearnedAnswerStore.fromJSON(answersChange.newValue as LearnedAnswersSnapshot | null | undefined).toJSON();
   return out;
 }
 
 export function onStorageChanged(cb: (changes: StorageChanges) => void): () => void {
   return backend().subscribe((raw) => {
     const changes = toStorageChanges(raw);
-    if (changes.profile || changes.settings) cb(changes);
+    if (changes.profile || changes.settings || changes.answers) cb(changes);
   });
 }
 

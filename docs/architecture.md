@@ -2,15 +2,15 @@
 
 This file is the contract between modules. If you change a signature here, change every caller in the same commit.
 
-## Current integration boundary — 2026-09-19
+## Current integration boundary — 2026-09-20
 
-The browser extension implements the complete assisted form walk, server prediction/cache, streamed drafts, opt-in learning/metrics, trace capture, loop preview/execution, presence coordination, next-action click ghosts, and the redacted walk telemetry described below. Browserbase and Composio execution exist behind the loop/workflow boundaries, but real external-account effects are not part of the Jev form proof. Ghost Desktop independently consumes form prediction and ghost text; its atomic workflow coordinator remains a tested seam rather than the main native capture pipeline.
+The browser extension implements the complete assisted form walk, server prediction/cache, streamed drafts, local site-independent correction learning, metrics, trace capture, Fast Lane next-action memory, loop preview/execution, presence coordination, next-action click ghosts, and the redacted walk telemetry described below. Browserbase and Composio execution exist behind the loop/workflow boundaries, but real external-account effects are not part of the Jev form proof. Ghost Desktop independently consumes form prediction and ghost text; it does not yet consume the shared learned-answer store or emit walk outcomes.
 
 ## Packages
 
 | Package | Role |
 | --- | --- |
-| `shared/` (`@ghost/shared`) | Types and pure logic used by both the extension and the server: `CapturedField`, `Ghost`, `Profile`, the Jev-shaped decision interface, the redacted walk outcome/replay contract and its evaluator, heuristic field mapping (`mapFieldToFact`), value resolution (`resolveFieldValue`), and the safety rules (`isSensitive`, `isLockedAction`). No DOM, no Node APIs. |
+| `shared/` (`@ghost/shared`) | Types and pure logic used by both the extension and the server: `CapturedField`, `Ghost`, `Profile`, the Jev-shaped decision interface, learned-answer classification/signature/store/proposal policy, redacted walk outcomes, policy and semantic replay evaluators, heuristic field mapping, value resolution, and safety rules. No DOM, no Node APIs. |
 | `extension/` | Chrome MV3 extension built with esbuild (`node build.mjs`) into `extension/dist`. |
 | `server/` | Hono prediction service on `http://localhost:8787`. Keys live here, never in the extension. |
 | `demo/` | Vite + React demo sites on `http://localhost:5173`. `demo/public/apply-plain/index.html` is framework-free. |
@@ -147,7 +147,7 @@ Rescans: a `MutationObserver` on `documentElement` (childList + an attribute all
 
 ### `index.ts`
 
-Loads settings and profile from `chrome.storage.local` (through `src/lib/storage.ts`), starts the controller when `settings.enabled`, reacts to `chrome.storage.onChanged` (enable/disable starts/stops; any other settings or profile change rescans) and to the `ghost:toggle` runtime message (re-reads settings from storage, which is the source of truth; the background currently relies on storage alone and does not broadcast). Skips pages where `location.protocol` is not http/https and guards against double injection with a global flag in the isolated world. A disabled Ghost removes its overlay host from the page entirely.
+Loads settings, profile, and the `ghost.answers` learned store from `chrome.storage.local` (through `src/lib/storage.ts`), starts the controller when `settings.enabled`, and reacts to every relevant storage change. A correction therefore becomes available to an already-open page without a reload. Learned fields are resolved locally and omitted from `FormPredictRequest`. The `ghost:toggle` runtime message re-reads settings from storage, which remains the source of truth. Non-http(s) pages are skipped and a global isolated-world flag prevents double injection. A disabled Ghost removes its overlay host entirely.
 
 ### Walk outcome telemetry (`walkTelemetry.ts`)
 
@@ -156,10 +156,10 @@ The learning loop hangs off the controller's own event bus, so neither the contr
 ```text
 one Tab walk -> per-proposal verdicts (accepted / escaped / typed-over / refused / unresolved)
 -> `ghost:walk-outcome` -> worker allowlist -> POST /v1/walk/outcomes -> server allowlist
--> opt-in Sentry + bounded replay queue for reviewable walks
+-> one Sentry initializer/scrubber + bounded replay queue for reviewable walks
 ```
 
-The events carry live elements, profile values, labels and field signatures; the reporter copies none of them. A signature is used only as a local map key for the calibration lookup and never reaches the envelope. Reporting is best-effort throughout: a throwing subscriber, a missing worker or an old browser without `crypto.randomUUID` cannot fail, delay or change a walk.
+The events carry live elements, profile values, labels and field signatures; the reporter copies none of them. A signature is used only as a local map key for the calibration lookup and never reaches the envelope. Optional answer metadata is limited to class, `fact|learned|guess`, and `needsReview`. Reporting is best-effort throughout: a throwing subscriber, a missing worker or an old browser without `crypto.randomUUID` cannot fail, delay or change a walk.
 
 Only three kinds of walk enter the review queue: one that accepted a locked proposal (a safety violation that must never happen), one where a *calibrated* provider's confident proposal was rejected by the user (a calibration failure), and one the user abandoned. Every promoted fixture asserts `lockedAccepted: 0` whatever else it checks. See [`learning-loop.md`](learning-loop.md).
 
@@ -173,9 +173,11 @@ The content script runs in every frame (`all_frames: true`): embedded applicatio
 // storage.ts  (works with chrome.storage.local; falls back to an in-memory map when chrome.* is absent, for unit tests)
 export function getProfile(): Promise<Profile>;               // seeds DEMO_PROFILE on first read
 export function saveProfile(p: Profile): Promise<void>;
+export function getLearnedAnswers(): Promise<LearnedAnswerStore>;
+export function updateLearnedAnswers(mutate: (store: LearnedAnswerStore) => boolean): Promise<LearnedAnswerStore | null>;
 export function getSettings(): Promise<GhostSettings>;         // merges DEFAULT_SETTINGS
 export function saveSettings(patch: Partial<GhostSettings>): Promise<void>;
-export function onStorageChanged(cb: (changes: { profile?: Profile; settings?: GhostSettings }) => void): () => void;
+export function onStorageChanged(cb: (changes: { profile?: Profile; settings?: GhostSettings; answers?: LearnedAnswersSnapshot }) => void): () => void;
 // messages.ts
 export type GhostMessage =
   | { type: "ghost:toggle" }

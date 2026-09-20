@@ -58,6 +58,9 @@ export function normalizeQuestion(raw: string | undefined, opts: SignatureOption
   let text = (raw ?? "").replace(/[‘’‛]/g, "'").replace(/[“”«»]/g, '"');
   if (opts.company) text = stripCompanyName(text, opts.company);
   text = text.replace(BOILERPLATE, " ").replace(/\s+/g, " ").trim();
+  // Cross-ATS wording that changes tone, not meaning. Keeping it would strand a Greenhouse correction on
+  // Greenhouse instead of reusing it on Amazon Jobs, Airbnb Careers, Lever or Workday.
+  text = text.replace(/\blegally\b/gi, " ").replace(/\bfor any employer\b/gi, " ");
   text = stripLeadingLabel(text);
   text = text.replace(TRAILING_COMPANY, " ");
   text = canonicalizeCountries(text);

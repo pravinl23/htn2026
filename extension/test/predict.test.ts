@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, DEMO_PROFILE, NEEDS_TEXT, NONE } from "@ghost/shared";
+import { DEFAULT_SETTINGS, DEMO_PROFILE, LearnedAnswerStore, NEEDS_TEXT, NONE, recordCorrection } from "@ghost/shared";
 import type { CapturedField, FieldAssignment, GhostSettings } from "@ghost/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -171,7 +171,11 @@ describe("ghostsFromAssignments", () => {
     ];
     const ghosts = ghostsFromAssignments(fields, assignments, deps(), "server");
     expect(ghosts).toEqual([
-      { signature: "a", action: "fill", value: "University of Waterloo", displayText: "University of Waterloo", confidence: 0.9, locked: false, source: "server" },
+      {
+        signature: "a", action: "fill", value: "University of Waterloo", displayText: "University of Waterloo",
+        confidence: 0.9, locked: false, source: "server",
+        answer: { class: "ordinary", source: "fact", needsReview: false },
+      },
     ]);
   });
 
@@ -282,6 +286,20 @@ describe("predictableFields", () => {
 
   it("lists fact keys that have a value, never the values", () => {
     expect(usableFactKeys({ facts: { firstName: "Alex", phone: "" }, pastAnswers: [] })).toEqual(["firstName"]);
+  });
+
+  it("keeps a learned question entirely off the JEV/server path", () => {
+    const learned = new LearnedAnswerStore();
+    const authorization = field({
+      signature: "auth",
+      label: "Are you legally authorized to work in the United States?",
+      kind: "select",
+      options: [{ value: "n", label: "No" }, { value: "y", label: "Yes" }],
+    });
+    recordCorrection(authorization, "y", learned, { optionLabel: "Yes", now: 0 });
+    const wire = predictableFields([authorization, field({ signature: "first", label: "First name" })], learned);
+    expect(wire.map((item) => item.signature)).toEqual(["first"]);
+    expect(JSON.stringify(wire)).not.toContain("authorized");
   });
 });
 

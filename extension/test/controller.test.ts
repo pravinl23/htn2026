@@ -317,6 +317,26 @@ describe("held Tab", () => {
     expect(c.state.accepted).toBe(1);
     releaseTab();
   });
+
+  it("stops at a visible guess until the user gives it one fresh deliberate Tab", async () => {
+    mountForm(`<form>
+      <label for="first">First name</label><input id="first" name="firstName" />
+      <label for="relocate">Are you willing to relocate?</label>
+      <select id="relocate" name="relocate"><option value="">Choose</option><option value="y">Yes</option><option value="n">No</option></select>
+      <button type="submit" id="submit">Submit application</button>
+    </form>`);
+    const c = startController();
+    await tabUntilAccepted(c, 1);
+    expect(c.state.ghosts[0]?.answer).toEqual({ class: "ordinary", source: "guess", needsReview: true });
+    const held = key("Tab", { repeat: true });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(held.defaultPrevented).toBe(true);
+    expect(c.state.accepted).toBe(1);
+    expect($<HTMLSelectElement>("#relocate").value).toBe("");
+    releaseTab();
+    await tabUntilAccepted(c, 2);
+    expect($<HTMLSelectElement>("#relocate").value).toBe("y");
+  });
 });
 
 describe("typing overrides", () => {

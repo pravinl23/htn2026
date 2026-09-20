@@ -528,7 +528,8 @@ export interface CorrectionOptions {
   origin?: string;
   company?: string;
   /** The proposal that was on the field when the user answered, when there was one. */
-  previous?: AnswerProposal | null;
+  /** Only the source is needed to say whether this corrected a guess; page text/value never enters the event. */
+  previous?: Pick<AnswerProposal, "source"> | null;
 }
 
 export interface CorrectionResult {

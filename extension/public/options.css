@@ -280,6 +280,9 @@ input.sr-only:focus-visible + label.button { outline: 2px solid var(--accent); o
 .answers { margin: 8px 0 18px; padding: 0; list-style: none; }
 .answer { padding: 12px 0; border-top: 1px solid var(--line); }
 .answer p { margin: 4px 0; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.learned-answer { display: grid; gap: 2px; }
+.learned-value { color: var(--ink); }
+.learned-origin { display: block; overflow-wrap: anywhere; }
 .profile-fields + .json-editor + .error { margin-top: 10px; }
 
 /* Resume import */

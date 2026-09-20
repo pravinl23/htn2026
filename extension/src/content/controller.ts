@@ -1,4 +1,4 @@
-import type { CapturedField, Ghost, GhostSettings, Profile } from "@ghost/shared";
+import type { CapturedField, Ghost, GhostSettings, LearnedAnswerStore, Profile } from "@ghost/shared";
 import { ghostEvents } from "../lib/events";
 import type { GhostEmitter, GhostEventMap, PredictionSource } from "../lib/events";
 import { factKeysId, formSignature } from "../lib/formCache";
@@ -21,6 +21,8 @@ export interface ControllerDeps {
   overlay: Overlay;
   getProfile(): Profile;
   getSettings(): GhostSettings;
+  /** Synchronous in-memory view of the local answer store; storage hydration happens at content-script boot. */
+  getAnswers?(): LearnedAnswerStore | null;
   doc?: Document;
   /**
    * Whether an event came from the user. Defaults to `event.isTrusted`: a page must not be able to
@@ -191,7 +193,7 @@ export class GhostController {
     const keepLock = this.state.accepted > 0 && this.lockSignature !== null;
     const deps = {
       profile: this.deps.getProfile(), settings: this.deps.getSettings(), keepLock,
-      lockSignature: this.lockSignature ?? undefined, drafts: this.deps.drafts,
+      lockSignature: this.lockSignature ?? undefined, drafts: this.deps.drafts, answers: this.deps.getAnswers?.(),
     };
     const fields = captureFields(this.doc);
     const factKeys = usableFactKeys(deps.profile);
@@ -269,7 +271,7 @@ export class GhostController {
   /** At most once per form signature per page load, and never on a rescan of a form already asked about. */
   private requestPrediction(fields: CapturedField[], factKeys: string[]): void {
     const predict = this.deps.predictForm;
-    const wire = predict && factKeys.length > 0 ? predictableFields(fields) : [];
+    const wire = predict && factKeys.length > 0 ? predictableFields(fields, this.deps.getAnswers?.()) : [];
     if (!predict || wire.length === 0 || (wire.length < MIN_FORM_FIELDS && !this.hasUnlocked())) return;
     const signature = formSignature(wire);
     if (this.asked.has(signature) || this.asked.size >= MAX_FORMS_PER_PAGE) return;
@@ -472,8 +474,8 @@ export class GhostController {
     if (!event.repeat && !this.focusInWalk(ghost)) return;
     swallow(event);
     this.walking = true;
-    // A held Tab never accepts a draft that is still being written: the hold stops there.
-    if (event.repeat && ghost.pending) this.halted = true;
+    // A held Tab never accepts an unfinished draft or a guess: both need one deliberate fresh press.
+    if (event.repeat && (ghost.pending || ghost.answer?.needsReview === true)) this.halted = true;
     if (event.repeat && this.halted) return;
     this.pendingTabs++;
     void this.drain();

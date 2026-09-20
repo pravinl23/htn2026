@@ -351,9 +351,15 @@ describe("questionSignature", () => {
 
   it("normalizes a question down to what it asks", () => {
     expect(normalizeQuestion("How did you hear about this opportunity at Viam?")).toBe("how did you hear about this opportunity");
-    expect(normalizeQuestion("Are you legally authorized to work in the United States?")).toBe("are you legally authorized to work in the countryus");
+    expect(normalizeQuestion("Are you legally authorized to work in the United States?")).toBe("are you authorized to work in the countryus");
     expect(optionsFingerprint(undefined)).toBe("");
     expect(optionsFingerprint([{ value: "", label: "Select..." }])).toBe("");
+  });
+
+  it("treats cross-ATS legal tone and 'any employer' boilerplate as the same question", () => {
+    const greenhouse = q("Are you legally authorized to work in Canada for any employer?", "select", { options: YES_NO });
+    const amazon = q("Are you authorized to work in Canada?", "select", { options: YES_NO });
+    expect(questionTextSignature(greenhouse)).toBe(questionTextSignature(amazon));
   });
 
   it("refuses to key a question with no readable text", () => {

@@ -6,11 +6,11 @@ Built at Hack the North 2026. Instructions for the autonomous builder live in `C
 
 ## Current status
 
-The browser form-filling path is complete and verified: Ghost can walk the React and plain-HTML job applications with Tab, preserve native keyboard behavior outside the walk, refuse sensitive fields, verify writes, and stop on the locked Submit action. The extension now upgrades its instant local predictions from the server, caches per form, streams free-text drafts, imports resumes, learns opt-in facts, reports metrics, records safe action traces, detects repeated loops, previews them and runs confirmed visible/background/Browserbase/Composio modes.
+The browser form-filling path is complete and verified: Ghost can walk the React and plain-HTML job applications with Tab, preserve native keyboard behavior outside the walk, refuse sensitive fields, verify writes, and stop on the locked Submit action. The extension now upgrades its instant local predictions from the server, caches per form, streams free-text drafts, imports resumes, learns site-independent corrections locally, reports metrics, records safe action traces, detects repeated loops, previews them and runs confirmed visible/background/Browserbase/Composio modes.
 
-Every Tab walk feeds a privacy-safe learning loop. The user's own accept, escape or type-over is the ground truth: the extension emits one value-free outcome per walk, the server can send it to Sentry, walks that went wrong become versioned replay fixtures, and `pnpm eval:walk-replays` checks reviewed expectations. Labels, values, signatures and page identity never cross the wire, and there is no automatic self-modification. Live Sentry delivery is opt-in through `SENTRY_DSN` and is not configured in the current `.env`; see [`docs/learning-loop.md`](docs/learning-loop.md).
+Every Tab walk feeds a privacy-safe learning loop. A manual correction is stored under `ghost.answers` and applied locally before any server request; the loaded-extension test proves one Greenhouse-shaped correction transfers to Amazon- and Airbnb-shaped forms. Generic next-action memory returns locally and is also passed to Jev as `state.memory` for asynchronous refinement. The user's accept, escape or type-over becomes a value-free Sentry outcome and reviewed replay fixture. `pnpm eval:learning-loop` runs both policy and semantic transfer evals. Live Sentry delivery is opt-in through `SENTRY_DSN`; the real SDK/attachment transport is locally integration-tested, but no external DSN is configured here. See [`docs/learning-loop.md`](docs/learning-loop.md).
 
-The canonical invoice loop is heavily unit-tested, including preview, explicit confirmation, verified background execution and failure handling, but still needs one loaded-extension Playwright run covering the full “do two, preview 48, complete 47, hold one” judging path and its fallback video. The separate atomic workflow lab demonstrates two Jev-selected stories—meeting coordination and Slack → GitHub issue—with simulated Composio execution. Real Composio accounts are not configured, and the native workflow coordinator is a tested seam rather than part of the desktop app’s live pipeline. See `PLAN.md` for the exact boundary.
+The canonical invoice loop is proven in a loaded-extension Playwright run: do two manually, preview the remaining 48, explicitly confirm, complete 47, and hold one exception. The separate atomic workflow lab demonstrates two Jev-selected stories—meeting coordination and Slack → GitHub issue—with simulated Composio execution. Real Composio accounts are not configured, and the native workflow coordinator is a tested seam rather than part of the desktop app’s live pipeline. See `PLAN.md` for the exact boundary.
 
 ## Run it
 
@@ -44,6 +44,7 @@ pnpm test         # all pnpm-workspace unit tests (no keys needed; excludes desk
 pnpm e2e          # Playwright: loads the built extension into Chromium and drives the demo sites
 pnpm test:live    # only runs when real provider keys are present; prints real latency
 pnpm eval:walk-replays  # validate every reviewed redacted walk outcome fixture
+pnpm eval:learning-loop # run walk policy + cross-site semantic learning fixtures
 make -C desktop test  # native macOS agent unit tests (not included in pnpm test)
 ```
 
@@ -51,7 +52,7 @@ The first Playwright run also needs `pnpm --filter @ghost/e2e exec playwright in
 
 ## Keys
 
-The implemented offline form path and server endpoints have deterministic fallbacks when keys are missing. Copy `.env.example` to `.env` to enable live model providers. On the audited developer machine, direct TypeSafe/Jev, Baseten, xAI, Browserbase and Composio keys are present; no Sentry DSN is present yet. A live 12-field Jev decision and the complete three-action atomic workflow passed with calibrated TypeSafe/Jev choices. The extension and desktop both use the local server while retaining local fallback. Never commit `.env`.
+The implemented offline form path and server endpoints have deterministic fallbacks when keys are missing. Copy `.env.example` to `.env` to enable live model providers. On the audited developer machine, direct TypeSafe/Jev, Baseten, xAI, Browserbase and Composio keys are present; this checkout has no Sentry DSN. A live 12-field Jev decision and the complete three-action atomic workflow passed with calibrated TypeSafe/Jev choices. The extension and desktop both use the local server while retaining local fallback. Never commit `.env`.
 
 ## Run Ghost in the background (macOS)
 

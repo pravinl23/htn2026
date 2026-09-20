@@ -1,10 +1,11 @@
 // Content script entry: capture -> predict -> controller -> overlay + execute.
+import { LearnedAnswerStore } from "@ghost/shared";
 import type { FormPredictRequest, GhostSettings, GhostWalkOutcome, Profile } from "@ghost/shared";
 import { ghostEvents } from "../lib/events";
 import { readCachedForm, saveCachedForm } from "../lib/formCache";
 import { isGhostMessage, isServerResult, parseFormPrediction } from "../lib/messages";
 import type { FormPrediction, GhostMessage, ServerResult } from "../lib/messages";
-import { getMetrics, getProfile, getSettings, onStorageChanged } from "../lib/storage";
+import { getLearnedAnswers, getMetrics, getProfile, getSettings, onStorageChanged } from "../lib/storage";
 import { GhostController } from "./controller";
 import { DraftScheduler, openTextPort } from "./freeText";
 import { Learner } from "./learning";
@@ -26,6 +27,7 @@ const LOADED_FLAG = "__ghostContentLoaded";
 interface Session {
   profile: Profile;
   settings: GhostSettings;
+  answers: LearnedAnswerStore;
   overlay: Overlay;
   controller: GhostController;
   running: boolean;
@@ -130,11 +132,11 @@ function startSubscribers(session: Session, ledger: ServedLedger, walk: WalkOutc
 }
 
 async function boot(): Promise<void> {
-  const [profile, settings] = await Promise.all([getProfile(), getSettings()]);
+  const [profile, settings, answers] = await Promise.all([getProfile(), getSettings(), getLearnedAnswers()]);
   const overlay = new Overlay();
   const ledger = createServedLedger();
   const drafts = new DraftScheduler({ open: openTextPort });
-  // The learning loop: one redacted outcome per walk (docs/agent-learning.md). Best-effort, never blocking.
+  // The reliability half of the learning loop: one redacted outcome per walk. Best-effort, never blocking.
   const walkReporter = new WalkOutcomeReporter({
     events: ghostEvents,
     send: reportWalkOutcome,
@@ -144,11 +146,13 @@ async function boot(): Promise<void> {
   const session: Session = {
     profile,
     settings,
+    answers,
     overlay,
     running: false,
     controller: new GhostController({
       overlay,
       getProfile: () => session.profile,
+      getAnswers: () => session.answers,
       // One HUD per tab: frames keep their ghosts but leave the status chip to the top document.
       getSettings: () => (isTopFrame() ? session.settings : { ...session.settings, showHud: false }),
       predictForm: observeWalkProvider(observePredictions(createFormPredictor({ readCache: readCachedForm, saveCache: saveCachedForm, askServer: askWorker }), ledger), walkReporter),
@@ -159,6 +163,7 @@ async function boot(): Promise<void> {
   onStorageChanged((changes) => {
     if (changes.profile) session.profile = changes.profile;
     if (changes.settings) session.settings = changes.settings;
+    if (changes.answers) session.answers = LearnedAnswerStore.fromJSON(changes.answers);
     apply(session);
   });
   listenForToggle(session);

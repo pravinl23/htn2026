@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "ghost.learning-replay.v1",
+  "caseId": "greenhouse-amazon-airbnb-work-authorization",
+  "profile": {
+    "facts": { "country": "Canada", "workAuthorization.CA": "no" },
+    "pastAnswers": []
+  },
+  "correction": {
+    "surface": "greenhouse",
+    "field": {
+      "label": "Are you legally authorized to work in Canada for any employer?",
+      "kind": "select",
+      "options": [
+        { "value": "0", "label": "No" },
+        { "value": "1", "label": "Yes" }
+      ]
+    },
+    "value": "1",
+    "optionLabel": "Yes"
+  },
+  "targets": [
+    {
+      "surface": "amazon-jobs",
+      "field": {
+        "label": "Are you authorized to work in Canada for any employer?",
+        "kind": "select",
+        "options": [
+          { "value": "not_authorized", "label": "No" },
+          { "value": "authorized", "label": "Yes" }
+        ]
+      },
+      "expected": { "source": "learned", "optionLabel": "Yes", "value": "authorized", "needsReview": false }
+    },
+    {
+      "surface": "airbnb-careers",
+      "field": {
+        "label": "Are you legally authorized to work in Canada?",
+        "kind": "radio",
+        "options": [
+          { "value": "n", "label": "No" },
+          { "value": "y", "label": "Yes" }
+        ]
+      },
+      "expected": { "source": "learned", "optionLabel": "Yes", "value": "y", "needsReview": false }
+    }
+  ]
+}

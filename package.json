@@ -13,7 +13,8 @@
     "e2e": "pnpm build && pnpm --filter @ghost/e2e e2e",
     "test:live": "node scripts/test-live.mjs",
     "test:terminal": "if command -v zsh >/dev/null 2>&1; then zsh -f terminal/tests/ghost.test.zsh; else echo 'test:terminal skipped: zsh is not installed'; fi",
-    "eval:walk-replays": "pnpm --filter @ghost/server eval:walk-replays"
+    "eval:walk-replays": "pnpm --filter @ghost/server eval:walk-replays",
+    "eval:learning-loop": "pnpm --filter @ghost/server eval:learning-loop"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

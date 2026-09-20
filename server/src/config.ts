@@ -60,7 +60,7 @@ export interface ServerConfig {
   extensionId?: string;
   /** GHOST_EXECUTE_TOKEN: per-install secret a caller without an Origin (the desktop daemon) sends as X-Ghost-Token. Never logged. */
   executeToken?: string;
-  /** Optional, manual-only agent outcome capture. No automatic request/error instrumentation is enabled. */
+  /** Optional, manual-only walk outcome capture. No automatic request/error instrumentation is enabled. */
   sentry?: { dsn: string; environment: string; release?: string };
 }
 

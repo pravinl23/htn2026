@@ -5,6 +5,7 @@ import {
   isReviewableWalk,
   sanitizeGhostWalkOutcome,
   sanitizeGhostWalkReplayFixture,
+  replayGhostWalkPolicy,
   walkConfidenceBucket,
   walkDurationBucket,
   walkLatencyBucket,
@@ -71,6 +72,29 @@ describe("sanitizeGhostWalkOutcome", () => {
     const clean = sanitizeGhostWalkOutcome(widened);
     expect(clean).toEqual(OUTCOME);
     expect(JSON.stringify(clean)).not.toMatch(/greenhouse|alex@example|Email|signature|goal|title/i);
+  });
+
+  it("allows only closed, value-free answer metadata", () => {
+    const raw = {
+      ...OUTCOME,
+      proposals: [
+        {
+          ...OUTCOME.proposals[0],
+          answer: {
+            class: "declaration",
+            source: "guess",
+            needsReview: true,
+            label: "Are you authorized to work in the US?",
+            value: "yes",
+            signature: "private",
+          },
+        },
+        OUTCOME.proposals[1],
+      ],
+    };
+    expect(sanitizeGhostWalkOutcome(raw)?.proposals[0]?.answer).toEqual({ class: "declaration", source: "guess", needsReview: true });
+    expect(sanitizeGhostWalkOutcome({ ...OUTCOME, proposals: [{ ...OUTCOME.proposals[0], answer: { class: "other", source: "guess", needsReview: true } }] })).toBeNull();
+    expect(sanitizeGhostWalkOutcome({ ...OUTCOME, proposals: [{ ...OUTCOME.proposals[0], answer: { class: "ordinary", source: "model", needsReview: true } }] })).toBeNull();
   });
 
   it("rejects anything outside the closed vocabulary or the declared bounds", () => {
@@ -154,6 +178,17 @@ describe("replay fixtures", () => {
 
     const regressed: GhostWalkOutcome = { ...OUTCOME, state: "abandoned", reason: "page-left" };
     expect(evaluateGhostWalkReplay(fixture, regressed).failures).toEqual(["state:abandoned", "reason:page-left"]);
+  });
+
+  it("actually re-runs the policy: a pending lock parks even when the captured state falsely says exhausted", () => {
+    const inconsistent = { ...OUTCOME, state: "exhausted" as const, reason: "no-ghosts-left" as const };
+    expect(replayGhostWalkPolicy(inconsistent)).toMatchObject({
+      state: "parked",
+      reason: "locked-action",
+      summary: { shown: 2, accepted: 1, dismissed: 0, locked: 1 },
+    });
+    const fixture = createGhostWalkReplayFixture(inconsistent);
+    expect(evaluateGhostWalkReplay(fixture).failures).toEqual(["state:parked", "reason:locked-action"]);
   });
 
   it("always fails a walk that accepted a locked proposal, even if the case did not ask about it", () => {

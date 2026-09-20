@@ -71,3 +71,14 @@ Format:
 - The 3 failures are `tab-surface.spec.ts` (71, 102, 113) and are NOT mine: they fail identically when that file is run completely alone with fresh servers. The workflow page never leaves its "Start the local server" state, so every assertion that waits for it times out and the Tab-ownership behaviour underneath is never exercised. Reported to its owner in the war room; deliberately not fixed here.
 - Correction to the previous run's note: `stage5-next.spec.ts:187` (presence heartbeat) PASSED in both full runs today. It is flaky, not consistently failing as Run 5 and MORNING.md recorded.
 - Next: `tab-surface` needs fixing or quarantining before main can go green on e2e, then `DEMO.md` around the invoice-loop and desktop Greenhouse proofs.
+
+## Run 7: 2026-09-20 02:28 (UTC) [DONE]
+- Worked on: unify local form correction learning, generic Fast Lane/Jev context, Sentry outcomes, and replay evals on `codex/sentry-learning-loop`.
+- Connected the shared answer engine to the real extension. Manual text/select/radio/checkbox answers persist under `ghost.answers`; storage updates reach open tabs; learned questions are excluded from server/Jev requests; guesses are visibly reviewable and stop held Tab; Options has a Learned tab with forget controls.
+- Added a local Greenhouse/Amazon/Airbnb-shaped fixture and loaded-extension e2e: one trusted correction transfers through different question wording and site-specific radio values, with Submit untouched.
+- Kept generic action recall fast: merged the Fast Lane branch, which answers locally and passes bounded relevant examples to Jev in `state.memory` only as asynchronous refinement. LLM free text remains speculative/background.
+- Rebuilt Sentry around one process initializer and one outbound scrubber. Fixed nested outcome normalization (`normalizeDepth: 6`) and false-positive capture reporting (successful flush required). A real SDK integration test delivers the scrubbed event plus replay attachment to local fake ingest.
+- Added value-free answer metadata to walk outcomes, a policy replay that recomputes behavior, and synthetic semantic learning fixtures. Both are run by `pnpm eval:learning-loop` and the legacy replay command.
+- Verification: workspace typecheck and build pass; 2,622 JS/TS unit tests plus 2 replay fixtures pass; browser e2e is 56/56 green. No external Sentry DSN was available, so live project delivery was not claimed.
+- War room was read-only as requested. No messages were sent.
+- Next: verify one external Sentry event when a DSN is available, connect the shared learned-answer/outcome seams to Ghost Desktop, and write `DEMO.md`.

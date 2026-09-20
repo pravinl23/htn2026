@@ -48,6 +48,11 @@ export const OVERLAY_CSS = `
   border-color: rgb(var(--accent) / .45);
   box-shadow: 0 4px 14px -6px rgb(var(--accent) / .55);
 }
+.ghost[data-review="true"] {
+  text-decoration: underline dotted rgb(var(--lock) / .9);
+  text-underline-offset: 3px;
+}
+.ghost[data-mode="pill"][data-review="true"] { border-style: dashed; border-color: rgb(var(--lock) / .72); }
 .ghost[data-mode="pill"] .label { text-overflow: ellipsis; }
 .ghost[data-mode="pill"][data-status="pending"] .label { opacity: .7; }
 

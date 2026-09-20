@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS, DEMO_PROFILE } from "@ghost/shared";
+import { DEFAULT_SETTINGS, DEMO_PROFILE, recordCorrection } from "@ghost/shared";
 import type { Profile } from "@ghost/shared";
 import {
   PROFILE_KEY,
+  LEARNED_ANSWERS_KEY,
   SETTINGS_KEY,
+  getLearnedAnswers,
   getProfile,
   getSettings,
   normalizeProfile,
@@ -12,6 +14,7 @@ import {
   resetMemoryStorage,
   saveProfile,
   saveSettings,
+  updateLearnedAnswers,
 } from "../src/lib/storage";
 import { createChromeStorageMock } from "./chrome-mock";
 
@@ -64,6 +67,22 @@ describe("storage with the in-memory fallback (no chrome global)", () => {
     await saveSettings({ showHud: true });
     expect(cb).toHaveBeenCalledTimes(2);
   });
+
+  it("publishes learned-answer changes immediately so an open page can reuse a correction", async () => {
+    const cb = vi.fn();
+    onStorageChanged(cb);
+    await updateLearnedAnswers((store) => {
+      recordCorrection(
+        { label: "Are you authorized to work in the United States?", kind: "radio", options: [{ value: "y", label: "Yes" }, { value: "n", label: "No" }] },
+        "y",
+        store,
+        { optionLabel: "Yes", origin: "https://greenhouse.localhost", now: 0 },
+      );
+      return true;
+    });
+    expect((await getLearnedAnswers()).size).toBe(1);
+    expect(cb).toHaveBeenCalledWith({ answers: expect.objectContaining({ answers: [expect.objectContaining({ optionLabel: "Yes" })] }) });
+  });
 });
 
 describe("storage with chrome.storage.local", () => {
@@ -86,6 +105,19 @@ describe("storage with chrome.storage.local", () => {
     await saveProfile(EDITED);
     expect(mock.store.get(PROFILE_KEY)).toEqual(EDITED);
     expect(await getProfile()).toEqual(EDITED);
+  });
+
+  it("stores learned answers only under the local ghost.answers key", async () => {
+    await updateLearnedAnswers((store) => {
+      recordCorrection(
+        { label: "Are you authorized to work in the United States?", kind: "select", options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] },
+        "yes",
+        store,
+        { optionLabel: "Yes", now: 0 },
+      );
+      return true;
+    });
+    expect(mock.store.get(LEARNED_ANSWERS_KEY)).toMatchObject({ answers: [expect.objectContaining({ value: "yes", optionLabel: "Yes" })] });
   });
 
   it("merges DEFAULT_SETTINGS over a partial stored value", async () => {

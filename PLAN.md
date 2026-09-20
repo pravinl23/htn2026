@@ -2,16 +2,16 @@
 
 This is the implementation ledger. Check a box only when the item works on its intended user path and its tests pass. A server route or pure helper alone does not make a feature complete; partial work is called out explicitly below.
 
-## Current snapshot — 2026-09-19 19:09 UTC
+## Current snapshot — 2026-09-20 02:28 UTC
 
 - **Demoable now:** browser form capture, offline prediction, ghost overlay, Tab/Escape/hold-Tab interaction, verified React-safe writes, sensitive-field exclusion, locked actions, settings/profile editing, and the `/apply` walkthrough.
 - **Canonical loop proven end to end (2026-09-20):** `e2e/tests/stage6-loop.spec.ts` drives the built extension from `/reset` through two hand-performed invoices, a proposal for the remaining 48, a full preview, one invoice held back, ONE explicit confirmation, and 47 completed items verified against their preview rows. Video: `docs/media/stage6-loop.webm`.
 - **Connected extension path:** server-upgraded form prediction, per-form cache, HUD, streamed ghost text, resume import, learning, metrics, trace/page-fact capture, loop proposal/preview and confirmed execution are implemented.
-- **Learning loop:** every Tab walk emits one strictly value-free outcome (extension -> worker -> server), reviewable walks become replay fixtures, and `pnpm eval:walk-replays` gates them. Live Sentry delivery still needs a DSN.
+- **Learning loop:** one correction is stored locally and reused across ATS wording/value changes before any model call; generic action examples reach Jev through `state.memory` without blocking the local Fast Lane; every Tab walk emits one strictly value-free Sentry/replay outcome. The Greenhouse -> Amazon -> Airbnb loaded-extension proof passes. Live external Sentry delivery still needs a DSN, while the real SDK/scrubber/attachment path is verified against local ingest.
 - **Workflow showcase:** `/workflow/index.html` runs meeting coordination and Slack → GitHub issue stories through one Jev choice per step and simulated Composio execution.
 - **Native:** the stable Objective-C host, hot-swappable library, Accessibility harness and 201 tests exist; the atomic `GHWorkflowCoordinator` seam is not connected to the main desktop pipeline.
-- **Top priority:** `main` cannot currently go green on e2e: all 3 `tab-surface.spec.ts` tests fail in isolation (the workflow page never leaves its "Start the local server" state, so the Tab-ownership behaviour underneath is never actually exercised). Fix or quarantine that, then write `DEMO.md` around the invoice-loop and desktop Greenhouse proofs.
-- **Verified baseline (2026-09-20):** build and typecheck pass; 2,586 JS/TS unit tests, the walk-replay eval and 203 desktop tests pass. Browser e2e is 49 passed / 3 failed: the 3 are `tab-surface.spec.ts`, which fails the same way when run completely alone, so it is a real break and not suite contention. The prior 95-check demo smoke run was not repeated after this integration.
+- **Top priority:** write `DEMO.md` around the invoice-loop, cross-site learning, and desktop Greenhouse proofs; then connect the same learned-answer/outcome seams to Desktop.
+- **Verified baseline (2026-09-20):** build and every workspace typecheck pass; 2,622 JS/TS unit tests and both learning-loop replay fixtures pass. Browser e2e is 56/56 green, including tab ownership, Sentry walk telemetry, and Greenhouse -> Amazon -> Airbnb correction transfer. Desktop's previously verified 203 tests were not rerun in this branch.
 
 Demo profile (fictional, use everywhere, never real data):
 Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University of Waterloo, BCS Computer Science, expected graduation April 2028, github.com/alexchen-dev, linkedin.com/in/alexchen-dev, alexchen.dev, authorized to work in Canada: yes, requires sponsorship: no.
@@ -66,6 +66,7 @@ Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University o
 - [x] Server `POST /v1/profile/extract` with LLM and deterministic regex fallback, plus fixture and live tests.
 - [x] Options page: paste resume text or upload a PDF and call `POST /v1/profile/extract`; user reviews and saves the proposed facts.
 - [x] Opt-in learning: values the user types manually into recognized fields become new facts; answers to essay questions are saved as past answers.
+- [x] Site-independent correction store: selects/radios/checkboxes/text answers persist under `ghost.answers`, apply before facts/guesses, stay out of Jev requests, stop held Tab on guesses, and can be inspected/forgotten in Options.
 - [x] Fixture-backed extraction mapping tests using the fictional resume in `demo/fixtures/`.
 
 ## Stage 5: Next-action prediction beyond forms
@@ -89,6 +90,8 @@ product, so the learning loop now hangs off that walk instead of a second, paral
 - [x] `POST /v1/walk/outcomes` + `GET /v1/walk/replays`: validate again, opt-in Sentry sink, bounded review queue.
 - [x] Reviewable-walk rule (locked proposal accepted, confident calibrated proposal rejected, walk abandoned), replay fixtures and the `pnpm eval:walk-replays` regression gate. Reviewed learning only; nothing rewrites prompts or policy automatically.
 - [x] Loaded-extension e2e proving a real walk reaches the server redacted and that a healthy walk stays out of the queue.
+- [x] One process-wide Sentry initializer/scrubber, delivery-aware flush, and a real SDK integration test against local ingest (event plus replay attachment, no `[Object]` normalization loss).
+- [x] Deterministic semantic learning fixtures plus a loaded-extension Greenhouse -> Amazon -> Airbnb transfer proof; `pnpm eval:learning-loop` runs policy and semantic cases together.
 - [ ] Add a Sentry DSN and confirm one live scrubbed event plus its replay attachment.
 - [ ] Emit the same envelope from Ghost Desktop, which drives the identical `/v1/predict/form` walk.
 

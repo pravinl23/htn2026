@@ -92,6 +92,15 @@ export interface Ghost {
   confidence: number;
   locked: boolean;
   source: GhostSource;
+  /**
+   * Value-free answer-policy metadata. The question signature, label and value deliberately stay in the
+   * content script; this is enough to render guesses differently and aggregate whether learning helped.
+   */
+  answer?: {
+    class: "ordinary" | "protected" | "declaration";
+    source: "fact" | "learned" | "guess";
+    needsReview: boolean;
+  };
   /** True while free text is still streaming in. */
   pending?: boolean;
 }

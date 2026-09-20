@@ -97,6 +97,7 @@ export class WalkOutcomeReporter {
         confidence: walkConfidenceBucket(ghost.confidence),
         locked: ghost.locked === true,
         outcome,
+        ...(ghost.answer ? { answer: { ...ghost.answer } } : {}),
       });
       if (walk.shown < walk.proposals.length) walk.shown = walk.proposals.length;
     } catch {
@@ -143,6 +144,7 @@ export class WalkOutcomeReporter {
           confidence: walkConfidenceBucket(ghost.confidence),
           locked: ghost.locked === true,
           outcome: "unresolved",
+          ...(ghost.answer ? { answer: { ...ghost.answer } } : {}),
         });
       }
       const accepted = proposals.filter((proposal) => proposal.outcome === "accepted").length;

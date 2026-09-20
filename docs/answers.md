@@ -67,21 +67,26 @@ Rules:
 
 ## 5. Where it runs
 
-The store and all rules live in `shared/src/answers/**` (pure, unit-tested) so both clients behave identically:
+The store and rules live in `shared/src/answers/**` (pure and unit-tested).
 
-- **Extension**: `extension/src/content/learning.ts` records corrections (it already watches user edits); `extension/src/content/predict.ts` consults the store and the classifier before the offline heuristic and after the server's assignments. Persisted in `chrome.storage.local` under `ghost.answers`.
-- **Desktop**: `desktop/core/predict.ts` and `entry.ts` gain the same calls; `GHController`/`GHWriter` report corrections; persisted in `~/Library/Application Support/Ghost/answers.json` (0600).
+- **Extension — connected:** `extension/src/content/learning.ts` records manual corrections, including selects,
+  radios and checkboxes. `extension/src/content/predict.ts` consults the store before facts and guesses. Learned
+  fields are removed before `FormPredictRequest` is built, so neither their question nor their value reaches
+  the server. Storage changes update open tabs immediately. The **Learned** options tab supports inspecting and
+  forgetting entries. Persistence is `chrome.storage.local` under `ghost.answers`.
+- **Desktop — not connected yet:** the shared policy can be reused, but `GHController`/`GHWriter` do not yet
+  report corrections and there is no `answers.json` adapter. This is an explicit remaining boundary, not an
+  implied feature.
 
 ## 6. Telemetry and the learning loop
 
-Every proposal and correction produces a **value-free** counter, in the shape the walk outcome telemetry already uses (`shared/src/walkTelemetry.ts`, merged; see `docs/learning-loop.md`):
+Every answer ghost carries only `{ class, source, needsReview }` into the walk outcome. Combined with the walk's
+closed user verdict, Sentry can distinguish an accepted learned answer from a typed-over guess without receiving
+the label, value, origin, or question signature. Corrections made where no ghost was shown remain local.
 
-```
-answer.proposed   { class, source: "fact"|"learned"|"guess", accepted: bool, confidenceBucket }
-answer.corrected  { class, hadGhost: bool, wasGuess: bool }
-```
-
-No label, no value, no origin. These answer the only questions that matter for the demo and for Sentry: how often a guess was right, how often one correction was enough, and whether learned answers stay accepted over time. `answer.corrected` should become an outcome the replay evals can score, so a correction improves future runs rather than being lost. Note the open question recorded in `docs/learning-loop.md`: the envelope deliberately carries no `questionSignature`, because that is derived from page text, so a correction is currently countable but not replayable by question. Resolving that is the next design step, and it must not widen what crosses the wire.
+Semantic transfer is tested without weakening that boundary: `ghost.learning-replay.v1` fixtures contain only
+synthetic reviewed questions and values and run the real store/policy in CI. Production Sentry events remain
+strictly value-free. See `docs/learning-loop.md`.
 
 ## 7. What must never happen
 

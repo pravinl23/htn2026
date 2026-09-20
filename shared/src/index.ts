@@ -11,3 +11,4 @@ export * from "./memory";
 export * from "./answers";
 export * from "./workflow";
 export * from "./walkTelemetry";
+export * from "./learningReplay";

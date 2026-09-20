@@ -1,11 +1,13 @@
-import { NEEDS_TEXT, NONE, isSensitive, mapFormHeuristically, resolveFieldValue } from "@ghost/shared";
-import type { CapturedField, FieldAssignment, FormPredictRequest, Ghost, GhostSettings, GhostSource, Profile } from "@ghost/shared";
+import { NEEDS_TEXT, NONE, isSensitive, mapFormHeuristically, proposeAnswer, resolveFieldValue } from "@ghost/shared";
+import type { CapturedField, FieldAssignment, FormPredictRequest, Ghost, GhostSettings, GhostSource, LearnedAnswerStore, Profile } from "@ghost/shared";
 import { FORM_LIMITS, toWireField } from "../lib/messages";
 import type { FormPrediction, ServedAssignment, ServerResult } from "../lib/messages";
 
 export interface PredictDeps {
   profile: Profile;
   settings: GhostSettings;
+  /** Local-only, site-independent corrections. No value from this store enters FormPredictRequest. */
+  answers?: LearnedAnswerStore | null;
   /** Keep the parked Submit ghost even when no value ghosts remain (the walk already filled them). */
   keepLock?: boolean;
   /**
@@ -99,8 +101,14 @@ function outranks(mine: FieldAssignment, theirs: ServedAssignment, hasOfflineGho
 }
 
 /** What may leave the page for a prediction: value-capable, non-sensitive fields, without their current value. */
-export function predictableFields(fields: CapturedField[]): CapturedField[] {
-  return fields.map(toWireField).filter((field): field is CapturedField => field !== null).slice(0, FORM_LIMITS.fields);
+export function predictableFields(fields: CapturedField[], answers?: LearnedAnswerStore | null): CapturedField[] {
+  // A learned answer is already the user's ground truth. Do not spend JEV latency/quota re-deciding it and do
+  // not send its question to the server; the private value and signature remain local by construction.
+  return fields
+    .filter((field) => !answers?.get(field))
+    .map(toWireField)
+    .filter((field): field is CapturedField => field !== null)
+    .slice(0, FORM_LIMITS.fields);
 }
 
 /** Value ghosts in DOM order, then at most one locked click ghost so the walk ends parked on Submit. */
@@ -135,23 +143,30 @@ export function isPlaceholderChoice(value: string, label: string): boolean {
 }
 
 function valueGhost(field: CapturedField, assignment: FieldAssignment, deps: PredictDeps, source: GhostSource): Ghost | null {
-  if (assignment.factKey === NONE || assignment.factKey === NEEDS_TEXT) return null;
   if (looksSensitive(field) || fieldHasValue(field)) return null;
-  const fact = deps.profile.facts[assignment.factKey];
-  const resolved = fact ? resolveFieldValue(field, assignment.factKey, fact) : null;
-  if (!resolved || resolved.value === field.value) return null;
+  const proposed = proposeAnswer(field, { profile: deps.profile, answers: deps.answers, factKey: assignment.factKey });
+  if (proposed.source === "none" || !proposed.action || proposed.value === "" || proposed.value === field.value) return null;
+  // A calibrated `none` vetoes a profile fact, but never a private learned answer or a safe visible guess.
+  if (assignment.factKey === NONE && proposed.source === "fact") return null;
   // Only ever offer to tick a box. Unticking one would undo a choice the page or the user made (rule 9).
-  if (resolved.action === "check" && resolved.value === "false") return null;
-  const confidence = assignment.confidence * resolved.confidenceFactor;
-  if (confidence < deps.settings.confidenceThreshold) return null;
+  if (proposed.action === "check" && proposed.value === "false") return null;
+  // JEV's calibrated mapping confidence still governs profile facts. A learned answer carries its own confidence;
+  // a guess is deliberately visible even below a custom threshold and stops hold-Tab for explicit review.
+  const assignedValue = deps.profile.facts[assignment.factKey];
+  const resolvedAssignment = assignedValue ? resolveFieldValue(field, assignment.factKey, assignedValue) : null;
+  const confidence = proposed.source === "fact" && proposed.factKey === assignment.factKey && resolvedAssignment
+    ? Math.min(proposed.confidence, assignment.confidence * resolvedAssignment.confidenceFactor)
+    : proposed.confidence;
+  if (proposed.source !== "guess" && confidence < deps.settings.confidenceThreshold) return null;
   return {
     signature: field.signature,
-    action: resolved.action,
-    value: resolved.value,
-    displayText: resolved.displayText,
+    action: proposed.action,
+    value: proposed.value,
+    displayText: proposed.optionLabel ?? proposed.value,
     confidence,
     locked: false,
     source,
+    answer: { class: proposed.class, source: proposed.source, needsReview: proposed.needsReview },
   };
 }
 

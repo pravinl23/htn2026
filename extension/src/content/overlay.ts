@@ -414,6 +414,7 @@ function retarget(node: GhostNode, ghost: Ghost, el: HTMLElement): void {
   node.remeasure = true;
   setAttr(node.root, "data-mode", node.mode);
   setAttr(node.root, "data-signature", ghost.signature);
+  setAttr(node.root, "data-review", ghost.answer?.needsReview ? "true" : null);
   if (node.hinted !== target) setHint(node, null); // paintNode puts the hint on once the text is really drawn
 }
 

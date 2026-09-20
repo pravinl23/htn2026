@@ -51,6 +51,7 @@ export function registerPredictRoutes(app: Hono, config: ServerConfig, deps: Pre
       textProvider: config.textProvider,
       model: providerModel(provider, config),
       textModel: textModel(config),
+      sentry: config.sentry ? "on" : "off",
       // Baseten only: every decision costs samples + hedge parallel requests, and confidence is their vote.
       ...(provider.name === "baseten" && config.baseten ? { sampling: { samples: config.baseten.samples, hedge: config.baseten.hedge, confidenceSource: "consensus" } } : {}),
       version: VERSION,
