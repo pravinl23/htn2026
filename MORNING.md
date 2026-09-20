@@ -2,7 +2,7 @@
 
 ## 2026-09-20 09:30 UTC — accepts that do something, and proposals that lead somewhere
 
-Pushed to `main` as `7df6bb8..280638a`, seven commits. 454 desktop tests, 1,687 shared, 796 server, 0 failed.
+Pushed to `main` as `7df6bb8..HEAD`, nine commits. 454 desktop tests, 1,687 shared, 796 server, 0 failed.
 Everything below was measured on the live agent with `ghostctl`, not reasoned about.
 
 ### The one-line summary
@@ -116,6 +116,28 @@ and written verified — "Why Northwind?" at 541 chars, "a project you are proud
 Every open-panel transition is now logged. An upload is ten steps in another process, and this is the only
 way to see which one goes wrong.
 
+### 5. A feed suggested the channel, not the video
+
+```
+before: 0.704 primary-item "Go to channel PedTalksFutbol"          <- top
+        0.704 primary-item "Who Really Deserves the Ballon d'Or? 15 minutes"
+        0.704 primary-item "PedTalksFutbol"
+```
+
+A tile's channel link, its title and its avatar are all the same kind of thing to the ranker — three members
+of one list, tied on the place's prior, and the tie fell through to capture order.
+
+The **duration** tells them apart, and it is the exact twin of the price rule already here: a price *beside* a
+link makes it a product tile, so a duration *in* a link makes it a piece of media. `looksLikeDuration` only
+knew the scrubber form ("0:42"), which never appears in a link's name; it now also knows the written-out form
+a media list publishes ("15 minutes", "8 minutes, 57 seconds"), excluding "ago".
+
+```
+after:  0.724 primary-item "Who Really Deserves the Ballon d'Or? 15 minutes"   <- top
+        0.724 primary-item "What Did Ancient Humans Actually Do All Day? 11 mi"
+        0.720 primary-item "The NBA was TERRIFIED of this... 8 minutes, 57 sec"
+```
+
 ### The "why this company" answer is good when it has the posting
 
 Given the posting and the applicant's facts, the essay path produces a real answer — it used the matching
@@ -158,9 +180,17 @@ privacy-reviewed schema, and that is your call):
 
 ### Still open
 
-- **Tab switching.** Step 2 above, `"Videos"`, was a channel **tab** proposed as a list item, and it failed
-  `not-visible`. A tab is not an item; the rule is not written yet. This is the clearest remaining instance
-  of "it just switches between tabs".
+- **A channel page comes back unreachable.** This is why the earlier `"Videos"` press failed `not-visible`,
+  and it is NOT a classifier problem. On a channel page Chromium reports all thirty video links with
+  `height: 0` and an **identical rect** (`x:106, y:817`) — never laid out — so nothing there can be clicked
+  whatever it classifies as. `mainRegionRepeats: 6`, so the list detector settles on a six-item strip and the
+  page reads `app`; the top proposal is a per-video "More actions" menu, eight times. A home feed on the same
+  site is fine (real geometry, `repeats: 24`), so this is specific to that layout. Worth a look at whether
+  Ghost should re-capture when a whole list comes back zero-height, rather than proposing into it.
+- **A tab is still not modelled.** A tab is `AXRadioButton` + subrole `AXTabButton` inside an `AXTabGroup`
+  (that is also what ARIA `role="tab"` maps to), and `GHIsBrowserChrome` already suppresses exactly that —
+  but only OUTSIDE a web area, so in-page tabs are kept deliberately. If you want "never offer a tab", the
+  one-line home is the shared classifier, keyed on that subrole.
 - **A knowledge tree about you.** Nothing was done here. It is what the Amazon-style flow needs
   ("you would look at X, add to cart, open the cart").
 - **Role memory still re-poisons itself.** Walking a list with the accept key teaches "after an item comes an
