@@ -108,6 +108,11 @@ typedef NS_ENUM(NSInteger, GHCBPress) { GHCBPressSelects, GHCBPressIgnored, GHCB
 
 // Behaviour.
 @property (nonatomic) BOOL opensMenu, filters, highlightsFirst, arrowsWork, escapeClears, typingLands, explicitOptions;
+/// The real WebKit shape of a react-select menu: rows are AXStaticText whose text is in AXTitle (AXValue empty) and
+/// whose only marks are the DOM classes `select__option` and `select__option--is-focused`.
+@property (nonatomic) BOOL webkitOptions;
+/// react-select opens its menu when the combo box itself is pressed, with no keystroke at all.
+@property (nonatomic) BOOL pressOpens;
 @property (nonatomic) GHCBPress press;
 @property (nonatomic, copy) void (^afterPost)(GHKeyStroke *stroke);
 
@@ -142,6 +147,7 @@ static BOOL CBIsInside(id<GHAXNode> node, id<GHAXNode> ancestor) {
     [super pressNode:node];
     GHCBWorld *world = self.world;
     world.presses++;
+    if (world.pressOpens && node == world.combo && !world.menu) { [world openMenu]; return YES; }
     if (!world.menu || !CBIsInside(node, world.menu)) return YES;
     switch (world.press) {
         case GHCBPressSelects: [world choose:[GHComboBoxDriver textOfOption:node]]; return YES;
@@ -252,6 +258,10 @@ static GHFakeAXNode *CBNode(NSString *role, NSString *title) {
             GHFakeAXNode *row = [menu addChild:CBNode(@"AXGroup", nil)];
             row.roleDescription = @"option";
             [row addChild:[GHFakeAXNode staticText:option frame:CGRectZero]];
+        } else if (self.webkitOptions) {
+            GHFakeAXNode *row = [menu addChild:CBNode(@"AXStaticText", option)];   // text in AXTitle, AXValue empty
+            row.roleDescription = @"text";
+            row.domClassList = @[ @"select__option", @"remix-css-18355b6-option" ];
         } else {
             [menu addChild:[GHFakeAXNode staticText:option frame:CGRectZero]];
         }
@@ -270,9 +280,14 @@ static GHFakeAXNode *CBNode(NSString *role, NSString *title) {
 
 - (void)highlightIndex:(NSInteger)index {
     NSArray<GHFakeAXNode *> *nodes = [self optionNodes];
-    for (GHFakeAXNode *node in nodes) node.isFocused = NO;
+    for (GHFakeAXNode *node in nodes) {
+        node.isFocused = NO;
+        if (self.webkitOptions) node.domClassList = @[ @"select__option", @"remix-css-18355b6-option" ];
+    }
     if (index < 0 || index >= (NSInteger)nodes.count) { self.highlight = -1; return; }
-    nodes[(NSUInteger)index].isFocused = YES;
+    // The real page marks the highlighted row with a class and NOTHING else: no AXFocused, no AXSelected.
+    if (self.webkitOptions) nodes[(NSUInteger)index].domClassList = @[ @"select__option", @"select__option--is-focused", @"remix-css-2ov8vj-option" ];
+    else nodes[(NSUInteger)index].isFocused = YES;
     self.highlight = index;
 }
 
@@ -534,7 +549,9 @@ GH_TEST(combobox_types_presses_the_option_and_verifies) {
     GH_ASSERT_EQUAL_OBJECTS(world.selected, @"LinkedIn");
     GH_ASSERT_EQUAL_OBJECTS(world.poster.postedNames, (@[ @"text" ]));   // no Return, no Escape
     GH_ASSERT_EQUAL_OBJECTS(world.poster.typedText, @"LinkedIn");
-    GH_ASSERT_EQUAL_INT(world.presses, 1);
+    // Two presses: the combo box itself (the attempt to open it without a keystroke), then the chosen option. This
+    // synthetic control ignores the first one, so the run still had to type.
+    GH_ASSERT_EQUAL_INT(world.presses, 2);
     GH_ASSERT_FALSE(world.driver.running);
 }
 
@@ -617,7 +634,7 @@ GH_TEST(combobox_without_a_matching_option_escapes_once_clears_and_skips) {
     GH_ASSERT(result.pressedEscape);
     GH_ASSERT(result.clearedTyping);
     GH_ASSERT_EQUAL_OBJECTS(world.poster.postedNames, (@[ @"text", @"escape" ]));
-    GH_ASSERT_EQUAL_INT(world.presses, 0);
+    GH_ASSERT_EQUAL_INT(world.presses, 1);        // the open attempt only; no option was ever pressed
     GH_ASSERT_EQUAL_OBJECTS(world.combo.value, @"");
 
     // A list whose Escape keeps the typed text: backspaces take exactly that back.
@@ -676,7 +693,8 @@ GH_TEST(combobox_list_that_never_opens_skips_after_one_and_a_half_seconds) {
     GHComboBoxResult *result = [world answer:@"LinkedIn"];
     GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonNoList);
     GH_ASSERT(result.skipsField);
-    GH_ASSERT_NEAR(world.clock.now - start, 0.05 + 1.5 + 0.06, 0.12);
+    // Focus settle, the press that opens nothing, the list that never comes, the cleanup.
+    GH_ASSERT_NEAR(world.clock.now - start, 0.05 + 0.7 + 1.5 + 0.06, 0.12);
     // No list ever showed: an Escape would reach the page or the window (a modal closes, a sheet cancels). None.
     GH_ASSERT_EQUAL_INT([world.poster countOfKind:GHKeyStrokeKindEscape], 0);
     GH_ASSERT_FALSE(result.pressedEscape);
@@ -691,8 +709,8 @@ GH_TEST(combobox_list_that_never_opens_skips_after_one_and_a_half_seconds) {
     GH_ASSERT_EQUAL_OBJECTS(none.reason, GHComboBoxReasonNoMatchingOption);
     GH_ASSERT(none.skipsField);
     GH_ASSERT(none.pressedEscape);
-    GH_ASSERT(notice.clock.now - noticeStart < 1.0);   // not the 1.5 s "no list at all" timeout
-    GH_ASSERT_EQUAL_INT(notice.presses, 0);
+    GH_ASSERT(notice.clock.now - noticeStart < 1.2);   // not the 1.5 s "no list at all" timeout on top
+    GH_ASSERT_EQUAL_INT(notice.presses, 1);            // the open attempt; the notice itself is never pressed
     GH_ASSERT_EQUAL_INT([notice.poster countOfKind:GHKeyStrokeKindReturn], 0);
     GH_ASSERT_EQUAL_OBJECTS(notice.combo.value, @"");
 }
@@ -811,7 +829,9 @@ GH_TEST(combobox_user_key_or_app_switch_stops_without_another_key) {
     GHComboBoxResult *away = [switched answer:@"LinkedIn"];
     GH_ASSERT_EQUAL_OBJECTS(away.reason, GHComboBoxReasonAppChanged);
     GH_ASSERT_EQUAL_OBJECTS(switched.poster.postedNames, (@[ @"text" ]));
-    GH_ASSERT_EQUAL_INT(switched.presses, 0);   // not even an AXPress into an app that is not in front
+    // One press: the open attempt, made while this app WAS still in front. Nothing after the switch -- no option is
+    // ever pressed into an app that is not in front.
+    GH_ASSERT_EQUAL_INT(switched.presses, 1);
 
     // During the cleanup of a skip: the user's key wins, no backspaces follow.
     GHCBWorld *cleanup = [GHCBWorld syntheticWorld];
@@ -847,4 +867,154 @@ GH_TEST(combobox_one_run_at_a_time_and_cancel_is_silent) {
     world.driver.matcher = nil;         // null_resettable
     world.driver.isHighlighted = nil;
     GH_ASSERT(world.driver.matcher != nil && world.driver.isHighlighted != nil);
+}
+
+#pragma mark - what the real Greenhouse page turned out to expose (Safari, 2026-09-19)
+
+/// Built from a live `ghostctl probe-combobox "How did you hear"` on
+/// https://job-boards.greenhouse.io/viamrobotics/jobs/6185046004 in Safari. Every detail here was measured, not
+/// assumed, and each one broke the driver before it was:
+///   - the AXComboBox IS react-select's inner <input class="select__input">: 4 px wide, no children, AXPress;
+///   - AXPress on it opens the menu (typing into it opened nothing at all);
+///   - the menu is an AXList `select__menu-list`, a SIBLING of the combo box, two nodes further on, behind the
+///     "Toggle flyout" AXButton and a 1 px AXStaticText;
+///   - every row is AXStaticText with role description "text" whose label is in AXTitle and whose AXValue is EMPTY;
+///   - the highlighted row is marked only by the class `select__option--is-focused`.
+static GHCBNode *CBRealReactSelect(NSArray<NSString *> *options, NSInteger highlighted, BOOL menuOpen) {
+    GHCBNode *form = (GHCBNode *)CBNode(@"AXGroup", nil);
+    GHFakeAXNode *label = [form addChild:CBNode(@"AXStaticText", nil)];
+    label.value = @"How did you hear about this opportunity at Viam?";
+    label.domClassList = @[ @"label", @"select__label" ];
+    GHFakeAXNode *log = [form addChild:CBNode(@"AXGroup", nil)];
+    log.subrole = @"AXEmptyGroup";
+    log.roleDescription = @"log";
+    log.domClassList = @[ @"remix-css-7pg0cj-a11yText" ];
+    GHFakeAXNode *placeholder = [form addChild:CBNode(@"AXGroup", nil)];
+    placeholder.domClassList = @[ @"select__placeholder", @"remix-css-1jqq78o-placeholder" ];
+    [placeholder addChild:[GHFakeAXNode staticText:@"Select..." frame:CGRectZero]];
+    GHFakeAXNode *combo = [form addChild:CBNode(@"AXComboBox", @"How did you hear about this opportunity at Viam?")];
+    combo.axDescription = combo.title;
+    combo.roleDescription = @"combo box";
+    combo.identifier = @"question_19909094004";
+    combo.domClassList = @[ @"select__input" ];
+    combo.frame = CGRectMake(316, 898, 4, 21);     // four pixels wide: this is the auto-sized inner input
+    GHFakeAXNode *toggle = [form addChild:CBNode(@"AXButton", @"Toggle flyout")];
+    toggle.axDescription = @"Toggle flyout";
+    toggle.domClassList = @[ @"icon-button", @"icon-button--sm" ];
+    [form addChild:CBNode(@"AXStaticText", nil)];  // the 1 px spacer between the control and the menu
+    if (menuOpen) {
+        GHCBNode *menu = (GHCBNode *)CBNode(@"AXList", nil);
+        menu.roleDescription = @"list";
+        menu.domClassList = @[ @"select__menu-list", @"remix-css-qr46ko" ];
+        for (NSUInteger i = 0; i < options.count; i++) {
+            GHFakeAXNode *row = [menu addChild:CBNode(@"AXStaticText", options[i])];
+            row.roleDescription = @"text";
+            row.domClassList = (NSInteger)i == highlighted ? @[ @"select__option", @"select__option--is-focused", @"remix-css-2ov8vj-option" ]
+                                                           : @[ @"select__option", @"remix-css-18355b6-option" ];
+        }
+        [form addChild:menu];
+    }
+    // The next question, so that a menu can be claimed by the wrong control if the scan is sloppy.
+    GHFakeAXNode *nextLabel = [form addChild:CBNode(@"AXStaticText", nil)];
+    nextLabel.value = @"Are you legally authorized to work in the United States for any employer?";
+    GHFakeAXNode *next = [form addChild:CBNode(@"AXComboBox", @"Are you legally authorized to work in the United States for any employer?")];
+    next.roleDescription = @"combo box";
+    next.domClassList = @[ @"select__input" ];
+    GHFakeAXNode *web = CBNode(@"AXWebArea", nil);
+    [web addChild:form];
+    return form;
+}
+
+static NSArray<NSString *> *CBViamOptions(void) {
+    // The eight rows the live probe read out of the open menu, in page order.
+    return @[ @"LinkedIn", @"Indeed", @"A friend", @"TikTok", @"Instagram", @"Twitter", @"Meetup/Event", @"Other" ];
+}
+
+GH_TEST(combobox_real_react_select_menu_is_found_and_read_from_axtitle) {
+    GHCBNode *form = CBRealReactSelect(CBViamOptions(), 2, YES);
+    GHFakeAXNode *combo = nil, *menu = nil, *next = nil;
+    for (id<GHAXNode> child in form.children) {
+        if ([child.role isEqualToString:@"AXComboBox"] && !combo) combo = (GHFakeAXNode *)child;
+        else if ([child.role isEqualToString:@"AXComboBox"]) next = (GHFakeAXNode *)child;
+        if ([child.role isEqualToString:@"AXList"]) menu = (GHFakeAXNode *)child;
+    }
+    GH_ASSERT(combo != nil && menu != nil && next != nil);
+
+    // The menu sits two siblings past the combo box, behind the "Toggle flyout" button: the scan must cross both.
+    GH_ASSERT([GHComboBoxDriver listForComboBox:combo] == menu);
+    // ...and the NEXT question, which sits after the menu, must not claim it.
+    GH_ASSERT([GHComboBoxDriver listForComboBox:next] == nil);
+
+    // The rows carry their text in AXTitle with an EMPTY AXValue. Reading AXValue (what the driver used to do) is
+    // what made the real page report "no list": eight rows, zero options.
+    NSArray<id<GHAXNode>> *options = [GHComboBoxDriver optionsInList:menu];
+    GH_ASSERT_EQUAL_INT(options.count, 8);
+    for (id<GHAXNode> option in options) GH_ASSERT_EQUAL_INT(option.value.length, 0);
+    NSMutableArray<NSString *> *texts = [NSMutableArray array];
+    for (id<GHAXNode> option in options) [texts addObject:[GHComboBoxDriver textOfOption:option]];
+    GH_ASSERT_EQUAL_OBJECTS(texts, CBViamOptions());
+    GH_ASSERT_FALSE([GHComboBoxDriver listSaysNothingFound:menu]);
+
+    // The highlight is a CLASS, not AXFocused and not AXSelected: the arrow-key fallback's guard depends on it.
+    GHComboBoxDriver *driver = [[GHComboBoxDriver alloc] initWithActuator:[[GHCBActuator alloc] init]
+                                                                   poster:[[GHFakeKeyPoster alloc] initWithState:[[GHCBState alloc] init]]
+                                                                    state:[[GHCBState alloc] init]];
+    for (NSUInteger i = 0; i < options.count; i++) {
+        GH_ASSERT_FALSE(options[i].isFocused);
+        GH_ASSERT_EQUAL_INT(driver.isHighlighted(options[i]) ? 1 : 0, i == 2 ? 1 : 0);
+    }
+
+    // Closed, there is no menu to find and nothing looks like one.
+    GHCBNode *closed = CBRealReactSelect(CBViamOptions(), -1, NO);
+    for (id<GHAXNode> child in closed.children) {
+        if ([child.role isEqualToString:@"AXComboBox"]) GH_ASSERT([GHComboBoxDriver listForComboBox:child] == nil);
+    }
+}
+
+GH_TEST(combobox_real_react_select_is_answered_by_two_presses_and_no_keystroke) {
+    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    world.webkitOptions = YES;     // rows are AXTitle-only AXStaticText marked by class
+    world.pressOpens = YES;        // AXPress on the combo box opens the menu, as react-select really does
+    world.options = CBViamOptions();
+    GHComboBoxResult *result = [world answer:@"LinkedIn"];
+    GH_ASSERT_MSG(result.chosen, @"%@ %@", result.reason, @(result.optionCount));
+    GH_ASSERT_EQUAL_OBJECTS(result.method, GHComboBoxMethodPress);
+    GH_ASSERT_EQUAL_OBJECTS(world.selected, @"LinkedIn");
+    GH_ASSERT_EQUAL_INT(result.optionCount, 8);
+    GH_ASSERT_NEAR(result.score, 1.0, 1e-9);
+    // The whole answer cost the page TWO AXPresses and not one key event: nothing was typed into the site.
+    GH_ASSERT_EQUAL_INT(world.presses, 2);
+    GH_ASSERT_FALSE(result.typed);
+    GH_ASSERT_EQUAL_INT(world.poster.posted.count, 0);
+    GH_ASSERT_EQUAL_INT(world.escapes, 0);
+}
+
+GH_TEST(combobox_press_opened_menu_without_a_match_is_closed_and_the_field_skipped) {
+    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    world.webkitOptions = YES;
+    world.pressOpens = YES;
+    world.filters = YES;           // typing narrows, so the fallback filter really runs
+    world.options = CBViamOptions();
+    GHComboBoxResult *result = [world answer:@"Hack the North"];
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonNoMatchingOption);
+    GH_ASSERT(result.skipsField);
+    GH_ASSERT_FALSE(result.stopsWalk);
+    // Nothing was chosen, the menu Ghost opened is closed again, and the field is exactly as it was found.
+    GH_ASSERT_EQUAL_INT(world.selections, 0);
+    GH_ASSERT(result.pressedEscape);
+    GH_ASSERT(world.menu == nil);
+    GH_ASSERT_EQUAL_OBJECTS(world.combo.value, @"");
+    GH_ASSERT_EQUAL_INT([world.poster countOfKind:GHKeyStrokeKindReturn], 0);
+}
+
+GH_TEST(combobox_eeo_and_work_authorization_are_never_even_pressed_open) {
+    // The new press-to-open step runs AFTER the refusals, never before them.
+    for (NSString *title in @[ @"Gender", @"Are you Hispanic/Latino?", @"Veteran Status", @"Disability Status" ]) {
+        GHCBWorld *world = [GHCBWorld syntheticWorldWithLabel:title];
+        world.pressOpens = YES;
+        world.webkitOptions = YES;
+        GHComboBoxResult *result = [world answer:@"Prefer not to say"];
+        GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonDemographic);
+        GH_ASSERT_MSG(CBTouchedNothing(world), @"%@ was touched", title);
+    }
 }

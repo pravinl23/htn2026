@@ -9,10 +9,11 @@
     "dev": "concurrently -n server,demo,ext -c blue,green,magenta \"pnpm --filter @ghost/server dev\" \"pnpm --filter @ghost/demo dev\" \"pnpm --filter @ghost/extension dev\"",
     "build": "pnpm --filter @ghost/extension build && pnpm --filter @ghost/demo build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r --workspace-concurrency=1 test",
+    "test": "pnpm -r --workspace-concurrency=1 test && pnpm eval:walk-replays",
     "e2e": "pnpm build && pnpm --filter @ghost/e2e e2e",
     "test:live": "node scripts/test-live.mjs",
-    "test:terminal": "if command -v zsh >/dev/null 2>&1; then zsh -f terminal/tests/ghost.test.zsh; else echo 'test:terminal skipped: zsh is not installed'; fi"
+    "test:terminal": "if command -v zsh >/dev/null 2>&1; then zsh -f terminal/tests/ghost.test.zsh; else echo 'test:terminal skipped: zsh is not installed'; fi",
+    "eval:walk-replays": "pnpm --filter @ghost/server eval:walk-replays"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

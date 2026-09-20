@@ -192,8 +192,21 @@ function describeProgram(steps: LoopStep[], iterator: LoopIterator): string {
   let name = `Open each item in ${iterator.pathPattern}`;
   if (copied > 0) name = `Copy ${plural(copied)} from ${from} to ${where}`;
   else if (fills.length > 0) name = `Fill ${plural(fills.length)} on ${where}`;
-  const click = steps.find((s) => s.op === "click");
-  return click?.op === "click" ? `${name} and click "${click.target.label}"` : name;
+  const click = namingClick(steps);
+  return click ? `${name} and click "${click.target.label}"` : name;
+}
+
+/**
+ * The click the routine is named after: the locked one it ends with, else the last click. The FIRST click is
+ * usually how the user got to the page at all ("Open spreadsheet"), which is not what the routine does.
+ */
+function namingClick(steps: LoopStep[]): Extract<LoopStep, { op: "click" }> | null {
+  const clicks = steps.filter((s): s is Extract<LoopStep, { op: "click" }> => s.op === "click");
+  for (let i = clicks.length - 1; i >= 0; i--) {
+    const click = clicks[i];
+    if (click?.locked === true) return click;
+  }
+  return clicks[clicks.length - 1] ?? null;
 }
 
 function describeLocked(s: LoopStep): string | null {

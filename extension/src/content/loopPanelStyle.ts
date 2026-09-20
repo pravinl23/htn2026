@@ -47,6 +47,13 @@ export const LOOP_PANEL_CSS = `
 .titles { flex: 1 1 auto; min-width: 0; }
 .headline { margin: 0; font: 650 16px/1.3 ${SANS}; letter-spacing: -.01em; color: #fff; }
 .name { margin: 3px 0 0; font: 400 12.5px/1.4 ${SANS}; color: rgba(255,255,255,.62); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-notes { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+/* The safety class, in the same three words approach B's suggestion card uses. */
+.safety {
+  padding: 3px 8px; border-radius: 999px; font: 600 10.5px/1.3 ${SANS}; letter-spacing: .02em; white-space: nowrap;
+  color: rgba(255,255,255,.72); background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14);
+}
+.safety[data-safety="high-impact"] { color: #ffdf9e; background: rgba(30,21,6,.72); border-color: rgb(var(--lock) / .5); }
 .preview-note {
   flex: 0 0 auto; margin-top: 4px; font: 500 11px/1.2 ${MONO}; color: rgba(255,255,255,.55); white-space: nowrap;
 }

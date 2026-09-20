@@ -1,5 +1,5 @@
 // Content script entry: capture -> predict -> controller -> overlay + execute.
-import type { FormPredictRequest, GhostSettings, Profile } from "@ghost/shared";
+import type { FormPredictRequest, GhostSettings, GhostWalkOutcome, Profile } from "@ghost/shared";
 import { ghostEvents } from "../lib/events";
 import { readCachedForm, saveCachedForm } from "../lib/formCache";
 import { isGhostMessage, isServerResult, parseFormPrediction } from "../lib/messages";
@@ -16,7 +16,9 @@ import { startNextAction } from "./nextAction";
 import { Overlay } from "./overlay";
 import { createFormPredictor } from "./predict";
 import { createServedLedger, observePredictions } from "./servedLedger";
+import { WalkOutcomeReporter, observeWalkProvider } from "./walkTelemetry";
 import type { ServedLedger } from "./servedLedger";
+import { ghostOptedOut } from "./tabSurface";
 import { syncLoopCapture } from "./trace";
 
 const LOADED_FLAG = "__ghostContentLoaded";
@@ -65,9 +67,17 @@ async function askWorker(request: FormPredictRequest): Promise<ServerResult<Form
   return data ? { ok: true, data } : { ok: false, error: "bad-reply" };
 }
 
+async function reportWalkOutcome(outcome: GhostWalkOutcome): Promise<void> {
+  if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) return;
+  const message: GhostMessage = { type: "ghost:walk-outcome", outcome };
+  await chrome.runtime.sendMessage(message);
+}
+
 function apply(session: Session): void {
   const wasRunning = session.running;
-  session.running = session.settings.enabled;
+  // `ghost-tab: off` (tabSurface.ts) is the page saying it runs its own Tab surface: Ghost is as off here as
+  // the switch makes it anywhere else — no capture, no ghosts, no overlay, no next-action, no loop sheet.
+  session.running = session.settings.enabled && !ghostOptedOut(document);
   syncLoopCapture(session.running); // action trace + page facts (docs/loops.md section 1), only while Ghost is enabled
   if (!session.running) {
     session.controller.stop();
@@ -92,7 +102,7 @@ function listenForToggle(session: Session): void {
 }
 
 /** Learning (opt-in) and metrics listen to the controller's events; neither is known to the controller. Returns the stop function. */
-function startSubscribers(session: Session, ledger: ServedLedger): () => void {
+function startSubscribers(session: Session, ledger: ServedLedger, walk: WalkOutcomeReporter): () => void {
   const toast = new LearnToast({ root: () => (session.running ? session.overlay.shadow : null) });
   const learner = new Learner({
     events: ghostEvents,
@@ -110,9 +120,11 @@ function startSubscribers(session: Session, ledger: ServedLedger): () => void {
   });
   learner.start();
   reporter.start();
+  walk.start();
   return () => {
     learner.stop();
     reporter.stop();
+    walk.stop();
     toast.hide();
   };
 }
@@ -121,6 +133,14 @@ async function boot(): Promise<void> {
   const [profile, settings] = await Promise.all([getProfile(), getSettings()]);
   const overlay = new Overlay();
   const ledger = createServedLedger();
+  const drafts = new DraftScheduler({ open: openTextPort });
+  // The learning loop: one redacted outcome per walk (docs/agent-learning.md). Best-effort, never blocking.
+  const walkReporter = new WalkOutcomeReporter({
+    events: ghostEvents,
+    send: reportWalkOutcome,
+    remaining: () => session.controller.state.ghosts,
+    isCalibrated: (signature) => ledger.get(signature)?.calibrated === true,
+  });
   const session: Session = {
     profile,
     settings,
@@ -131,9 +151,9 @@ async function boot(): Promise<void> {
       getProfile: () => session.profile,
       // One HUD per tab: frames keep their ghosts but leave the status chip to the top document.
       getSettings: () => (isTopFrame() ? session.settings : { ...session.settings, showHud: false }),
-      predictForm: observePredictions(createFormPredictor({ readCache: readCachedForm, saveCache: saveCachedForm, askServer: askWorker }), ledger),
+      predictForm: observeWalkProvider(observePredictions(createFormPredictor({ readCache: readCachedForm, saveCache: saveCachedForm, askServer: askWorker }), ledger), walkReporter),
       // Essay drafts stream through the worker too, one `ghost:text` port per field, at most three at a time.
-      drafts: new DraftScheduler({ open: openTextPort }),
+      drafts,
     }),
   };
   onStorageChanged((changes) => {
@@ -142,7 +162,7 @@ async function boot(): Promise<void> {
     apply(session);
   });
   listenForToggle(session);
-  const stopSubscribers = startSubscribers(session, ledger);
+  const stopSubscribers = startSubscribers(session, ledger, walkReporter);
   watchForOrphan(() => {
     stopSubscribers();
     retire(session);

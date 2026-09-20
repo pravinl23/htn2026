@@ -4,13 +4,13 @@ This file is the contract between modules. If you change a signature here, chang
 
 ## Current integration boundary — 2026-09-19
 
-The browser extension currently implements the offline form walk only: `capture -> buildGhostsOffline -> controller -> overlay/execute`. It does not fetch the server, stream free text, record traces, predict next actions or orchestrate loops. The server and shared packages contain those later-stage services/pure engines, and Ghost Desktop independently consumes form prediction and ghost text. Read contracts below as implemented only where a corresponding source module exists; `docs/loops.md` marks the planned extension pieces explicitly.
+The browser extension implements the complete assisted form walk, server prediction/cache, streamed drafts, opt-in learning/metrics, trace capture, loop preview/execution, presence coordination, next-action click ghosts, and the redacted walk telemetry described below. Browserbase and Composio execution exist behind the loop/workflow boundaries, but real external-account effects are not part of the Jev form proof. Ghost Desktop independently consumes form prediction and ghost text; its atomic workflow coordinator remains a tested seam rather than the main native capture pipeline.
 
 ## Packages
 
 | Package | Role |
 | --- | --- |
-| `shared/` (`@ghost/shared`) | Types and pure logic used by both the extension and the server: `CapturedField`, `Ghost`, `Profile`, the Jev-shaped decision interface, heuristic field mapping (`mapFieldToFact`), value resolution (`resolveFieldValue`), and the safety rules (`isSensitive`, `isLockedAction`). No DOM, no Node APIs. |
+| `shared/` (`@ghost/shared`) | Types and pure logic used by both the extension and the server: `CapturedField`, `Ghost`, `Profile`, the Jev-shaped decision interface, the redacted walk outcome/replay contract and its evaluator, heuristic field mapping (`mapFieldToFact`), value resolution (`resolveFieldValue`), and the safety rules (`isSensitive`, `isLockedAction`). No DOM, no Node APIs. |
 | `extension/` | Chrome MV3 extension built with esbuild (`node build.mjs`) into `extension/dist`. |
 | `server/` | Hono prediction service on `http://localhost:8787`. Keys live here, never in the extension. |
 | `demo/` | Vite + React demo sites on `http://localhost:5173`. `demo/public/apply-plain/index.html` is framework-free. |
@@ -149,6 +149,20 @@ Rescans: a `MutationObserver` on `documentElement` (childList + an attribute all
 
 Loads settings and profile from `chrome.storage.local` (through `src/lib/storage.ts`), starts the controller when `settings.enabled`, reacts to `chrome.storage.onChanged` (enable/disable starts/stops; any other settings or profile change rescans) and to the `ghost:toggle` runtime message (re-reads settings from storage, which is the source of truth; the background currently relies on storage alone and does not broadcast). Skips pages where `location.protocol` is not http/https and guards against double injection with a global flag in the isolated world. A disabled Ghost removes its overlay host from the page entirely.
 
+### Walk outcome telemetry (`walkTelemetry.ts`)
+
+The learning loop hangs off the controller's own event bus, so neither the controller nor the predictor knows telemetry exists. `WalkOutcomeReporter` subscribes to `ghosts:shown`, `ghost:accepted`, `ghost:dismissed` and `walk:finished`, and `observeWalkProvider` wraps the predictor exactly as `observePredictions` wraps it for the served ledger.
+
+```text
+one Tab walk -> per-proposal verdicts (accepted / escaped / typed-over / refused / unresolved)
+-> `ghost:walk-outcome` -> worker allowlist -> POST /v1/walk/outcomes -> server allowlist
+-> opt-in Sentry + bounded replay queue for reviewable walks
+```
+
+The events carry live elements, profile values, labels and field signatures; the reporter copies none of them. A signature is used only as a local map key for the calibration lookup and never reaches the envelope. Reporting is best-effort throughout: a throwing subscriber, a missing worker or an old browser without `crypto.randomUUID` cannot fail, delay or change a walk.
+
+Only three kinds of walk enter the review queue: one that accepted a locked proposal (a safety violation that must never happen), one where a *calibrated* provider's confident proposal was rejected by the user (a calibration failure), and one the user abandoned. Every promoted fixture asserts `lockedAccepted: 0` whatever else it checks. See [`learning-loop.md`](learning-loop.md).
+
 The content script runs in every frame (`all_frames: true`): embedded application forms (Greenhouse, Lever, Ashby) live in iframes. Each frame has its own controller and overlay, frames smaller than 200x80 (ad slots, tracking pixels) are skipped, and only the top document shows the HUD. The debugger fallback stays top-frame only (its guards run in the top document and refuse anything else). Known gap: fields inside shadow roots (web-component forms such as Salesforce LWC) are not captured yet.
 
 `lifecycle.ts` polls `chrome.runtime.id` once a second. After an extension reload or update the old content script is orphaned (no storage or runtime event ever reaches it again, so it could not be switched off); it then stops the controller, removes the overlay and releases the page.
@@ -168,6 +182,7 @@ export type GhostMessage =
   | { type: "ghost:debugger-fill"; value: string; target: string }               // target: one-shot token, also stamped on the element as data-ghost-target
   | { type: "ghost:debugger-click"; x: number; y: number; target: string }
   | { type: "ghost:predict-form"; request: FormPredictRequest }                  // reply: ServerResult<FormPrediction>
+  | { type: "ghost:walk-outcome"; outcome: GhostWalkOutcome }                   // reply ignored; best-effort telemetry
   | { type: "ghost:health" }                                                     // reply: ServerResult<ServerHealth>
   | { type: "ghost:metrics"; batch: MetricsBatch };                              // reply: MetricsReply (Stage 4 + 7, see below)
 // Free-text drafts do not use messages: one chrome.runtime Port named TEXT_PORT ("ghost:text") per draft, see Stage 3.

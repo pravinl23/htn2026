@@ -1,4 +1,9 @@
-import type { CapturedField, FieldKind, FieldOption, FormPredictRequest } from "@ghost/shared";
+import {
+  type CapturedField,
+  type FieldKind,
+  type FieldOption,
+  type FormPredictRequest,
+} from "@ghost/shared";
 import { COUNTER_NAMES, type CalibrationPair, type Counters } from "../lib/metrics";
 import { isRecord } from "./errors";
 import type { EpisodicPair, NextCandidate, NextPredictRequest, TraceEvent } from "./nextQuestions";

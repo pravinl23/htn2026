@@ -4,6 +4,8 @@
 //   1. refuse at once, touching nothing: not a combobox, EEO/demographic question, sensitive, disabled, already
 //      showing a value, empty answer
 //   2. focus the combobox (AXFocused) and check that focus really is there
+//   3a. AXPress the combobox: react-select opens its menu on a press, and then nothing has to be typed at all.
+//       Only a control that does not answer a press (a type-ahead/location field) goes on to
 //   3. type the intended answer through GHKeyPoster, only while the focused element IS the combobox
 //   4. wait up to 1.5 s for a list of options near it (AXList / AXMenu / role description "list box", "listbox",
 //      "menu"; options AXMenuItem, role description "option", else AXStaticText; notices like "No options" are not
@@ -115,6 +117,7 @@ extern NSString *const GHComboBoxMethodKeys;
 @property (nonatomic) NSTimeInterval pollInterval;       // 0.1
 @property (nonatomic) NSTimeInterval focusSettleDelay;   // 0.05
 @property (nonatomic) NSTimeInterval listTimeout;        // 1.5
+@property (nonatomic) NSTimeInterval openTimeout;        // 0.7: how long a press gets to open a menu before typing
 @property (nonatomic) NSTimeInterval verifyDelay;        // 0.15
 @property (nonatomic) NSTimeInterval keyStepDelay;       // 0.06
 @property (nonatomic, readonly) BOOL running;

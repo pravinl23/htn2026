@@ -1,5 +1,12 @@
 import { isSensitive } from "@ghost/shared";
-import type { CapturedField, FieldAssignment, FieldKind, FieldOption, FormPredictRequest } from "@ghost/shared";
+import type {
+  CapturedField,
+  FieldAssignment,
+  FieldKind,
+  FieldOption,
+  FormPredictRequest,
+  GhostWalkOutcome,
+} from "@ghost/shared";
 
 /**
  * Runtime messages between the content script and the background worker. `target` is a one-shot token
@@ -12,6 +19,7 @@ export type GhostMessage =
   | { type: "ghost:debugger-fill"; value: string; target: string }
   | { type: "ghost:debugger-click"; x: number; y: number; target: string }
   | { type: "ghost:predict-form"; request: FormPredictRequest }
+  | { type: "ghost:walk-outcome"; outcome: GhostWalkOutcome }
   | { type: "ghost:health" }
   | { type: "ghost:metrics"; batch: MetricsBatch };
 
@@ -25,7 +33,7 @@ export interface DebuggerReply {
 }
 
 const TYPES: ReadonlySet<string> = new Set([
-  "ghost:toggle", "ghost:debugger-fill", "ghost:debugger-click", "ghost:predict-form", "ghost:health", "ghost:metrics",
+  "ghost:toggle", "ghost:debugger-fill", "ghost:debugger-click", "ghost:predict-form", "ghost:walk-outcome", "ghost:health", "ghost:metrics",
 ]);
 
 export function isGhostMessage(msg: unknown): msg is GhostMessage {
@@ -279,6 +287,10 @@ export function parseHealth(raw: unknown): ServerHealth | null {
   if (typeof raw.model === "string") health.model = raw.model.slice(0, 80);
   if (typeof raw.version === "string") health.version = raw.version.slice(0, 40);
   return health;
+}
+
+function clampConfidence(value: number): number {
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
 }
 
 export function isServerResult(msg: unknown): msg is ServerResult<unknown> {

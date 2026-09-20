@@ -29,3 +29,32 @@ Format:
 - Audit tests at 18:10 UTC: build and typecheck pass; shared 354, extension 254, server 325 passed + 2 skipped, demo 74, e2e 19, demo smoke 95, desktop 167. Tracked secret-pattern scan clean.
 - Audit findings: frozen install fails because the lockfile still lists extension `pdfjs-dist`; desktop presence/extension heartbeat is documented but not implemented; `DEMO.md` and the Stage 6 loop video are missing; several planning documents overstated integration.
 - Next: implement the canonical invoice-loop vertical slice in the extension (record two runs -> detect/synthesize -> preview 48 with one exception -> confirm -> execute/verify 47 -> result screen), then add e2e, fallback video and one visible OpenAI-powered step.
+
+## Run 3: 2026-09-19 Jev computer-use integration [DONE]
+- Added a shared value-free computer-use contract and strict `/v1/agent/next` route. One Jev call selects a closed operation plus a compatible opaque target; the provider never receives profile values or target ids.
+- Added the extension browser adapter, provider-independent observe/freshness-check/execute/verify runner, and closed-shadow `Alt+Shift+J` panel. The existing verified writer remains the only mutation path.
+- Added a risk-aware frontier: one DOM-order local value target at a time, clicks deferred while safe value work remains, no-key policy forbidden from clicks, locked/sensitive targets refused again at execution.
+- Added server, message-boundary, runner, browser-adapter and loaded-extension tests.
+- Live verification: direct TypeSafe/Jev + Baseten drafting completed `/apply` in 8.3 s; deterministic keyless run completed in 2.0 s. Both left consent untouched and recorded zero Submit attempts.
+- Verification: build and all workspace typechecks pass; 2,029 JS/TS unit tests and all 34 loaded-extension browser tests pass.
+- Next: record the live proof, add Sentry outcome/failure capture feeding replay/evals, then add a second page-changing `CLICK`/`WAIT` scenario before returning to the canonical invoice-loop video.
+
+## Run 4: 2026-09-19 redacted Sentry outcomes and replay evals [DONE]
+- Added a versioned shared outcome schema that cannot represent goals, URLs, labels, target ids, values, DOM or arbitrary errors; it keeps only closed codes, booleans, bounded structural counts and coarse buckets.
+- The extension converts terminal Jev updates into best-effort outcomes. Its background worker sanitizes again before the server, and the server validates once more with a 64 KB streamed-body limit.
+- Added an opt-in Sentry Node sink with no default integrations, PII or tracing. `beforeSend` discards and reconstructs every event from the validated outcome; blocked runs also get a redacted JSON replay attachment. No DSN is present, so live delivery is not yet verified.
+- Added the bounded `/v1/agent/replays` review queue, canonical export/promotion CLI, checked-in seed fixture, and `pnpm eval:agent-replays` regression gate. This is reviewed learning, never automatic production self-modification.
+- Final verification: all workspace typechecks; 2,046 JS/TS unit tests; the checked-in replay eval; extension/demo production builds; the 3.9 MB server bundle smoke; and all 35 loaded-extension browser tests passed. The new real blocked-run telemetry path passed in 1.5 seconds.
+- Next: add a DSN and verify one Sentry event, then build the second synthetic `CLICK`/navigation/`WAIT` scenario and promote its outcome.
+
+## Run 5: 2026-09-19 merge main, drop the agent runner, retarget the learning loop [DONE]
+- Merged `origin/main` (terminal ghost, OpenAI vision, next-action click ghosts + presence heartbeat, desktop Greenhouse fixes). Three trivial conflicts, both sides kept: `package.json`, `extension/src/content/index.ts`, `MORNING.md`.
+- Audited the two streams against the code, not the docs: they were complementary, not duplicated. Both build candidates from the same `captureFields()`; only the projections differ. Nothing on main ever called `/v1/agent/next`.
+- Removed the `Alt+Shift+J` Jev computer-use runner (~1,059 lines): route, runner, browser adapter, panel, providers, shared contract, e2e. Pravin's form walk is the product and Ghost Desktop drives it through the same `/v1/predict/form`.
+- Rebuilt the learning loop on that walk. The label is now the user's own verdict per ghost (accept / escape / type-over), read off the existing controller event bus, so neither the controller nor the predictor knows telemetry exists.
+- `ghost.walk-outcome.v1` cannot represent a label, value, signature, URL, origin or title, and a summary that contradicts its proposals is rejected. Only three walks are reviewable: a locked proposal accepted (safety violation), a calibrated confident proposal rejected (calibration failure), or an abandoned walk. Every fixture asserts `lockedAccepted: 0`.
+- Renamed the surface: `/v1/walk/outcomes`, `/v1/walk/replays`, `pnpm eval:walk-replays`, `evals/walk-replays/`, `docs/learning-loop.md`.
+- Deliberately did NOT adopt `docs/answers.md`'s `questionSignature` (derived from page text) or touch `shared/src/answers/**`, which is Pravin's unimplemented design. The tension is written up in `handoff.md` for him to decide.
+- Verification: typecheck passes; 2,386 unit tests plus the replay eval; extension and demo builds; e2e 37 passed / 1 failed. The new loaded-extension walk-telemetry spec passes both paths (abandoned walk becomes a redacted fixture, healthy walk stays out of the queue). The one failure, `stage5-next.spec.ts:187` (extension presence heartbeat), reproduces identically on pristine `origin/main` in a clean worktree, so it is pre-existing and belongs to the presence stream.
+- Found two stale doc claims while auditing: desktop is 203 tests, not the documented 201, and PLAN.md's Stretch checkbox for the extension presence heartbeat was wrong until main landed it. Both corrected.
+- Next: add a `SENTRY_DSN` and confirm one live scrubbed event, then emit the same envelope from Ghost Desktop.

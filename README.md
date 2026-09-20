@@ -8,6 +8,8 @@ Built at Hack the North 2026. Instructions for the autonomous builder live in `C
 
 The browser form-filling path is complete and verified: Ghost can walk the React and plain-HTML job applications with Tab, preserve native keyboard behavior outside the walk, refuse sensitive fields, verify writes, and stop on the locked Submit action. The extension now upgrades its instant local predictions from the server, caches per form, streams free-text drafts, imports resumes, learns opt-in facts, reports metrics, records safe action traces, detects repeated loops, previews them and runs confirmed visible/background/Browserbase/Composio modes.
 
+Every Tab walk feeds a privacy-safe learning loop. The user's own accept, escape or type-over is the ground truth: the extension emits one value-free outcome per walk, the server can send it to Sentry, walks that went wrong become versioned replay fixtures, and `pnpm eval:walk-replays` checks reviewed expectations. Labels, values, signatures and page identity never cross the wire, and there is no automatic self-modification. Live Sentry delivery is opt-in through `SENTRY_DSN` and is not configured in the current `.env`; see [`docs/learning-loop.md`](docs/learning-loop.md).
+
 The canonical invoice loop is heavily unit-tested, including preview, explicit confirmation, verified background execution and failure handling, but still needs one loaded-extension Playwright run covering the full “do two, preview 48, complete 47, hold one” judging path and its fallback video. The separate atomic workflow lab demonstrates two Jev-selected stories—meeting coordination and Slack → GitHub issue—with simulated Composio execution. Real Composio accounts are not configured, and the native workflow coordinator is a tested seam rather than part of the desktop app’s live pipeline. See `PLAN.md` for the exact boundary.
 
 ## Run it
@@ -29,6 +31,7 @@ Then load the extension in Chrome:
 
 Toggle Ghost with **Alt+Shift+G** or the toolbar button.
 
+
 For the atomic macOS/Composio workflow demo, keep the server and demo running and open
 `http://localhost:5173/workflow/index.html`. It is side-effect-free and simulated until
 `COMPOSIO_API_KEY` is configured, with meeting coordination and Slack → GitHub issue
@@ -40,6 +43,7 @@ stories ready for the hackathon demo. See [`docs/workflows.md`](docs/workflows.m
 pnpm test         # all pnpm-workspace unit tests (no keys needed; excludes desktop/)
 pnpm e2e          # Playwright: loads the built extension into Chromium and drives the demo sites
 pnpm test:live    # only runs when real provider keys are present; prints real latency
+pnpm eval:walk-replays  # validate every reviewed redacted walk outcome fixture
 make -C desktop test  # native macOS agent unit tests (not included in pnpm test)
 ```
 
@@ -47,7 +51,7 @@ The first Playwright run also needs `pnpm --filter @ghost/e2e exec playwright in
 
 ## Keys
 
-The implemented offline form path and server endpoints have deterministic fallbacks when keys are missing. Copy `.env.example` to `.env` to enable live model providers. On the audited developer machine, direct TypeSafe/Jev, Baseten, xAI and Browserbase are configured. A live 12-field Jev decision and the complete three-action atomic workflow passed with calibrated TypeSafe/Jev choices. The extension and desktop both use the local server while retaining local fallback. Never commit `.env`.
+The implemented offline form path and server endpoints have deterministic fallbacks when keys are missing. Copy `.env.example` to `.env` to enable live model providers. On the audited developer machine, direct TypeSafe/Jev, Baseten, xAI, Browserbase and Composio keys are present; no Sentry DSN is present yet. A live 12-field Jev decision and the complete three-action atomic workflow passed with calibrated TypeSafe/Jev choices. The extension and desktop both use the local server while retaining local fallback. Never commit `.env`.
 
 ## Run Ghost in the background (macOS)
 

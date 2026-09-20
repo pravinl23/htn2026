@@ -6,10 +6,11 @@ This is the implementation ledger. Check a box only when the item works on its i
 
 - **Demoable now:** browser form capture, offline prediction, ghost overlay, Tab/Escape/hold-Tab interaction, verified React-safe writes, sensitive-field exclusion, locked actions, settings/profile editing, and the `/apply` walkthrough.
 - **Connected extension path:** server-upgraded form prediction, per-form cache, HUD, streamed ghost text, resume import, learning, metrics, trace/page-fact capture, loop proposal/preview and confirmed execution are implemented.
+- **Learning loop:** every Tab walk emits one strictly value-free outcome (extension -> worker -> server), reviewable walks become replay fixtures, and `pnpm eval:walk-replays` gates them. Live Sentry delivery still needs a DSN.
 - **Workflow showcase:** `/workflow/index.html` runs meeting coordination and Slack → GitHub issue stories through one Jev choice per step and simulated Composio execution.
 - **Native:** the stable Objective-C host, hot-swappable library, Accessibility harness and 201 tests exist; the atomic `GHWorkflowCoordinator` seam is not connected to the main desktop pipeline.
 - **Top priority:** prove the canonical invoice loop in loaded-extension e2e: two demonstrations, preview 48, flag one intentional exception, explicitly confirm once, execute/verify 47, then record the fallback video.
-- **Verified baseline:** frozen install, build and typecheck pass; 2,016 JS/TS unit tests, 201 desktop tests and 33 browser e2e tests pass. The prior 95-check demo smoke run was not repeated after this merge.
+- **Verified baseline:** build and typecheck pass; 2,046 JS/TS unit tests, the replay eval, 201 desktop tests and 35 browser e2e tests pass. The prior 95-check demo smoke run was not repeated after this integration.
 
 Demo profile (fictional, use everywhere, never real data):
 Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University of Waterloo, BCS Computer Science, expected graduation April 2028, github.com/alexchen-dev, linkedin.com/in/alexchen-dev, alexchen.dev, authorized to work in Canada: yes, requires sponsorship: no.
@@ -71,11 +72,24 @@ Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University o
 - [x] Shared normalized trace types, filtering/shape logic, and episodic-memory retrieval.
 - [x] Action trace recorder in the extension/background worker (clicks, typing, navigation, tab switches); sensitive values masked.
 - [x] Server `POST /v1/predict/next`: recent actions plus up to 60 candidate elements; one choice question over candidates plus `none`; returns candidate and confidence.
-- [ ] Extension client for `/v1/predict/next` and candidate capture.
-- [ ] Ghost cursor for clicks on buttons and links; Tab clicks unless locked.
-- [x] Connect episodic memory to recorded extension actions. Retrieval is implemented, but `/v1/predict/next` is not yet requested by the extension.
+- [x] Extension client for `/v1/predict/next` and candidate capture.
+- [x] Ghost cursor for clicks on buttons and links; Tab clicks unless locked.
+- [x] Connect episodic memory to recorded extension actions, and request `/v1/predict/next` from the extension.
 - [x] `demo/mail` and `demo/calendar`: an email asks "can we meet Thursday afternoon?"; a user can open the calendar, pick the free Thursday slot, return to the email, fill the React-controlled reply, and reach locked Send. Ghost orchestration/drafting is not part of this checkbox.
 - [ ] E2E for that cross-page flow using only Tab presses (and a final explicit confirm that the test does NOT press).
+
+### Stage 5A: Walk outcome learning loop
+
+The autonomous `Alt+Shift+J` runner (`/v1/agent/next`) was removed on 2026-09-19: Pravin's form walk is the
+product, so the learning loop now hangs off that walk instead of a second, parallel agent path.
+
+- [x] Versioned value-free `ghost.walk-outcome.v1` contract with adversarial sanitization on both sides.
+- [x] Content-script collector on the existing controller event bus; the user's accept/escape/type-over is the label.
+- [x] `POST /v1/walk/outcomes` + `GET /v1/walk/replays`: validate again, opt-in Sentry sink, bounded review queue.
+- [x] Reviewable-walk rule (locked proposal accepted, confident calibrated proposal rejected, walk abandoned), replay fixtures and the `pnpm eval:walk-replays` regression gate. Reviewed learning only; nothing rewrites prompts or policy automatically.
+- [x] Loaded-extension e2e proving a real walk reaches the server redacted and that a healthy walk stays out of the queue.
+- [ ] Add a Sentry DSN and confirm one live scrubbed event plus its replay attachment.
+- [ ] Emit the same envelope from Ghost Desktop, which drives the identical `/v1/predict/form` walk.
 
 ## Stage 6: Do it twice, Ghost does the rest
 

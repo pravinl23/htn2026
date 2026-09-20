@@ -1,7 +1,7 @@
 import { DEMO_PROFILE } from "@ghost/shared";
-import type { CapturedField } from "@ghost/shared";
+import type { CapturedField, GhostWalkOutcome } from "@ghost/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { REQUEST_TIMEOUT_MS, checkHealth, handleServerMessage, isServerMessage, predictForm } from "../src/background/serverClient";
+import { REQUEST_TIMEOUT_MS, checkHealth, handleServerMessage, isServerMessage, predictForm, reportWalkOutcome } from "../src/background/serverClient";
 import type { FetchLike } from "../src/background/serverClient";
 import { sanitizeFormRequest, toWireField } from "../src/lib/messages";
 import { resetMemoryStorage } from "../src/lib/storage";
@@ -11,6 +11,17 @@ const BASE = "http://localhost:8788";
 const PREDICTION = {
   assignments: [{ signature: "first", factKey: "firstName", confidence: 0.97, source: "jev-gateway", calibrated: true }],
   provider: "jev-gateway", calibrated: true, latencyMs: 120, cache: "miss",
+};
+const OUTCOME: GhostWalkOutcome = {
+  schemaVersion: "ghost.walk-outcome.v1",
+  runId: "33333333-3333-4333-8333-333333333333",
+  state: "parked",
+  reason: "locked-action",
+  duration: "250-999ms",
+  provider: "typesafe",
+  latency: "100-249ms",
+  proposals: [{ index: 1, action: "fill", source: "server", calibrated: true, confidence: "95-plus", locked: false, outcome: "typed-over" }],
+  summary: { shown: 1, accepted: 0, dismissed: 1, locked: 0 },
 };
 
 function field(signature: string, partial: Partial<CapturedField> = {}): CapturedField {
@@ -128,8 +139,9 @@ describe("checkHealth", () => {
 });
 
 describe("handleServerMessage", () => {
-  it("recognises its two message types only", () => {
+  it("recognises its four server message types only", () => {
     expect(isServerMessage({ type: "ghost:predict-form", request: {} })).toBe(true);
+    expect(isServerMessage({ type: "ghost:walk-outcome", outcome: {} })).toBe(true);
     expect(isServerMessage({ type: "ghost:health" })).toBe(true);
     expect(isServerMessage({ type: "ghost:debugger-fill" })).toBe(false);
     expect(isServerMessage(null)).toBe(false);
@@ -153,6 +165,24 @@ describe("handleServerMessage", () => {
     const fetchMock = jsonFetch({ ok: true, provider: "llm", calibrated: false, textProvider: "openai" });
     const result = await handleServerMessage({ type: "ghost:health" }, {}, deps(fetchMock));
     expect(result).toEqual({ ok: true, data: { provider: "llm", calibrated: false, textProvider: "openai" } });
+  });
+});
+
+describe("reportWalkOutcome", () => {
+  it("sanitizes again and POSTs the outcome without requiring page identity", async () => {
+    const fetchMock = jsonFetch({ accepted: true, captured: false, replayId: OUTCOME.runId });
+    const dirty = { ...OUTCOME, goal: "private goal", url: "https://private.example", profile: { email: "sam@example.com" } };
+    expect(await handleServerMessage({ type: "ghost:walk-outcome", outcome: dirty as never }, {}, deps(fetchMock)))
+      .toEqual({ ok: true, data: { accepted: true, captured: false, replayId: OUTCOME.runId } });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${BASE}/v1/walk/outcomes`);
+    expect(sentBody(fetchMock)).toEqual(OUTCOME);
+  });
+
+  it("rejects a widened envelope before network", async () => {
+    const fetchMock = jsonFetch({ accepted: true, captured: false });
+    const widened = { ...OUTCOME, proposals: [{ ...OUTCOME.proposals[0], action: "navigate" }] };
+    expect(await reportWalkOutcome(widened, deps(fetchMock))).toEqual({ ok: false, error: "bad-request" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

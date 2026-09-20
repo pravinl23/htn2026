@@ -14,6 +14,7 @@ import type { Overlay, OverlayState } from "./overlay";
 import { extractPageContext } from "./pageContext";
 import { isPlaceholderChoice, planForm, predictableFields, usableFactKeys } from "./predict";
 import type { FormAnswer, PredictForm } from "./predict";
+import { pageOwnsTab } from "./tabSurface";
 import { isCovered, isRendered, placement } from "./visibility";
 
 export interface ControllerDeps {
@@ -73,6 +74,8 @@ const WATCHED_ATTRS = [
   "hidden", "disabled", "readonly", "inert", "open", "class", "style", "type", "name", "id", "for", "tabindex",
   "placeholder", "autocomplete", "aria-hidden", "aria-disabled", "aria-readonly", "aria-label", "aria-labelledby",
   "data-ghost-lock", "data-ghost-sensitive", "data-sensitive",
+  // The page taking Tab (or giving it back) is a change Ghost must notice: tabSurface.ts.
+  "data-ghost-tab",
 ];
 /** Animations rewrite these every frame; they only matter on something that is or holds a control. */
 const NOISY_ATTRS = new Set(["class", "style"]);
@@ -129,6 +132,8 @@ export class GhostController {
   private lastUrl = "";
   private lastLatencyMs: number | null = null;
   private observer: MutationObserver | null = null;
+  /** The agent can temporarily own execution while capture, prediction and rendering keep running. */
+  private interactive = true;
 
   constructor(private readonly deps: ControllerDeps) {
     this.doc = deps.doc ?? document;
@@ -145,6 +150,10 @@ export class GhostController {
     this.observe();
     this.urlTimer = setInterval(this.onUrlMaybeChanged, URL_POLL_MS);
     this.rescan();
+  }
+
+  setInteractive(interactive: boolean): void {
+    this.interactive = interactive;
   }
 
   stop(): void {
@@ -177,6 +186,7 @@ export class GhostController {
       this.rescanDeferred = true; // never swap the ghost list under a write that is in flight
       return;
     }
+    if (pageOwnsTab(this.doc)) return this.standDown();
     const started = performance.now();
     const keepLock = this.state.accepted > 0 && this.lockSignature !== null;
     const deps = {
@@ -196,6 +206,18 @@ export class GhostController {
     this.render();
     this.requestPrediction(fields, factKeys);
     this.requestDrafts(plan.textFields);
+  }
+
+  /**
+   * The page declared that it owns Tab (tabSurface.ts): every ghost goes, nothing is drawn and no question is
+   * sent about a page Ghost may not act on. An ordinary rescan brings the walk back when the page gives Tab up.
+   */
+  private standDown(): void {
+    const had = this.state.ghosts.length > 0;
+    this.state.ghosts = [];
+    this.state.currentIndex = -1;
+    this.els.clear();
+    if (had || this.jumpShown) this.render();
   }
 
   // ---------- free-text drafts, streamed in the background ----------
@@ -424,7 +446,9 @@ export class GhostController {
   // ---------- keys ----------
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (event.isComposing || event.keyCode === 229 || !this.isUserEvent(event)) return;
+    if (!this.interactive || event.isComposing || event.keyCode === 229 || !this.isUserEvent(event)) return;
+    // The page owns Tab right now: both keys stay native, even if a ghost is still on screen from a moment ago.
+    if (pageOwnsTab(this.doc)) return;
     if (event.key === "Tab") this.onTab(event);
     else if (event.key === "Escape") this.onEscape(event);
   };
@@ -487,6 +511,7 @@ export class GhostController {
   private jumpHint(): JumpHint | null {
     const ghost = this.current();
     if (!ghost || ghost.locked || this.jumpDismissed || this.busy || !focusOnBody(this.doc)) return null;
+    if (pageOwnsTab(this.doc)) return null; // the pill's whole purpose is to claim Tab, which is not ours here
     const el = this.resolve(ghost);
     const direction = el ? offscreenDirection(landingElement(ghost, el)) : null;
     return direction ? { count: this.state.ghosts.filter((g) => !g.locked).length, direction } : null;

@@ -83,6 +83,9 @@ typedef NS_OPTIONS(NSUInteger, GHRescanReason) {
 @property (nonatomic, readonly) pid_t frontmostPID;                         // 0 when unknown
 @property (nonatomic, readonly, copy, nullable) NSString *frontmostBundleIdentifier;
 @property (nonatomic, readonly, copy, nullable) NSString *frontmostAppName;
+/// YES when the frontmost app builds its web tree only on request (Chromium, Electron), which also means it
+/// reports no frame at all for content scrolled out of the viewport.
+@property (nonatomic, readonly) BOOL frontmostNeedsEnhancedUserInterface;
 /// YES when the frontmost app is on the default or the user pause list: Ghost does nothing there.
 @property (nonatomic, readonly) BOOL frontmostIsPaused;
 /// YES while an AXObserver is attached to the frontmost app.

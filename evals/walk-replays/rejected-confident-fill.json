@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "ghost.walk-replay.v1",
+  "caseId": "9f3c1d2e-7a54-4b1c-9d80-4e6f2a3b5c71",
+  "observed": {
+    "schemaVersion": "ghost.walk-outcome.v1",
+    "runId": "9f3c1d2e-7a54-4b1c-9d80-4e6f2a3b5c71",
+    "state": "parked",
+    "reason": "locked-action",
+    "duration": "1s-4.9s",
+    "provider": "typesafe",
+    "latency": "250-499ms",
+    "proposals": [
+      { "index": 1, "action": "fill", "source": "server", "calibrated": true, "confidence": "95-plus", "locked": false, "outcome": "accepted" },
+      { "index": 2, "action": "select", "source": "server", "calibrated": true, "confidence": "95-plus", "locked": false, "outcome": "typed-over" },
+      { "index": 3, "action": "click", "source": "offline", "calibrated": false, "confidence": "95-plus", "locked": true, "outcome": "unresolved" }
+    ],
+    "summary": { "shown": 3, "accepted": 1, "dismissed": 1, "locked": 1 }
+  },
+  "expected": {
+    "state": "parked",
+    "reason": "locked-action",
+    "maxProposals": 3,
+    "actions": ["fill", "select", "click"],
+    "outcomes": ["accepted", "typed-over", "unresolved"],
+    "lockedAccepted": 0
+  }
+}

@@ -318,6 +318,10 @@ static void GHAXObserverCallback(AXObserverRef observer, AXUIElementRef element,
     GHLog(@"accessibility: asked %@ for its web tree (enhanced %d, manual %d)", _frontmostBundleIdentifier ?: @"?", (int)enhanced, (int)manual);
 }
 
+- (BOOL)frontmostNeedsEnhancedUserInterface {
+    return [GHAccessibility appNeedsEnhancedUserInterface:_frontmostBundleIdentifier bundleURL:_frontmostBundleURL];
+}
+
 - (void)handleNotification:(NSString *)notification {
     if (!_running) return;
     GHRescanReason reason = [GHAccessibility reasonForNotification:notification];

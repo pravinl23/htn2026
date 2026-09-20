@@ -13,6 +13,7 @@ import { extensionAlive, watchForOrphan } from "./lifecycle";
 import { CURSOR_PATH, CURSOR_TIP, OVERLAY_CSS } from "./overlay-style";
 import { looksSensitiveValue } from "./pageFacts";
 import { listRefOf } from "./listContext";
+import { pageOwnsTab } from "./tabSurface";
 import { hasLayout, isCovered, isRendered, placement } from "./visibility";
 
 export const NEXT_SETTLE_MS = 300;
@@ -149,6 +150,8 @@ export interface NextActionDeps {
   getSettings(): Pick<GhostSettings, "confidenceThreshold">;
   /** Default: the loop sheet's host says anything but "hidden". */
   isLoopOpen?(): boolean;
+  /** Default: tabSurface.ts, i.e. the page declared `ghost-tab: off` or an active Tab surface. */
+  pageOwnsTab?(doc: Document): boolean;
   doc?: Document;
   /** Default: chrome.runtime.sendMessage. */
   send?(message: NextMessage | { type: typeof PRESENCE_PING }): Promise<unknown>;
@@ -382,9 +385,10 @@ class NextAction implements NextActionHandle {
     });
   }
 
-  /** The form walk, the loop sheet and the on/off switch all outrank a next-action ghost. */
+  /** The page's own Tab surface, the form walk, the loop sheet and the on/off switch all outrank a next-action ghost. */
   private gateOpen(): boolean {
     if (!this.running || !this.deps.isEnabled() || this.deps.formGhosts() > 0) return false;
+    if ((this.deps.pageOwnsTab ?? pageOwnsTab)(this.doc)) return false; // tabSurface.ts: the page said it owns Tab
     if ((this.deps.isLoopOpen ?? (() => loopSheetOpen(this.doc)))()) return false;
     return this.doc.visibilityState !== "hidden";
   }

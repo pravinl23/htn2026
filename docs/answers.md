@@ -74,14 +74,14 @@ The store and all rules live in `shared/src/answers/**` (pure, unit-tested) so b
 
 ## 6. Telemetry and the learning loop
 
-Every proposal and correction produces a **value-free** counter, in the shape Samir's agent outcome telemetry already uses (`shared/src/agentTelemetry.ts` on `codex/jev-computer-use-e2e`; until that merges, the same counters ride in `ghost.metrics` and `POST /v1/metrics/event`):
+Every proposal and correction produces a **value-free** counter, in the shape the walk outcome telemetry already uses (`shared/src/walkTelemetry.ts`, merged; see `docs/learning-loop.md`):
 
 ```
 answer.proposed   { class, source: "fact"|"learned"|"guess", accepted: bool, confidenceBucket }
 answer.corrected  { class, hadGhost: bool, wasGuess: bool }
 ```
 
-No label, no value, no origin. These answer the only questions that matter for the demo and for Sentry: how often a guess was right, how often one correction was enough, and whether learned answers stay accepted over time. When the agent branch lands, `answer.corrected` becomes an outcome the replay evals can score, so a correction improves future runs rather than being lost.
+No label, no value, no origin. These answer the only questions that matter for the demo and for Sentry: how often a guess was right, how often one correction was enough, and whether learned answers stay accepted over time. `answer.corrected` should become an outcome the replay evals can score, so a correction improves future runs rather than being lost. Note the open question recorded in `docs/learning-loop.md`: the envelope deliberately carries no `questionSignature`, because that is derived from page text, so a correction is currently countable but not replayable by question. Resolving that is the next design step, and it must not widen what crosses the wire.
 
 ## 7. What must never happen
 
