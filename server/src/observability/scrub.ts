@@ -122,6 +122,9 @@ const EMITTED_KEYS = new Set([
   // the model call itself (OpenTelemetry GenAI names, so Sentry's AI views pick them up)
   "gen_ai.system",
   "gen_ai.operation.name",
+  // The agent's own name ("decide.jev"), and our internal label for the call. Both are closed vocabularies.
+  "gen_ai.agent.name",
+  "ghost.operation",
   "gen_ai.request.model",
   "gen_ai.request.streaming",
   "gen_ai.request.messages",

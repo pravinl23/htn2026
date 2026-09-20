@@ -42,7 +42,11 @@ export function instrumentDecisionProvider(provider: DecisionProvider, deadlineM
       const questionCount = Object.keys(questions).length;
       const base: Attrs = {
         "gen_ai.system": system,
-        "gen_ai.operation.name": "decide",
+        // MUST be a well-known value from the GenAI semantic conventions, or Sentry's Agents view never
+        // recognises the span and the whole AI-monitoring product stays empty. "decide" is our word, not theirs.
+        "gen_ai.operation.name": "invoke_agent",
+        "gen_ai.agent.name": name,
+        "ghost.operation": "decide",
         "ghost.provider": provider.name,
         "ghost.questions": questionCount,
         "ghost.calibrated_provider": provider.calibrated,

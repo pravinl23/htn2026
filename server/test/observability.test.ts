@@ -329,7 +329,11 @@ describe("the model call is its own span", () => {
     expect(decide?.op).toBe("gen_ai.invoke_agent");
     expect(decide?.attributes).toMatchObject({
       "gen_ai.system": "typesafe",
-      "gen_ai.operation.name": "decide",
+      // A well-known GenAI value, not our own word: Sentry's Agents view ignores a span whose
+      // operation name it does not recognise, which is why that product stayed empty.
+      "gen_ai.operation.name": "invoke_agent",
+      "gen_ai.agent.name": "decide.jev",
+      "ghost.operation": "decide",
       "gen_ai.request.model": "jev-latest",
       "gen_ai.usage.input_tokens": 629,
       "gen_ai.usage.output_tokens": 87,

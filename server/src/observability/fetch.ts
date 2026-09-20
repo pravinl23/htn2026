@@ -125,7 +125,11 @@ export function tracedFetch(label: FetchLabel, base: typeof fetch = fetch): type
     const host = hostOf(urlOf(input));
     const attributes: Attrs = {
       "gen_ai.system": systemFor(label, host),
-      "gen_ai.operation.name": label,
+      // Both labels are chat completions on the wire. The value has to come from the GenAI well-known list
+      // ("chat", "invoke_agent", "execute_tool", ...); our own label goes in ghost.operation instead, where
+      // it is still filterable without hiding the span from Sentry's AI views.
+      "gen_ai.operation.name": "chat",
+      "ghost.operation": label,
       "gen_ai.request.model": shape.model,
       "gen_ai.request.streaming": shape.stream,
       "gen_ai.request.messages": shape.messages,
