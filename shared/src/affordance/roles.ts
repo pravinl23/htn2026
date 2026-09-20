@@ -11,6 +11,7 @@ export type AffordanceRole =
   | "cart" | "checkout" | "buy" | "quantity" | "wishlist"
   | "compose" | "reply" | "send" | "save" | "download" | "share"
   | "more" | "menu" | "settings" | "close" | "back" | "forward" | "scroll-more"
+  | "section"        // a group heading or a column-title row: it names the rows under it, it is not one of them
   | "field" | "submit" | "unknown";
 
 /** Roles whose vocabulary only means what it says inside a media context ("play" on a job form is not a player). */
@@ -31,6 +32,7 @@ export type AffordanceEvidence =
   | "price-nearby"      // a price-shaped string is rendered beside it
   | "badge-count"       // a small count is drawn on the icon
   | "unread"            // the entry is waiting to be read
+  | "section-heading"   // the whole name is a group name or a run of column titles, so it heads rows rather than being one
   | "path-pattern"      // the URL path pattern agrees with the role
   | "focused"           // the app itself has put the keyboard in this control
   | "kind";             // the candidate's own kind (a field is a field)
@@ -180,6 +182,46 @@ const PATH_PATTERNS: readonly { role: AffordanceRole; re: RegExp }[] = [
   { role: "compose", re: /\b(compose|new|draft)\b/ },
   { role: "reply", re: /\b(mail|message|messages|thread|conversation)\b/ },
 ];
+
+/**
+ * A list hands Ghost its headings as rows. Measured on this machine: a notes app put "Pinned", "Today" and
+ * "Previous 7 Days" in the same list and the same index space as the notes themselves, and two file/track lists
+ * published their column-title row ("Name Kind Date Last Opened", "# Title Album Date added Duration") as row
+ * zero. Ghost proposed all of them, top of the ranking, because nothing here had a word for "this names the rows
+ * under it". Pressing one does nothing at all, which is the worst ghost there is.
+ *
+ * Both rules match the WHOLE name, never a substring, and that anchoring is the entire safety argument: "Today"
+ * is a heading, "Today's standup 9:41" is a note; "Name Kind Date" is a column row, "Name of the new kind of
+ * date parser" is not. A heading keeps its rows' vocabulary, so only a whole-name test can tell them apart.
+ */
+const GROUP_HEADING = new RegExp(
+  "^(" +
+    // What a list calls the bucket a row falls into, by time...
+    "today|yesterday|tomorrow|earlier|this (week|month|year)|last (week|month|year)|" +
+    "previous \\d+ (day|days|week|weeks|month|months|year|years)|" +
+    "(january|february|march|april|may|june|july|august|september|october|november|december)( \\d{4})?|\\d{4}|" +
+    // ...or by the one status a list is allowed to sort on before time.
+    "pinned|starred" +
+  ")$",
+);
+
+/**
+ * The words a table puts at the top of its columns. A column-title row is made of NOTHING else, which is what
+ * separates it from a row that merely starts with one of these words. Numbers are dropped first because a native
+ * table interleaves its column WIDTHS into the row's accessible name.
+ */
+const COLUMN_TITLE = new Set([
+  "name", "title", "kind", "type", "size", "date", "dates", "time", "duration", "album", "artist", "track",
+  "added", "modified", "created", "last", "opened", "status", "owner", "tag", "tags", "comment", "comments",
+  "location", "path", "version", "year", "genre", "format", "author", "subject", "sender", "received", "sent",
+]);
+const MIN_COLUMN_TITLES = 3;
+
+/** Whether the whole name is a run of column titles: "name kind date last opened", "title album date added duration". */
+function isColumnTitleRow(nameText: string): boolean {
+  const words = nameText.split(" ").filter((w) => w !== "" && !/^\d+$/.test(w));
+  return words.length >= MIN_COLUMN_TITLES && words.every((w) => COLUMN_TITLE.has(w));
+}
 
 const SEARCH_NAME = /\bsearch\b|\bquery\b|^q$/;
 /** How much a list that is not the main region's is worth: less, never nothing. */
@@ -333,14 +375,21 @@ export function classifyAffordance(candidate: AffordanceCandidate, context: Affo
     (candidate.kind === "field" && SEARCH_NAME.test(normalizeAffordanceText([candidate.placeholder, candidate.name, candidate.identifier])));
   if (searchy) scores.add("search", 0.8, "search-input");
 
-  const actionClaimed = scores.max() >= ACTION_FLOOR;
-  // An irreversible control inside a list is that action, never "the item": a row's Sign in is not a row.
-  const itemLike = !actionClaimed && candidate.kind !== "field" && !isLockedAction({ text: candidate.label });
   // A repeated item is "the item" only when nothing inside it claimed a verb: a row's own Reply button stays a reply.
   // A native row says so itself, too: the list detector needs repeated SHAPES and does not always fire on an
   // AXOutline whose rows differ, so a Messages conversation would otherwise score as nothing at all.
   const listEntry = LIST_ENTRY_ROLE.test((candidate.ariaRole ?? "").trim().toLowerCase());
   const inList = candidate.list !== undefined;
+  // Only a row can be a heading. A toolbar's "Today" button is a real action and keeps whatever it classified as:
+  // the same word means "jump to now" there and "the rows below are from today" in a list, and membership of the
+  // list is the only thing that tells the two apart.
+  if ((inList || listEntry) && (GROUP_HEADING.test(nameText) || isColumnTitleRow(nameText))) {
+    scores.add("section", 0.6, "section-heading");
+  }
+
+  const actionClaimed = scores.max() >= ACTION_FLOOR;
+  // An irreversible control inside a list is that action, never "the item": a row's Sign in is not a row.
+  const itemLike = !actionClaimed && candidate.kind !== "field" && !isLockedAction({ text: candidate.label });
   if (itemLike && (inList || listEntry)) {
     const standing = listStanding(candidate, context);
     if (standing > 0) scores.add("primary-item", listItemWeight(candidate.list?.index ?? 0) * standing, "list-item");
