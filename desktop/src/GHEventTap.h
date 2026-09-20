@@ -22,8 +22,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// kCGEventSourceUserData of every event Ghost posts.
 extern const int64_t GHSyntheticEventUserData;
 
-extern const CGKeyCode GHKeyCodeTab;      // 48
-extern const CGKeyCode GHKeyCodeEscape;   // 53
+extern const CGKeyCode GHKeyCodeTab;         // 48
+extern const CGKeyCode GHKeyCodeEscape;      // 53
+extern const CGKeyCode GHKeyCodeRightOption; // 61, the Ghost key (docs/accept-key.md)
+
+/// A tap of the Ghost key is right Option down and up again within this long, with nothing in between.
+extern const NSTimeInterval GHGhostKeyTapSeconds; // 0.3
 
 /// Process-wide kill switch for synthetic input. Once called, no key event ever leaves this process: GHEventTap
 /// +postKeyCode:, GHTaggedKeyEventSink (GHKeyPoster's live sink) and the harness Tab all refuse. The test runner calls
@@ -41,6 +45,9 @@ GHKeyModifiers GHKeyModifiersFromFlags(CGEventFlags flags);
 /// `decision` is Accept, Park, Queue, Jump or (never reported) Swallow.
 - (void)eventTap:(GHEventTap *)tap didConsumeTab:(GHKeyDecision)decision isRepeat:(BOOL)isRepeat;
 - (void)eventTapDidConsumeEscape:(GHEventTap *)tap;
+/// A tap of the Ghost key (right Option alone). Accepts the current ghost wherever Tab belongs to the app.
+/// The modifier event itself is never consumed, so holding right Option as a real modifier still works.
+- (void)eventTapDidTapGhostKey:(GHEventTap *)tap;
 /// A printable key went to the app while focus was in a captured field: typing overrides that field's ghost.
 - (void)eventTapDidSeeTypingInField:(GHEventTap *)tap;
 /// The user scrolled while ghosts were on screen (coalesced): their rects are stale.
@@ -75,7 +82,7 @@ GHKeyModifiers GHKeyModifiersFromFlags(CGEventFlags flags);
 /// YES = consume. `userData` is kCGEventSourceUserData; `printable` whether the key produces a visible character.
 - (BOOL)handleKeyDown:(CGKeyCode)keyCode flags:(CGEventFlags)flags isRepeat:(BOOL)isRepeat userData:(int64_t)userData printable:(BOOL)printable;
 - (void)handleKeyUp:(CGKeyCode)keyCode userData:(int64_t)userData;
-- (void)handleFlagsChanged:(CGEventFlags)flags;
+- (void)handleFlagsChanged:(CGEventFlags)flags keyCode:(CGKeyCode)keyCode;
 - (void)handleScroll;
 /// Tests: call the delegate inline instead of through the main queue.
 @property (nonatomic) BOOL deliversSynchronously;

@@ -1227,6 +1227,21 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
     [self drain];
 }
 
+/**
+ * The Ghost key: a lone tap of right Option accepts the current ghost (docs/accept-key.md).
+ *
+ * Tab is the right key only where Tab already means "take this and move on" - walking a form. Everywhere
+ * else the app owns it: a video page, a mail client, an editor, a spreadsheet, most SPAs. Stealing it there
+ * is a bug, so Ghost offers a key nobody binds. The modifier event is never consumed, so right Option keeps
+ * working as a modifier and for accented characters; only a down-and-up with no other key counts as a tap.
+ *
+ * Deliberately simple: it takes the same path as an accepted Tab, including the lock rule, so a locked
+ * action still cannot be taken by a tap.
+ */
+- (void)eventTapDidTapGhostKey:(GHEventTap *)tap {
+    [self eventTap:tap didConsumeTab:GHKeyDecisionAccept isRepeat:NO];
+}
+
 - (void)eventTapDidConsumeEscape:(GHEventTap *)tap {
     GHGhost *ghost = _walk.current;
     if (_busy || !ghost) return;

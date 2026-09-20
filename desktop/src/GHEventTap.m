@@ -6,6 +6,8 @@
 const int64_t GHSyntheticEventUserData = 0x47484F5354;   // "GHOST"
 const CGKeyCode GHKeyCodeTab = 48;
 const CGKeyCode GHKeyCodeEscape = 53;
+const CGKeyCode GHKeyCodeRightOption = 61;
+const NSTimeInterval GHGhostKeyTapSeconds = 0.3;
 
 static const NSTimeInterval kWatchdogInterval = 5.0;
 static const NSUInteger kChunkUnits = 20;   // CGEventKeyboardSetUnicodeString is unreliable past 20 UTF-16 units
@@ -79,6 +81,9 @@ static CGEventRef GHEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     // Touched only by whoever feeds events in: the tap thread (or the test, which has no tap thread).
     GHHoldState _hold;
     BOOL _escapeOwned;
+    /// Ghost key: when right Option went down, and whether the press is still a candidate for a lone tap.
+    CFAbsoluteTime _ghostKeyDownAt;
+    BOOL _ghostKeyArmed;
     os_unfair_lock _observerLock;
     void (^_userKeyObserver)(void);
 
@@ -126,6 +131,7 @@ static CGEventRef GHEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
 }
 
 - (void)noteUserKeyDown {
+    _ghostKeyArmed = NO;   // right Option plus another key is a chord, and chords are never ours
     @autoreleasepool {
         void (^observer)(void) = self.userKeyObserver;
         if (observer) observer();
@@ -185,9 +191,32 @@ static CGEventRef GHEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     else if (keyCode == GHKeyCodeEscape) _escapeOwned = NO;
 }
 
-- (void)handleFlagsChanged:(CGEventFlags)flags {
+- (void)handleFlagsChanged:(CGEventFlags)flags keyCode:(CGKeyCode)keyCode {
     // A modifier pressed mid-hold ends Ghost's hold: what follows is a chord, and chords are never ours.
     if (GHKeyModifiersFromFlags(flags) != GHKeyModifierNone) _hold.walking = _hold.halted = NO;
+
+    // The Ghost key (docs/accept-key.md). Tab belongs to the app on most screens - a video page, a mail
+    // client, an editor, a spreadsheet all bind it - so the key that always works is a lone tap of right
+    // Option. The flagsChanged event is never consumed, so holding right Option as a real modifier, or
+    // using it for an accented character, is untouched: only a down-and-up with nothing in between counts.
+    if (keyCode != GHKeyCodeRightOption) {
+        // Some other modifier moved during the hold: that makes it a chord, not a tap.
+        _ghostKeyArmed = NO;
+        return;
+    }
+    BOOL down = (flags & kCGEventFlagMaskAlternate) != 0;
+    if (down) {
+        _ghostKeyDownAt = CFAbsoluteTimeGetCurrent();
+        _ghostKeyArmed = YES;
+        return;
+    }
+    BOOL wasTap = _ghostKeyArmed && (CFAbsoluteTimeGetCurrent() - _ghostKeyDownAt) <= GHGhostKeyTapSeconds;
+    _ghostKeyArmed = NO;
+    if (!wasTap) return;
+    // Only when a ghost is actually on screen. A stray tap anywhere else does nothing at all.
+    GHWalkSnapshot snapshot = GHUnpack(atomic_load(&_bits));
+    if (!snapshot.active || !snapshot.hasCurrent) return;
+    [self deliver:^(id<GHEventTapDelegate> delegate) { [delegate eventTapDidTapGhostKey:self]; }];
 }
 
 - (void)handleScroll {
@@ -242,7 +271,7 @@ static BOOL GHEventIsPrintable(CGEventRef event) {
                      userData:CGEventGetIntegerValueField(event, kCGEventSourceUserData)];
             return event;
         case kCGEventFlagsChanged:
-            [self handleFlagsChanged:CGEventGetFlags(event)];
+            [self handleFlagsChanged:CGEventGetFlags(event) keyCode:(CGKeyCode)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)];
             return event;
         case kCGEventScrollWheel:
             [self handleScroll];

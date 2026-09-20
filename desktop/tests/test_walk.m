@@ -436,6 +436,7 @@ GH_TEST(walk_decides_from_where_focus_is) {
     [self.events addObject:[NSString stringWithFormat:@"tab:%ld:%d", (long)decision, isRepeat]];
 }
 - (void)eventTapDidConsumeEscape:(GHEventTap *)tap { [self.events addObject:@"escape"]; }
+- (void)eventTapDidTapGhostKey:(GHEventTap *)tap { [self.events addObject:@"ghost-key"]; }
 - (void)eventTapDidSeeTypingInField:(GHEventTap *)tap { [self.events addObject:@"typing"]; }
 - (void)eventTapDidSeeScroll:(GHEventTap *)tap { [self.events addObject:@"scroll"]; }
 @end
@@ -526,8 +527,54 @@ GH_TEST(tap_hold_accepts_until_halted_and_key_up_ends_it) {
     GH_ASSERT_FALSE([tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:YES userData:0 printable:NO]);
     // A fresh press after a halt accepts again.
     GH_ASSERT([tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:NO userData:0 printable:NO]);
-    [tap handleFlagsChanged:kCGEventFlagMaskShift];       // Shift went down mid-hold
+    [tap handleFlagsChanged:kCGEventFlagMaskShift keyCode:56];  // left Shift went down mid-hold
     GH_ASSERT_FALSE([tap handleKeyDown:GHKeyCodeTab flags:0 isRepeat:YES userData:0 printable:NO]);
+}
+
+// docs/accept-key.md: Tab belongs to the app on most screens, so a lone tap of right Option accepts too.
+// The modifier event is never consumed, so every one of these presses still reaches the app.
+
+GH_TEST(ghost_key_tap_accepts_the_current_ghost) {
+    GHTapRecorder *recorder = [[GHTapRecorder alloc] init];
+    GHEventTap *tap = Tap(recorder);
+    [tap publishSnapshot:Ready()];
+    [tap handleFlagsChanged:kCGEventFlagMaskAlternate keyCode:GHKeyCodeRightOption];   // down
+    [tap handleFlagsChanged:0 keyCode:GHKeyCodeRightOption];                            // up, straight away
+    NSArray *expected = @[ @"ghost-key" ];
+    GH_ASSERT_EQUAL_OBJECTS(recorder.events, expected);
+}
+
+GH_TEST(ghost_key_does_nothing_when_no_ghost_is_on_screen) {
+    GHTapRecorder *recorder = [[GHTapRecorder alloc] init];
+    GHEventTap *tap = Tap(recorder);
+    GHWalkSnapshot none = Ready();
+    none.hasCurrent = NO;
+    [tap publishSnapshot:none];
+    [tap handleFlagsChanged:kCGEventFlagMaskAlternate keyCode:GHKeyCodeRightOption];
+    [tap handleFlagsChanged:0 keyCode:GHKeyCodeRightOption];
+    GH_ASSERT_EQUAL_INT(recorder.events.count, 0);
+}
+
+GH_TEST(ghost_key_held_with_another_key_is_a_chord_not_a_tap) {
+    GHTapRecorder *recorder = [[GHTapRecorder alloc] init];
+    GHEventTap *tap = Tap(recorder);
+    [tap publishSnapshot:Ready()];
+    [tap handleFlagsChanged:kCGEventFlagMaskAlternate keyCode:GHKeyCodeRightOption];
+    // Right Option plus a letter: an accented character, or somebody's shortcut. Never ours.
+    [tap handleKeyDown:0 flags:kCGEventFlagMaskAlternate isRepeat:NO userData:0 printable:YES];
+    [tap handleFlagsChanged:0 keyCode:GHKeyCodeRightOption];
+    GH_ASSERT_FALSE([recorder.events containsObject:@"ghost-key"]);
+}
+
+GH_TEST(ghost_key_ignores_the_left_option_and_other_modifiers) {
+    GHTapRecorder *recorder = [[GHTapRecorder alloc] init];
+    GHEventTap *tap = Tap(recorder);
+    [tap publishSnapshot:Ready()];
+    [tap handleFlagsChanged:kCGEventFlagMaskAlternate keyCode:58];   // left Option
+    [tap handleFlagsChanged:0 keyCode:58];
+    [tap handleFlagsChanged:kCGEventFlagMaskCommand keyCode:55];     // Command
+    [tap handleFlagsChanged:0 keyCode:55];
+    GH_ASSERT_EQUAL_INT(recorder.events.count, 0);
 }
 
 GH_TEST(tap_scroll_is_reported_only_while_ghosts_exist) {
