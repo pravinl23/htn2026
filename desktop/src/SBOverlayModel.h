@@ -35,16 +35,13 @@ CGFloat SBGhostTextPadding(CGFloat fieldHeight);
 /// Shabang.guess: the answer engine guessed this (docs/answers.md). Drawn with a dotted underline and a "guess"
 /// chip so it is never mistaken for a fact; hold-Tab stops here.
 @property (nonatomic) BOOL guess;
-/// What the keycap says. Tab is form-only now, so a keycap reading "Tab" beside a ghost the Shabang key
-/// accepts is simply wrong. The controller passes whichever key is really bound.
-@property (nonatomic, copy, nullable) NSString *keyName;
 + (instancetype)entryWithSignature:(NSString *)signature
                               kind:(NSString *)kind
                        displayText:(NSString *)displayText
                             axRect:(CGRect)axRect
                             locked:(BOOL)locked;
 /// `ghost` is one element of GhostCore.ghostsFor (displayText, locked, pending). The rect is the field's.
-+ (instancetype)entryWithField:(SBField *)field ghost:(NSDictionary<NSString *, id> *)ghost keyName:(nullable NSString *)keyName;
++ (instancetype)entryWithField:(SBField *)field ghost:(NSDictionary<NSString *, id> *)ghost;
 @end
 
 @interface SBOverlayHUDInfo : NSObject <NSCopying>
@@ -74,7 +71,6 @@ typedef NS_ENUM(NSInteger, SBDrawKind) {
     SBDrawKindPill,
     SBDrawKindRing,
     SBDrawKindCursor,
-    SBDrawKindKeycap,
     SBDrawKindHUD,
     SBDrawKindHUDError,
     SBDrawKindHUDStatus,
@@ -90,7 +86,7 @@ typedef NS_ENUM(NSInteger, SBDrawAnchor) {
 };
 
 @interface SBDrawItem : NSObject
-/// Layer identity inside one panel: "text:<signature>", "pill:<signature>", "ring", "cursor", "keycap", "lock", "hud".
+/// Layer identity inside one panel: "text:<signature>", "pill:<signature>", "ring", "cursor", "lock", "hud".
 @property (nonatomic, copy, readonly) NSString *key;
 @property (nonatomic, readonly) SBDrawKind kind;
 @property (nonatomic, readonly) NSUInteger screenIndex;
@@ -102,7 +98,7 @@ typedef NS_ENUM(NSInteger, SBDrawAnchor) {
 @property (nonatomic, copy, readonly, nullable) NSString *text;
 @property (nonatomic, readonly) CGFloat fontSize;
 @property (nonatomic, readonly) CGFloat padLeft;
-@property (nonatomic, readonly) CGFloat padRight;   // grows to keep ghost text clear of the keycap
+@property (nonatomic, readonly) CGFloat padRight;   // symmetric with padLeft
 @property (nonatomic, readonly) CGFloat cornerRadius;
 @property (nonatomic, readonly) BOOL multiline;
 @property (nonatomic, readonly) BOOL current;
@@ -110,10 +106,9 @@ typedef NS_ENUM(NSInteger, SBDrawAnchor) {
 @property (nonatomic, readonly) BOOL streaming;
 /// The answer under this item is a guess: dotted underline (ghost text) or a "guess" chip (pill).
 @property (nonatomic, readonly) BOOL guess;
-@property (nonatomic, readonly) BOOL showsKeycap;   // pills carry their own keycap
 /// Cursor only: where the pointer's tip rests, panel coordinates.
 @property (nonatomic, readonly) CGPoint tip;
-/// Ring, cursor, keycap, lock: the ghost they belong to. A change means "glide", the same one means "track exactly".
+/// Ring, cursor, lock: the ghost they belong to. A change means "glide", the same one means "track exactly".
 @property (nonatomic, copy, readonly, nullable) NSString *targetSignature;
 @property (nonatomic, strong, readonly, nullable) SBOverlayHUDInfo *hud;
 @property (nonatomic, readonly) CGFloat scale;

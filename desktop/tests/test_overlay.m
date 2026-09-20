@@ -195,10 +195,11 @@ GH_TEST(overlay_model_kind_decides_how_a_ghost_is_shown) {
     GH_ASSERT_EQUAL_INT(SBOverlayModeForKind(nil), SBOverlayModeText);
 }
 
-GH_TEST(overlay_model_current_text_field_gets_text_ring_keycap_cursor) {
+GH_TEST(overlay_model_current_text_field_gets_text_ring_and_cursor) {
     SBScreenLayout *layout = OneDisplay();
     SBOverlayModel *model = [SBOverlayModel modelWithInput:FormInput(0) layout:layout];
-    GH_ASSERT_EQUAL_OBJECTS(Keys(model.items), (@[ @"text:first", @"text:email", @"text:why", @"ring", @"keycap", @"cursor" ]));
+    // No keycap: the ring and the cursor say where the ghost is, and the key that takes it is not furniture.
+    GH_ASSERT_EQUAL_OBJECTS(Keys(model.items), (@[ @"text:first", @"text:email", @"text:why", @"ring", @"cursor" ]));
     GH_ASSERT(model.currentVisible);
 
     SBDrawItem *text = [model itemWithKey:@"text:first" screen:0];
@@ -207,7 +208,7 @@ GH_TEST(overlay_model_current_text_field_gets_text_ring_keycap_cursor) {
     GH_ASSERT(text.current);
     GH_ASSERT_NEAR(text.fontSize, 17, 0.001);
     GH_ASSERT_NEAR(text.padLeft, 8, 0.001);
-    GH_ASSERT(text.padRight > 40);  // room for the keycap
+    GH_ASSERT_NEAR(text.padRight, text.padLeft, 0.001);  // nothing to leave room for any more
     GH_ASSERT_NEAR(text.scale, 2, 0.001);
 
     SBDrawItem *other = [model itemWithKey:@"text:email" screen:0];
@@ -222,11 +223,7 @@ GH_TEST(overlay_model_current_text_field_gets_text_ring_keycap_cursor) {
     GH_ASSERT_EQUAL_OBJECTS(ring.targetSignature, @"first");
     GH_ASSERT_FALSE(ring.locked);
 
-    SBDrawItem *keycap = [model itemWithKey:@"keycap" screen:0];
-    GH_ASSERT(CGRectContainsRect(text.frame, keycap.frame));                                       // inside the field
-    GH_ASSERT_NEAR(CGRectGetMaxX(text.frame) - CGRectGetMaxX(keycap.frame), 8, 0.001);             // at its right edge
-    GH_ASSERT_NEAR(CGRectGetMidY(keycap.frame), CGRectGetMidY(text.frame), 0.001);                 // vertically centered
-    GH_ASSERT(CGRectGetMinX(keycap.frame) >= CGRectGetMaxX(text.frame) - text.padRight - 0.001);   // text stops before it
+    GH_ASSERT_MSG([model itemWithKey:@"keycap" screen:0] == nil, @"the keycap is gone for good");
 }
 
 GH_TEST(overlay_model_cursor_tip_points_into_the_field) {
@@ -235,9 +232,7 @@ GH_TEST(overlay_model_cursor_tip_points_into_the_field) {
     SBOverlayModel *model = [SBOverlayModel modelWithInput:input layout:layout];
     SBDrawItem *cursor = [model itemWithKey:@"cursor" screen:0];
     SBDrawItem *text = [model itemWithKey:@"text:email" screen:0];
-    SBDrawItem *keycap = [model itemWithKey:@"keycap" screen:0];
     GH_ASSERT(CGRectContainsPoint(text.frame, cursor.tip));
-    GH_ASSERT(cursor.tip.x < CGRectGetMinX(keycap.frame));  // never under the keycap
     // The tip sits at (5, 3.5) from the TOP-left of the 28 pt pointer box.
     GH_ASSERT_NEAR(cursor.tip.x - cursor.frame.origin.x, 5, 0.001);
     GH_ASSERT_NEAR(CGRectGetMaxY(cursor.frame) - cursor.tip.y, 3.5, 0.001);
@@ -252,7 +247,7 @@ GH_TEST(overlay_model_cursor_tip_points_into_the_field) {
     GH_ASSERT_NEAR([shortText itemWithKey:@"cursor" screen:0].tip.x, 140 + 300 * 0.62, 0.001);
 }
 
-/// A locked target gets the ring and nothing else: no keycap, no badge, and NO GHOST CURSOR. Shabang is never
+/// A locked target gets the ring and nothing else: no badge, and NO GHOST CURSOR. Shabang is never
 /// going to press it, so a cursor that means "take this" is the wrong thing to draw there, and its absence
 /// beside the same purple ring everything else gets is the whole signal. The badge that used to spell out
 /// "Enter to confirm" is gone: a ghost's vocabulary is a ring and a cursor, and a pill of instructions is
@@ -284,14 +279,11 @@ GH_TEST(overlay_model_draws_nothing_for_fields_the_user_cannot_see) {
     GH_ASSERT_RECT(text.frame, 140, 770, 300, 40);
     GH_ASSERT_RECT(text.clipRect, 140, 770, 300, 30);
     GH_ASSERT_RECT([model itemWithKey:@"ring" screen:0].frame, 137, 767, 306, 36);
-    GH_ASSERT([model itemWithKey:@"keycap" screen:0] != nil);  // cut at the top only: the keycap is still in full view
 
-    // Cut at the RIGHT (window ends at x = 1100): 200 of 300 pt visible. The keycap would sit in the hidden part,
-    // so it is dropped, and the text does not give up room for it.
+    // Cut at the RIGHT (window ends at x = 1100): 200 of 300 pt visible.
     input.entries[0].axRect = CGRectMake(900, 200, 300, 40);
     model = [SBOverlayModel modelWithInput:input layout:OneDisplay()];
     GH_ASSERT(model.currentVisible);
-    GH_ASSERT([model itemWithKey:@"keycap" screen:0] == nil);
     text = [model itemWithKey:@"text:first" screen:0];
     GH_ASSERT_RECT(text.clipRect, 900, 660, 200, 40);
     GH_ASSERT_NEAR(text.padRight, text.padLeft, 0.001);
@@ -319,15 +311,12 @@ GH_TEST(overlay_model_pills_for_selects_and_toggles) {
     SBDrawItem *select = [model itemWithKey:@"pill:country" screen:0];
     GH_ASSERT_EQUAL_INT(select.kind, SBDrawKindPill);
     GH_ASSERT_EQUAL_INT(select.anchor, SBDrawAnchorRightCenter);
-    GH_ASSERT(select.showsKeycap);
     GH_ASSERT_NEAR(CGRectGetMaxX(select.frame), 140 + 300 - 30, 0.001);  // left of the popup arrow
-    GH_ASSERT([model itemWithKey:@"keycap" screen:0] == nil);             // the pill carries its own
     GH_ASSERT([model itemWithKey:@"text:country" screen:0] == nil);
 
     SBDrawItem *box = [model itemWithKey:@"pill:updates" screen:0];
     GH_ASSERT_EQUAL_INT(box.anchor, SBDrawAnchorLeftCenter);
     GH_ASSERT_NEAR(CGRectGetMinX(box.frame), 168, 0.001);  // 8 pt past the control
-    GH_ASSERT_FALSE(box.showsKeycap);
     SBDrawItem *edge = [model itemWithKey:@"pill:edge" screen:0];
     GH_ASSERT_EQUAL_INT(edge.anchor, SBDrawAnchorRightCenter);  // no room outside the window: tucked inside
     GH_ASSERT(CGRectGetMaxX(edge.frame) <= 1090);
@@ -367,7 +356,7 @@ GH_TEST(overlay_model_places_items_on_the_display_that_shows_the_field) {
     input.hud = [SBOverlayHUDInfo infoWithProvider:@"jev" latencyMs:@90 cache:@"hit" keystrokesSaved:0];
     SBOverlayModel *model = [SBOverlayModel modelWithInput:input layout:layout];
     GH_ASSERT_EQUAL_OBJECTS(Keys([model itemsForScreen:0]), (@[ @"hud" ]));  // the HUD stays on the main display
-    GH_ASSERT_EQUAL_OBJECTS(Keys([model itemsForScreen:1]), (@[ @"text:first", @"ring", @"keycap", @"cursor" ]));
+    GH_ASSERT_EQUAL_OBJECTS(Keys([model itemsForScreen:1]), (@[ @"text:first", @"ring", @"cursor" ]));
     SBDrawItem *text = [model itemWithKey:@"text:first" screen:1];
     GH_ASSERT_RECT(text.frame, 120, 960, 300, 40);
     GH_ASSERT_NEAR(text.scale, 1, 0.001);
@@ -378,7 +367,7 @@ GH_TEST(overlay_model_places_items_on_the_display_that_shows_the_field) {
 GH_TEST(overlay_model_entry_from_field_and_core_ghost) {
     SBField *field = [SBField fieldWithSignature:@"AXTextField|email|0" label:@"Email" kind:SBKindEmail];
     field.rect = CGRectMake(10, 20, 300, 40);
-    SBOverlayEntry *entry = [SBOverlayEntry entryWithField:field ghost:@{ @"signature" : field.signature, @"displayText" : @"alex.chen@example.com", @"locked" : @NO, @"pending" : @YES } keyName:@"Tab"];
+    SBOverlayEntry *entry = [SBOverlayEntry entryWithField:field ghost:@{ @"signature" : field.signature, @"displayText" : @"alex.chen@example.com", @"locked" : @NO, @"pending" : @YES }];
     GH_ASSERT_EQUAL_OBJECTS(entry.signature, @"AXTextField|email|0");
     GH_ASSERT_EQUAL_OBJECTS(entry.kind, @"email");
     GH_ASSERT_EQUAL_OBJECTS(entry.displayText, @"alex.chen@example.com");
@@ -386,7 +375,7 @@ GH_TEST(overlay_model_entry_from_field_and_core_ghost) {
     GH_ASSERT_FALSE(entry.locked);
     GH_ASSERT_RECT(entry.axRect, 10, 20, 300, 40);
     field.locked = YES;
-    SBOverlayEntry *bare = [SBOverlayEntry entryWithField:field ghost:@{ @"displayText" : NSNull.null } keyName:nil];
+    SBOverlayEntry *bare = [SBOverlayEntry entryWithField:field ghost:@{ @"displayText" : NSNull.null }];
     GH_ASSERT(bare.locked);  // falls back to the field's own flag
     GH_ASSERT_EQUAL_OBJECTS(bare.displayText, @"");
 }
@@ -405,7 +394,7 @@ GH_TEST(overlay_diff_same_model_twice_is_empty) {
     GH_ASSERT_FALSE(first.isEmpty);
 }
 
-GH_TEST(overlay_diff_advancing_reuses_ring_cursor_and_keycap) {
+GH_TEST(overlay_diff_advancing_reuses_ring_and_cursor) {
     SBScreenLayout *layout = OneDisplay();
     SBOverlayModel *a = [SBOverlayModel modelWithInput:FormInput(0) layout:layout];
     SBOverlayModel *b = [SBOverlayModel modelWithInput:FormInput(1) layout:layout];
@@ -413,7 +402,7 @@ GH_TEST(overlay_diff_advancing_reuses_ring_cursor_and_keycap) {
     GH_ASSERT_EQUAL_INT(diff.added.count, 0);
     GH_ASSERT_EQUAL_INT(diff.removedKeys.count, 0);
     // Both text items changed status (current <-> waiting); the text area did not change at all.
-    GH_ASSERT_EQUAL_OBJECTS(Keys(diff.changed), (@[ @"text:first", @"text:email", @"ring", @"keycap", @"cursor" ]));
+    GH_ASSERT_EQUAL_OBJECTS(Keys(diff.changed), (@[ @"text:first", @"text:email", @"ring", @"cursor" ]));
     GH_ASSERT_EQUAL_OBJECTS(Keys(diff.unchanged), (@[ @"text:why" ]));
     GH_ASSERT_EQUAL_OBJECTS([b itemWithKey:@"ring" screen:0].targetSignature, @"email");
 }
@@ -426,11 +415,11 @@ GH_TEST(overlay_diff_accepting_a_ghost_removes_only_its_text) {
                                                toItems:[SBOverlayModel modelWithInput:after layout:layout].items];
     GH_ASSERT_EQUAL_OBJECTS(diff.removedKeys, (@[ @"text:first" ]));
     GH_ASSERT_EQUAL_INT(diff.added.count, 0);
-    // Walking onto the lock takes the keycap AND the ghost cursor away, and adds nothing: the ring is all
+    // Walking onto the lock takes the ghost cursor away, and adds nothing: the ring is all
     // that is left, because Shabang is not going to press it.
     SBOverlayDiff *toLock = [SBOverlayDiff diffFromItems:[SBOverlayModel modelWithInput:FormInput(2) layout:layout].items
                                                  toItems:[SBOverlayModel modelWithInput:FormInput(3) layout:layout].items];
-    GH_ASSERT_EQUAL_OBJECTS(toLock.removedKeys, (@[ @"keycap", @"cursor" ]));
+    GH_ASSERT_EQUAL_OBJECTS(toLock.removedKeys, (@[ @"cursor" ]));
     GH_ASSERT_EQUAL_INT(toLock.added.count, 0);
 }
 
@@ -475,7 +464,7 @@ GH_TEST(overlay_window_reuses_layers_between_renders) {
     GH_ASSERT_FALSE(overlay.isVisible);
 
     [overlay render:[SBOverlayModel modelWithInput:FormInput(0) layout:layout]];
-    GH_ASSERT_EQUAL_OBJECTS([overlay layerKeysAtIndex:0], (@[ @"cursor", @"keycap", @"ring", @"text:email", @"text:first", @"text:why" ]));
+    GH_ASSERT_EQUAL_OBJECTS([overlay layerKeysAtIndex:0], (@[ @"cursor", @"ring", @"text:email", @"text:first", @"text:why" ]));
     GH_ASSERT_EQUAL_INT([overlay layerKeysAtIndex:1].count, 0);
     CALayer *ring = [overlay layerForKey:@"ring" atIndex:0], *cursor = [overlay layerForKey:@"cursor" atIndex:0];
     CALayer *why = [overlay layerForKey:@"text:why" atIndex:0];
@@ -491,11 +480,10 @@ GH_TEST(overlay_window_reuses_layers_between_renders) {
     GH_ASSERT([overlay layerForKey:@"cursor" atIndex:0] == cursor);
     GH_ASSERT([overlay layerForKey:@"text:why" atIndex:0] == why);
     GH_ASSERT_RECT(ring.frame, 137, 597, 306, 46);
-    GH_ASSERT_EQUAL_INT([overlay rootLayerAtIndex:0].sublayers.count, 6);
+    GH_ASSERT_EQUAL_INT([overlay rootLayerAtIndex:0].sublayers.count, 5);   // 3 texts + ring + cursor
 
-    // The lock: keycap and cursor both out, no badge in, and their layers really leave the tree.
+    // The lock: the cursor goes out, no badge in, and its layer really leaves the tree.
     [overlay render:[SBOverlayModel modelWithInput:FormInput(3) layout:layout]];
-    GH_ASSERT([overlay layerForKey:@"keycap" atIndex:0] == nil);
     GH_ASSERT([overlay layerForKey:@"cursor" atIndex:0] == nil);
     GH_ASSERT([overlay layerForKey:@"lock" atIndex:0] == nil);
     GH_ASSERT_EQUAL_INT([overlay rootLayerAtIndex:0].sublayers.count, 4);
@@ -532,7 +520,7 @@ GH_TEST(overlay_window_draws_items_on_the_second_display) {
     input.hud = [SBOverlayHUDInfo infoWithProvider:@"jev" latencyMs:@90 cache:@"hit" keystrokesSaved:4];
     [overlay renderInput:input];
     GH_ASSERT_EQUAL_OBJECTS([overlay layerKeysAtIndex:0], (@[ @"hud" ]));
-    GH_ASSERT_EQUAL_OBJECTS([overlay layerKeysAtIndex:1], (@[ @"cursor", @"keycap", @"ring", @"text:first" ]));
+    GH_ASSERT_EQUAL_OBJECTS([overlay layerKeysAtIndex:1], (@[ @"cursor", @"ring", @"text:first" ]));
     GH_ASSERT_RECT([overlay layerForKey:@"text:first" atIndex:1].frame, 120, 960, 300, 40);
     CALayer *hud = [overlay layerForKey:@"hud" atIndex:0];
     GH_ASSERT_NEAR(CGRectGetMaxX(hud.frame), 1440 - 14, 0.51);  // hugs its text, anchored bottom-right
@@ -551,7 +539,6 @@ GH_TEST(overlay_model_upload_ghost_is_a_file_name_pill_and_progress_is_a_hud_chi
     SBDrawItem *pill = [model itemWithKey:@"pill:resume" screen:0];
     GH_ASSERT_EQUAL_INT(pill.kind, SBDrawKindPill);
     GH_ASSERT_EQUAL_OBJECTS(pill.text, @"resume-alex-chen.pdf");
-    GH_ASSERT(pill.showsKeycap);
     GH_ASSERT(model.currentVisible);
 
     input.status = @"Picking resume-alex-chen.pdf";

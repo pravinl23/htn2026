@@ -25,7 +25,6 @@ CGRect SBAnchoredFrame(CGRect room, CGSize content, SBDrawAnchor anchor, CGFloat
         case SBDrawKindPill: cls = SBPillLayer.class; break;
         case SBDrawKindRing: cls = SBRingLayer.class; break;
         case SBDrawKindCursor: cls = SBCursorLayer.class; break;
-        case SBDrawKindKeycap: cls = SBKeycapLayer.class; break;
         case SBDrawKindHUD:
         case SBDrawKindHUDError:
         case SBDrawKindHUDStatus: cls = SBHudLayer.class; break;
@@ -43,7 +42,6 @@ CGRect SBAnchoredFrame(CGRect room, CGSize content, SBDrawAnchor anchor, CGFloat
         case SBDrawKindGhostText:
         case SBDrawKindPill: return 1;
         case SBDrawKindRing: return 2;
-        case SBDrawKindKeycap: return 4;
         case SBDrawKindCursor: return 5;
     }
     return 0;
@@ -147,21 +145,18 @@ CGRect SBAnchoredFrame(CGRect room, CGSize content, SBDrawAnchor anchor, CGFloat
 
 @implementation SBPillLayer {
     CATextLayer *_label;
-    CALayer *_keycap;
     CALayer *_guess;
 }
 
 - (void)applyItem:(SBDrawItem *)item glide:(BOOL)glide reduceMotion:(BOOL)reduceMotion {
-    static const CGFloat kHeight = 22, kPad = 9, kCapGap = 7, kCapTrail = 4;
-    static const CGSize kCap = {30, 16};
+    static const CGFloat kHeight = 22, kPad = 9;
     NSFont *font = [NSFont systemFontOfSize:item.fontSize weight:NSFontWeightMedium];
     CGColorRef ink = SBColor(88, 86, 104, item.streaming ? 0.7 : 0.95);
     NSAttributedString *text = SBAttributed(item.text ?: @"", font, ink, 0);  // for measuring only
-    // No chips. A pill carried a "guess" pill and a "Tab" keycap inside it, which was two widgets of
-    // furniture around three words -- and the keycap had become a lie besides, since Tab is not the accept
+    // No chips. A pill carried a "guess" pill and a key cap inside it, which was two widgets of
+    // furniture around three words -- and the cap had become a lie besides, since Tab is not the accept
     // key outside a form. What a ghost has to say it says with the ring: solid means take it, dashed means
     // Shabang is guessing (docs/answers.md section 3 -- a guess is still always visibly a guess).
-    (void)kCapGap; (void)kCap; (void)kCapTrail;
     CGFloat tail = kPad;
     CGFloat labelWidth = MIN(SBTextSize(text).width + 1, MAX(0, item.frame.size.width - kPad - tail));
     CGRect frame = SBAnchoredFrame(item.frame, CGSizeMake(kPad + labelWidth + tail, kHeight), item.anchor, item.scale);
@@ -194,29 +189,6 @@ CGRect SBAnchoredFrame(CGRect room, CGSize content, SBDrawAnchor anchor, CGFloat
 
     [_guess removeFromSuperlayer];
     _guess = nil;
-    [_keycap removeFromSuperlayer];
-    _keycap = nil;
-}
-
-@end
-
-#pragma mark - Keycap
-
-@implementation SBKeycapLayer {
-    CALayer *_cap;
-    CGFloat _scale;
-    NSString *_label;
-}
-
-- (void)applyItem:(SBDrawItem *)item glide:(BOOL)glide reduceMotion:(BOOL)reduceMotion {
-    SBSetLayerFrame(self, item.frame, NO);
-    NSString *label = item.text.length ? item.text : @"Tab";
-    if (_cap && _scale == item.scale && [_label isEqualToString:label] && CGSizeEqualToSize(_cap.bounds.size, item.frame.size)) return;
-    [_cap removeFromSuperlayer];
-    _cap = SBMakeKeycap(label, item.frame.size, item.scale);
-    _scale = item.scale;
-    _label = [label copy];
-    [self addSublayer:_cap];
 }
 
 @end

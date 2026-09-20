@@ -1436,13 +1436,7 @@ static BOOL SBNodeIsUnreadable(id<SBAXNode> node) {
         SBField *field = _fields[ghost.signature];
         if (!field) continue;
         if (ghost == current) currentIndex = (NSInteger)entries.count;
-        // Tab is form-only, so it is the right label ONLY for a value ghost on the field that has focus.
-        // Everywhere else the Shabang key is what works, and a keycap that names the wrong key is worse than
-        // none: the user presses it, nothing happens, and Shabang looks broken.
-        BOOL tabWorksHere = ![ghost.action isEqualToString:SBGhostActionClick] &&
-                            [_walk.focusSignature isEqualToString:ghost.signature ?: @""];
-        NSString *keyName = tabWorksHere ? @"Tab" : SBGhostKeyDisplayName(self.eventTap.ghostKey);
-        [entries addObject:[SBOverlayEntry entryWithField:field ghost:[ghost dictionary] keyName:keyName]];
+        [entries addObject:[SBOverlayEntry entryWithField:field ghost:[ghost dictionary]]];
     }
     input.entries = entries;
     input.currentIndex = currentIndex;

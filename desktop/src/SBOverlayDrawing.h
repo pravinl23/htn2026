@@ -35,9 +35,6 @@ CGFloat SBLineHeight(NSFont *font);
 CGSize SBTextSize(NSAttributedString *text);
 NSAttributedString *SBAttributed(NSString *text, NSFont *font, CGColorRef color, CGFloat kern);
 
-/// The little "Tab" keycap: light gradient face, accent border that is thicker at the bottom.
-CALayer *SBMakeKeycap(NSString *label, CGSize size, CGFloat scale);
-extern const CGSize SBKeycapSize;
 
 // ---------- the guess marker (docs/answers.md: a guess is always visibly a guess) ----------
 /// Amber, the colour Shabang already uses for "this needs your eyes".

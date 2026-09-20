@@ -1,7 +1,6 @@
 #import "SBOverlayDrawing.h"
 
 const CFTimeInterval SBGlideDuration = 0.18;
-const CGSize SBKeycapSize = {32, 18};
 
 CGColorRef SBColor(CGFloat r, CGFloat g, CGFloat b, CGFloat alpha) {
     // The palette is tiny, and a cached NSColor keeps its CGColor alive for callers that do not retain it.
@@ -129,40 +128,6 @@ NSAttributedString *SBAttributed(NSString *text, NSFont *font, CGColorRef color,
     return [[NSAttributedString alloc] initWithString:text attributes:attrs];
 }
 
-CALayer *SBMakeKeycap(NSString *label, CGSize size, CGFloat scale) {
-    CALayer *cap = [CALayer layer];
-    cap.bounds = CGRectMake(0, 0, size.width, size.height);
-    cap.anchorPoint = CGPointZero;
-    cap.cornerRadius = 5;
-    cap.backgroundColor = SBColor(205, 193, 255, 1);  // accent at .38 over the white face: the border
-    cap.shadowColor = SBColor(24, 16, 64, 1);
-    cap.shadowOpacity = 0.14f;
-    cap.shadowRadius = 1;
-    cap.shadowOffset = CGSizeMake(0, -1);
-    CGPathRef outline = CGPathCreateWithRoundedRect(cap.bounds, 5, 5, NULL);
-    cap.shadowPath = outline;
-    CGPathRelease(outline);
-
-    CAGradientLayer *face = [CAGradientLayer layer];
-    face.frame = CGRectMake(1, 2, size.width - 2, size.height - 3);  // 1 pt border, 2 pt at the bottom
-    face.cornerRadius = 4;
-    face.colors = @[ (__bridge id)SBColor(255, 255, 255, 1), (__bridge id)SBColor(240, 237, 251, 1) ];
-    face.startPoint = CGPointMake(0.5, 1);
-    face.endPoint = CGPointMake(0.5, 0);
-    [cap addSublayer:face];
-
-    NSFont *font = [NSFont systemFontOfSize:10 weight:NSFontWeightSemibold];
-    NSAttributedString *text = SBAttributed(label, font, SBColor(74, 58, 150, 0.95), 0.3);
-    CGSize textSize = SBTextSize(text);
-    CATextLayer *title = SBMakeTextLayer(scale);
-    title.string = text;
-    CGFloat lineHeight = SBLineHeight(font);
-    CGFloat x = round((size.width - textSize.width) / 2 * scale) / scale;
-    CGFloat y = round((2 + (size.height - 3 - lineHeight) / 2) * scale) / scale;
-    title.frame = CGRectMake(x, y, textSize.width + 1, lineHeight);
-    [cap addSublayer:title];
-    return cap;
-}
 
 #pragma mark - the guess marker
 

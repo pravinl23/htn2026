@@ -11,7 +11,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// Applies geometry and content. Call inside a CATransaction with actions disabled.
 /// `glide`: ease to the new place (the target changed) instead of tracking it exactly (scroll, relayout).
 - (void)applyItem:(SBDrawItem *)item glide:(BOOL)glide reduceMotion:(BOOL)reduceMotion;
-/// Stacking order inside a panel: HUD, ghost text and pills, ring, lock badge, keycap, cursor.
+/// Stacking order inside a panel: HUD, ghost text and pills, ring, lock badge, cursor.
 + (CGFloat)zPositionForKind:(SBDrawKind)kind;
 @end
 
@@ -22,8 +22,6 @@ NS_ASSUME_NONNULL_BEGIN
 @interface SBRingLayer : SBOverlayItemLayer
 @end
 @interface SBCursorLayer : SBOverlayItemLayer
-@end
-@interface SBKeycapLayer : SBOverlayItemLayer
 @end
 @interface SBLockBadgeLayer : SBOverlayItemLayer
 @end

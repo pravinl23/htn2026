@@ -4,7 +4,6 @@
 // Layout numbers shared with extension/src/content/overlay.ts and overlay-style.ts.
 static const CGFloat kRingPad = 3, kGroupRingPad = 4, kFieldRadiusGuess = 6;
 static const CGFloat kCursorBox = 28, kCursorTipX = 5, kCursorTipY = 3.5;
-static const CGFloat kKeycapWidth = 32, kKeycapHeight = 18, kKeycapGap = 8, kKeycapMinField = 96;
 static const CGFloat kPillHeight = 22, kPillMaxWidth = 260, kPillRoom = 140, kSelectArrowRoom = 30;
 static const CGFloat kHudMargin = 14, kHudHeight = 28, kHudGap = 6, kHudErrorMaxWidth = 320;
 
@@ -45,7 +44,7 @@ CGFloat SBGhostTextPadding(CGFloat fieldHeight) {
     return entry;
 }
 
-+ (instancetype)entryWithField:(SBField *)field ghost:(NSDictionary<NSString *, id> *)ghost keyName:(NSString *)keyName {
++ (instancetype)entryWithField:(SBField *)field ghost:(NSDictionary<NSString *, id> *)ghost {
     id text = ghost[@"displayText"], locked = ghost[@"locked"], pending = ghost[@"pending"];
     SBOverlayEntry *entry = [self entryWithSignature:field.signature
                                                 kind:field.kind
@@ -53,7 +52,6 @@ CGFloat SBGhostTextPadding(CGFloat fieldHeight) {
                                               axRect:field.rect
                                               locked:[locked isKindOfClass:NSNumber.class] ? [locked boolValue] : field.locked];
     entry.streaming = [pending isKindOfClass:NSNumber.class] && [pending boolValue];
-    entry.keyName = keyName;
     id guess = ghost[@"guess"];
     entry.guess = [guess isKindOfClass:NSNumber.class] && [guess boolValue];
     return entry;
@@ -136,7 +134,6 @@ CGFloat SBGhostTextPadding(CGFloat fieldHeight) {
 @property (nonatomic, readwrite) BOOL locked;
 @property (nonatomic, readwrite) BOOL streaming;
 @property (nonatomic, readwrite) BOOL guess;
-@property (nonatomic, readwrite) BOOL showsKeycap;
 @property (nonatomic, readwrite) CGPoint tip;
 @property (nonatomic, copy, readwrite, nullable) NSString *targetSignature;
 @property (nonatomic, strong, readwrite, nullable) SBOverlayHUDInfo *hud;
@@ -163,13 +160,13 @@ CGFloat SBGhostTextPadding(CGFloat fieldHeight) {
     if (_contentSignature) return _contentSignature;
     NSString *hud = self.hud ? [self.hud.segments componentsJoinedByString:@"\x1f"] : @"";
     _contentSignature = [NSString
-        stringWithFormat:@"%@|%ld|%lu|%.2f,%.2f,%.2f,%.2f|%.2f,%.2f,%.2f,%.2f|%ld|%lx:%lu|%.1f|%.1f,%.1f|%.1f|%d%d%d%d%d%d|%.2f,%.2f|%@|%@|%.2f",
+        stringWithFormat:@"%@|%ld|%lu|%.2f,%.2f,%.2f,%.2f|%.2f,%.2f,%.2f,%.2f|%ld|%lx:%lu|%.1f|%.1f,%.1f|%.1f|%d%d%d%d%d|%.2f,%.2f|%@|%@|%.2f",
                          self.key, (long)self.kind, (unsigned long)self.screenIndex, self.frame.origin.x,
                          self.frame.origin.y, self.frame.size.width, self.frame.size.height, self.clipRect.origin.x,
                          self.clipRect.origin.y, self.clipRect.size.width, self.clipRect.size.height, (long)self.anchor,
                          (unsigned long)self.text.hash, (unsigned long)self.text.length, self.fontSize, self.padLeft,
                          self.padRight, self.cornerRadius, self.multiline, self.current, self.locked, self.streaming,
-                         self.showsKeycap, self.guess, self.tip.x, self.tip.y, self.targetSignature ?: @"", hud, self.scale];
+                         self.guess, self.tip.x, self.tip.y, self.targetSignature ?: @"", hud, self.scale];
     return _contentSignature;
 }
 
@@ -203,7 +200,7 @@ static SBMeasured SBMeasure(SBOverlayEntry *entry, CGRect window, SBScreenLayout
     return m;
 }
 
-static SBDrawItem *SBTextItem(SBOverlayEntry *entry, SBMeasured m, BOOL current, BOOL hasKeycap, SBOverlayMode mode, SBScreenLayout *layout) {
+static SBDrawItem *SBTextItem(SBOverlayEntry *entry, SBMeasured m, BOOL current, SBOverlayMode mode, SBScreenLayout *layout) {
     BOOL multiline = mode == SBOverlayModeMultiline;
     NSString *key = [@"text:" stringByAppendingString:entry.signature];
     SBDrawItem *item = [SBDrawItem itemWithKind:SBDrawKindGhostText key:key screen:m.screen
@@ -216,7 +213,7 @@ static SBDrawItem *SBTextItem(SBOverlayEntry *entry, SBMeasured m, BOOL current,
     item.multiline = multiline;
     item.fontSize = SBGhostFontSize(m.box.size.height, multiline);
     item.padLeft = multiline ? 8 : SBGhostTextPadding(m.box.size.height);
-    item.padRight = hasKeycap ? kKeycapGap + kKeycapWidth + kKeycapGap : item.padLeft;
+    item.padRight = item.padLeft;
     return item;
 }
 
@@ -245,7 +242,6 @@ static SBDrawItem *SBPillItem(SBOverlayEntry *entry, SBMeasured m, BOOL current,
     item.streaming = entry.streaming;
     item.guess = entry.guess;
     item.fontSize = 12;
-    item.showsKeycap = current && !entry.locked;
     return item;
 }
 
@@ -255,7 +251,7 @@ static CGPoint SBTipPoint(CGRect box, SBOverlayMode mode, NSUInteger textLength)
     if (mode == SBOverlayModeTarget || mode == SBOverlayModePill) {
         return CGPointMake(CGRectGetMidX(box), box.origin.y + box.size.height * 0.55);
     }
-    CGFloat limit = box.size.width - 56;  // keeps clear of the keycap
+    CGFloat limit = box.size.width - 56;  // keeps the pointer inside the field
     CGFloat dx = MIN(box.size.width * 0.62, limit);
     if (mode == SBOverlayModeText && textLength > 0) {
         CGFloat textEnd = SBGhostTextPadding(box.size.height) + textLength * SBGhostFontSize(box.size.height, NO) * 0.54;
@@ -284,18 +280,6 @@ static SBDrawItem *SBCursorItem(SBMeasured m, CGPoint tip, SBScreenLayout *layou
     return item;
 }
 
-static SBDrawItem *SBKeycapItem(SBOverlayEntry *entry, SBMeasured m, SBOverlayMode mode, SBScreenLayout *layout) {
-    if (mode != SBOverlayModeText && mode != SBOverlayModeMultiline) return nil;
-    if (m.box.size.width < kKeycapMinField) return nil;
-    CGFloat x = CGRectGetMaxX(m.box) - kKeycapGap - kKeycapWidth;
-    CGFloat y = mode == SBOverlayModeMultiline ? m.box.origin.y + 8 : CGRectGetMidY(m.box) - kKeycapHeight / 2;
-    CGRect cap = CGRectMake(x, y, kKeycapWidth, kKeycapHeight);
-    if (!CGRectContainsRect(CGRectInset(m.seen, -1, -1), cap)) return nil;  // the right edge is cut off
-    SBDrawItem *item = [SBDrawItem itemWithKind:SBDrawKindKeycap key:@"keycap" screen:m.screen
-                                          frame:[layout localRectFromAXRect:cap screen:m.screen]];
-    item.text = entry.keyName ?: @"Tab";
-    return item;
-}
 
 /// Bottom-right of the main display, above the Dock. The frame is the room; the layer hugs its content inside it.
 static NSArray<SBDrawItem *> *SBHudItems(SBOverlayInput *input, SBScreenLayout *layout) {
@@ -358,7 +342,7 @@ static NSArray<SBDrawItem *> *SBHudItems(SBOverlayInput *input, SBScreenLayout *
     model.layoutFingerprint = layout.fingerprint;
     NSMutableArray<SBDrawItem *> *items = [NSMutableArray arrayWithArray:SBHudItems(input, layout)];
     NSMutableSet<NSString *> *seen = [NSMutableSet set];
-    NSMutableArray<SBDrawItem *> *chrome = [NSMutableArray array];  // ring, lock, keycap, cursor: above every text
+    NSMutableArray<SBDrawItem *> *chrome = [NSMutableArray array];  // ring, lock, cursor: above every text
 
     for (NSUInteger i = 0; i < input.entries.count; i++) {
         SBOverlayEntry *entry = input.entries[i];
@@ -370,11 +354,9 @@ static NSArray<SBDrawItem *> *SBHudItems(SBOverlayInput *input, SBScreenLayout *
         SBOverlayMode mode = SBOverlayModeForKind(entry.kind);
 
         BOOL hasText = entry.displayText.length > 0 && !entry.locked;
-        // Decided first: ghost text only gives up room on its right when a keycap is really drawn there.
-        SBDrawItem *keycap = current && hasText ? SBKeycapItem(entry, m, mode, layout) : nil;
         SBDrawItem *body = nil;
         if (hasText) {
-            if (mode == SBOverlayModeText || mode == SBOverlayModeMultiline) body = SBTextItem(entry, m, current, keycap != nil, mode, layout);
+            if (mode == SBOverlayModeText || mode == SBOverlayModeMultiline) body = SBTextItem(entry, m, current, mode, layout);
             else if (mode != SBOverlayModeTarget) body = SBPillItem(entry, m, current, mode, layout);
         }
         if (body) [items addObject:body];
@@ -384,7 +366,6 @@ static NSArray<SBDrawItem *> *SBHudItems(SBOverlayInput *input, SBScreenLayout *
         model.currentVisible = YES;
         model.currentTipAX = tip;
         [chrome addObject:SBRingItem(entry, m, mode, layout)];
-        if (keycap) [chrome addObject:keycap];
         // No ghost cursor on a locked action. Shabang is never going to press it, so a cursor that means
         // "take this" is the wrong thing to draw there -- and its absence, beside the same purple ring
         // everything else gets, is the whole signal. The badge that used to say "Enter to confirm" is gone
