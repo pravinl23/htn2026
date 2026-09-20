@@ -16,6 +16,13 @@ export interface TextRouteDeps {
 }
 
 const SHABANG_TEXT = "/v1/shabang-text";
+/**
+ * The name this route had before the product was renamed. Kept because a wire rename must never silently
+ * break a client that has not been rebuilt: a desktop on one name and a server on the other answered 404,
+ * the draft never arrived, and the ghost quietly fell back to proposing a row instead of a reply -- which
+ * looks like "the model stopped working" and is nothing of the kind.
+ */
+const LEGACY_TEXT = "/v1/ghost-text";
 const EXTRACT = "/v1/profile/extract";
 const LIMITS = { label: 300, signature: 500, name: 200, description: 2000, facts: 50, factKey: 64, factValue: 500, pastAnswers: 3, answer: 2000, resume: 20_000, minMaxChars: 20, maxMaxChars: 5000, messages: 20, messageText: 400 };
 
@@ -35,7 +42,7 @@ export function registerTextRoutes(app: Hono, config: ServerConfig, deps: TextRo
     if (result.provider !== "template" && result.provider !== "regex") logCall(route, result);
   };
 
-  app.post(SHABANG_TEXT, bodyLimit({ maxSize: 64 * 1024, onError: tooLarge }), async (c) => {
+  const draftHandler = async (c: Context): Promise<Response> => {
     const input = await readBody(c, parseGhostTextBody);
     if (input instanceof Response) return input;
     if (c.req.query("stream") === "0") {
@@ -48,7 +55,12 @@ export function registerTextRoutes(app: Hono, config: ServerConfig, deps: TextRo
       record(SHABANG_TEXT, result);
       send({ done: true, ...result });
     });
-  });
+  };
+  // Registered twice, not as an array: Hono matches one path per call, and passing both as an array
+  // silently registered NEITHER -- which 404'd the new name and the old one at the same time.
+  for (const path of [SHABANG_TEXT, LEGACY_TEXT]) {
+    app.post(path, bodyLimit({ maxSize: 64 * 1024, onError: tooLarge }), draftHandler);
+  }
 
   app.post(EXTRACT, bodyLimit({ maxSize: 128 * 1024, onError: tooLarge }), async (c) => {
     const resumeText = await readBody(c, parseExtractBody);
