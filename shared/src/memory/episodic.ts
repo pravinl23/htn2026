@@ -173,6 +173,8 @@ const POSITIVE_INTENT = [
 const NEGATIVE_INTENT = /\b(back|cancel|close|dismiss|delete|remove|sign ?out|log ?out|unsubscribe|clear|reset)\b/;
 const CHROME_INTENT = /\b(home|logo|account|profile|settings|help|menu|navigation)\b/;
 const PASSIVE_NAVIGATION = /\b(carousel|slideshow|previous slide|next slide|previous page|next page|apply (?:the )?filter|narrow results|sort by|buy more[, ]+save more)\b/;
+/** Alternate input mechanisms beside a primary field are utilities, not the user's likely next task. */
+const INPUT_ACCESSORY = /\b(search (?:with|by) (?:voice|image)|voice search|visual search|clear (?:search|query|input)|microphone|camera)\b/;
 
 export interface PreviousCandidateAction {
   type?: string;
@@ -191,6 +193,7 @@ export function nextCandidatePriority(candidate: NextCandidate, previous?: Previ
   if (NEGATIVE_INTENT.test(text)) score -= 90;
   if (CHROME_INTENT.test(text)) score -= 30;
   if (PASSIVE_NAVIGATION.test(text)) score -= 90;
+  if (INPUT_ACCESSORY.test(text)) score -= 100;
   const previousLabel = previous?.label?.toLowerCase() ?? "";
   if (previous?.signature === candidate.id || (previousLabel !== "" && previousLabel === candidate.label.toLowerCase())) score -= 120;
   // After committing a discovery field, advance into its result group instead of suggesting the same field again.

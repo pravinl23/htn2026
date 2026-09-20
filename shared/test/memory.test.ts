@@ -183,4 +183,13 @@ describe("rankNextCandidates", () => {
     ];
     expect(rankNextCandidates(media, { type: "click", label: "Play", signature: "play" })[0]?.id).toBe("full");
   });
+
+  it("ranks primary results above search accessory buttons", () => {
+    const candidates: NextCandidate[] = [
+      { id: "voice", kind: "button", label: "Search by voice", locked: false },
+      { id: "image", kind: "button", label: "Search by image", locked: false },
+      { id: "result", kind: "link", label: "A useful search result", locked: false, group: "LIST(results)" },
+    ];
+    expect(rankNextCandidates(candidates, { type: "input", label: "Search", signature: "search" })[0]?.id).toBe("result");
+  });
 });

@@ -167,8 +167,19 @@ async function boot(): Promise<void> {
     stopSubscribers();
     retire(session);
   });
-  apply(session);
-  startLoopContent({ overlay, isEnabled: () => session.running, pauseGhosts: (paused) => (paused ? session.controller.stop() : void (session.running && session.controller.start())) }); // loop sheet + executor (docs/loops.md 3.4, 3.5)
+  // Preserve the proven listener order on healthy pages. A hostile or unusually large page can still break one
+  // capture path; that failure must not prevent the independent loop and Fast Lane surfaces from starting.
+  try {
+    apply(session);
+  } catch (error: unknown) {
+    // `apply` sets the desired enabled state before starting the form walk, so next-action remains usable.
+    console.debug("[ghost] form walk did not start", error);
+  }
+  try {
+    startLoopContent({ overlay, isEnabled: () => session.running, pauseGhosts: (paused) => (paused ? session.controller.stop() : void (session.running && session.controller.start())) }); // loop sheet + executor (docs/loops.md 3.4, 3.5)
+  } catch (error: unknown) {
+    console.debug("[ghost] loop surface did not start", error);
+  }
   startNextAction({ formGhosts: () => session.controller.state.ghosts.length, isEnabled: () => session.running, getSettings: () => session.settings }); // click ghosts beyond forms (docs/loops.md 2)
 }
 

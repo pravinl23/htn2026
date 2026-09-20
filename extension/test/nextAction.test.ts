@@ -142,9 +142,9 @@ describe("collectCandidates", () => {
       <details><summary>Advanced settings</summary></details>`;
     const candidates = collectCandidates(document).candidates;
     expect(candidates.map((candidate) => [candidate.label, candidate.kind])).toEqual([
+      ["Move to folder", "button"],
       ["Open dashboard", "link"],
       ["Activity", "button"],
-      ["Move to folder", "button"],
       ["Dark mode", "button"],
       ["Projects", "button"],
       ["Custom action", "button"],
@@ -169,7 +169,7 @@ describe("collectCandidates", () => {
     expect(checkout[0]).toMatchObject({ locked: true });
 
     document.body.innerHTML = `<header><input type="search" aria-label="Search videos" /></header><main><button>Play video</button><button>Full screen</button></main>`;
-    expect(collectCandidates(document, 3).candidates.map((candidate) => candidate.label)).toEqual(["Play video", "Full screen", "Search videos"]);
+    expect(collectCandidates(document, 3).candidates.map((candidate) => candidate.label)).toEqual(["Search videos", "Play video", "Full screen"]);
   });
 
   it("prefers an editable search box over its category selector and carousel navigation", () => {
@@ -387,6 +387,20 @@ describe("the click ghost", () => {
     expect(executed).toHaveLength(0);
   });
 
+  it("Tab opens a native dropdown so its choices become the next recommendation surface", async () => {
+    document.body.innerHTML = `<label>Owner <select><option value="">Choose one</option><option value="me">Owned by me</option></select></label>`;
+    const select = $("select") as HTMLSelectElement & { showPicker?: () => void };
+    select.showPicker = vi.fn();
+    answer("Owner");
+    start();
+    await handle?.predictNow();
+
+    expect(key("Tab").defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(select);
+    expect(select.showPicker).toHaveBeenCalledOnce();
+    expect(executed).toHaveLength(0);
+  });
+
   it("fills a search field from local history, then advances instead of getting stuck on it", async () => {
     document.body.innerHTML = `<form><input type="search" aria-label="Search videos" /><button type="button">Search</button></form>`;
     answer("Search videos", 0.86, "lofi coding mix");
@@ -454,13 +468,14 @@ describe("the Tab gate", () => {
 });
 
 describe("Escape and other actions", () => {
-  it("Escape dismisses, and the same element is not offered again on this page", async () => {
+  it("Escape dismisses, immediately asks again, and the same element is not offered again on this page", async () => {
+    vi.useFakeTimers();
     answer("Open calendar");
     start();
     await handle?.predictNow();
     expect(key("Escape").defaultPrevented).toBe(true);
     expect(shown()).toBe(false);
-    await handle?.predictNow();
+    await vi.advanceTimersByTimeAsync(NEXT_SETTLE_MS + 1);
     expect(sent.at(-1)?.candidates.map((c: NextCandidate) => c.label)).not.toContain("Open calendar");
     expect(shown()).toBe(false);
   });

@@ -113,13 +113,17 @@ export function collectCandidates(doc: Document = document, max: number = NEXT_M
     let priority = nextCandidatePriority(candidate);
     // A category selector and its adjacent query input can both be labelled "Search". Prefer the control the user
     // can actually type a query into without baking in any site's markup.
-    if (["text", "textarea"].includes(field.kind)) priority += 12;
+    if (["text", "textarea"].includes(field.kind)) priority += 40;
     if (kind === "link" && (el.querySelector('h1, h2, h3, h4, h5, h6, [role="heading"]') || el.closest('h1, h2, h3, h4, h5, h6, [role="heading"]'))) priority += 30;
     if (el.closest('dialog, [role="dialog"], [aria-modal="true"]')) priority += 55;
     if (el.closest('main, [role="main"], article')) priority += 22;
     if (el.closest("form")) priority += 18;
     if (el.closest('header, nav, footer, [role="navigation"]')) priority -= 45;
     if (el.hasAttribute("aria-current")) priority -= 50;
+    const role = el.getAttribute("role")?.toLowerCase() ?? "";
+    const dropdown = el instanceof HTMLSelectElement || role === "combobox" || el.hasAttribute("aria-haspopup");
+    if (dropdown) priority += el.getAttribute("aria-expanded") === "true" ? -35 : 24;
+    if (["option", "menuitem", "menuitemcheckbox", "menuitemradio"].includes(role)) priority += 38;
     if (/\b(primary|cta)\b/i.test(`${el.className} ${el.getAttribute("data-variant") ?? ""}`)) priority += 28;
     pool.push({ order, distance, priority, candidate, el });
   });
@@ -524,6 +528,7 @@ class NextAction implements NextActionHandle {
     this.dismissed.add(ghost.candidate.id);
     this.epoch++;
     this.clear();
+    this.schedule();
   }
 
   /**
@@ -542,7 +547,19 @@ class NextAction implements NextActionHandle {
     }
     this.clear();
     if (candidate.kind === "field") {
-      if (!ghost.value) return reveal(el);
+      if (!ghost.value) {
+        reveal(el);
+        if (el instanceof HTMLSelectElement) {
+          const picker = (el as HTMLSelectElement & { showPicker?: () => void }).showPicker;
+          try {
+            if (typeof picker === "function") picker.call(el);
+            else el.click();
+          } catch {
+            el.click();
+          }
+        }
+        return;
+      }
       const fill: Ghost = { signature: candidate.id, action: "fill", value: ghost.value, displayText: ghost.value, confidence: ghost.confidence, locked: false, source: "cache" };
       const result = await (this.deps.execute ?? executeGhost)(fill, el).catch(() => ({ ok: false, method: "none" } as ExecResult));
       if (result.ok) {

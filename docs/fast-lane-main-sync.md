@@ -59,3 +59,13 @@ It is persisted as bounded JSON under `ghost.memory`; recent ordered observation
 - Production extension and demo builds: passed.
 - Workspace unit and replay suites: passed (2,607 tests/evaluations before the heartbeat regression test; extension now has 923 passing tests).
 - Full Playwright suite: 53/53 passed, including Sentry walk telemetry, page-owned Tab behavior, extension presence, generic next action, and corrected-search learning.
+
+## Live-site hardening after integration
+
+Tested through the user's installed Chrome extension, not the local demo:
+
+- **Google:** cold-start search focus worked and Tab focused the real search box. On a results page, Ghost initially chose the adjacent “Search by voice” utility instead of a result. Generic input-accessory demotion now ranks result content above voice/image/clear controls; Tab navigation to the chosen result was verified live.
+- **YouTube:** Ghost focused the real search box, accepted a query, selected a result, and Tab navigated to the watch page. The selected cold-start result remains exploratory until preference history accumulates.
+- **LinkedIn:** Ghost rendered on the live feed. “Start a post” was correctly locked and shown as Enter-to-confirm, explaining why Tab intentionally focuses rather than clicks consequential controls.
+- **Google Docs:** the form-walk surface could prevent the separate next-action surface from starting. The three content surfaces now start independently, so a failure in form capture or loop UI cannot disable Fast Lane.
+- **Dropdowns:** custom comboboxes and `aria-haspopup` controls are captured as openers; visible options/menu items receive recommendation priority; Tab opens native selects through `showPicker()` when available. Escape now immediately asks for the next recommendation instead of leaving Ghost idle.

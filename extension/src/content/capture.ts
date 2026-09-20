@@ -5,8 +5,8 @@ import { clipsOverflow, hasLayout } from "./visibility";
 export type VisibilityProbe = (el: Element) => boolean;
 
 const OVERLAY_HOST = "#ghost-overlay-host";
-const ACTION_ROLES = ["button", "link", "menuitem", "menuitemcheckbox", "menuitemradio", "tab", "option", "treeitem", "switch", "checkbox", "radio"];
-const CANDIDATES = ["input", "textarea", "select", "button", "a[href]", "summary", "[onclick]", ...ACTION_ROLES.map((role) => `[role="${role}"]`)].join(", ");
+const ACTION_ROLES = ["button", "link", "combobox", "menuitem", "menuitemcheckbox", "menuitemradio", "tab", "option", "treeitem", "switch", "checkbox", "radio"];
+const CANDIDATES = ["input", "textarea", "select", "button", "a[href]", "summary", "[onclick]", "[aria-haspopup]", ...ACTION_ROLES.map((role) => `[role="${role}"]`)].join(", ");
 const CONTROLS = "input, textarea, select, button";
 const NON_TEXT = "script, style, noscript, template";
 const SKIPPED_TEXT = `${CONTROLS}, ${NON_TEXT}`;
@@ -186,7 +186,7 @@ function kindOf(el: Element): FieldKind {
   if (el instanceof HTMLSelectElement) return "select";
   const role = el.getAttribute("role")?.toLowerCase() ?? "";
   if (el instanceof HTMLAnchorElement || role === "link") return "link";
-  if (el instanceof HTMLButtonElement || el instanceof HTMLDetailsElement || el.tagName === "SUMMARY" || el.hasAttribute("onclick") || ACTION_ROLES.includes(role)) return "button";
+  if (el instanceof HTMLButtonElement || el instanceof HTMLDetailsElement || el.tagName === "SUMMARY" || el.hasAttribute("onclick") || el.hasAttribute("aria-haspopup") || ACTION_ROLES.includes(role)) return "button";
   return "other";
 }
 

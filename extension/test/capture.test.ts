@@ -260,6 +260,19 @@ describe("selects, checkboxes and kinds", () => {
     ]);
   });
 
+  it("captures custom dropdown openers and their visible options", () => {
+    mount(`
+      <div role="combobox" aria-label="Owner" aria-haspopup="listbox" aria-expanded="false" tabindex="0"></div>
+      <div role="listbox"><div role="option" aria-label="Owned by me" tabindex="0"></div></div>
+      <div aria-label="Sort documents" aria-haspopup="menu" tabindex="0"></div>
+    `);
+    expect(captureFields().map((field) => [field.kind, field.label])).toEqual([
+      ["button", "Owner"],
+      ["button", "Owned by me"],
+      ["button", "Sort documents"],
+    ]);
+  });
+
   it("copies the descriptive attributes and leaves absent ones out", () => {
     mount(`<label for="e">Email</label><input id="e" name="mail" type="email" autocomplete="email" placeholder="you@example.com" required>`);
     const field = captureFields()[0]!;
