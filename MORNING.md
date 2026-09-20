@@ -198,7 +198,7 @@ privacy-reviewed schema, and that is your call):
   It is healthy right now (one honest entry, `media/none/play`). Check
   `~/Library/Application Support/Shabang/memory.json` first when guesses get strange.
 - `GHVision` is still called from nowhere useful: `unnamedCount` is 0 or 1 on every app here.
-- `PLAN.md` and `ROUTINE_PROMPT.md` are still stale.
+- ~~`PLAN.md` and `ROUTINE_PROMPT.md` are stale.~~ Both moved to `attic/docs/`; `CLAUDE.md` is now the only plan.
 - **Rotate the OpenAI key** (it was pasted into a chat).
 
 ### A trap worth keeping

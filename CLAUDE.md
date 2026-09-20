@@ -23,16 +23,16 @@ You are the autonomous builder for this repo. Pravin is asleep. Nobody will answ
 
 The single most important rule: **`main` must always contain a working, demoable build.** Small, tested, pushed chunks beat one big unfinished feature.
 
-Read `PLAN.md` (what to build, in order), `PROGRESS.md` (what previous runs did), and `MORNING.md` (what Pravin will read when he wakes up) before doing anything.
+Read `PROGRESS.md` (what previous runs did) and `MORNING.md` (what Pravin will read when he wakes up) before doing anything. **There is no PLAN.md any more**: the boundary below is the plan, and `MORNING.md`'s "Still open" section is the queue.
 
-**Current boundary (2026-09-20, supersedes `PLAN.md` and `ROUTINE_PROMPT.md`):**
+**Current boundary (2026-09-20). This section is the product definition:**
 
 1. **Shabang is a native macOS app.** The Chrome extension is in `attic/` and is NOT the product. Do
    not build browser features, do not revive it, do not add a second client. The native agent reads
    the accessibility tree of whatever app is frontmost, so browsers are just one case it already
    handles — and they are the only case an extension could ever have handled.
 2. **The invoice loop is dead.** "Do it twice, Shabang does the rest" is no longer the product.
-   `PLAN.md` and `ROUTINE_PROMPT.md` still name it and are stale; trust this file over both.
+   The stale plans that described it now live in `attic/docs/`; trust this file.
 3. The brain (`shared/src/knowledge`, `shared/src/affordance`, `shared/src/coldstart`) is built and
    benchmarked, and `desktop/core/knowledge.ts` consumes it. The desktop's next-action path is
    `GHController -> GHNextAction -> desktop/core/anywhere.ts -> shared/src/affordance`, all in process.
@@ -73,7 +73,7 @@ Speed is the whole product. A ghost that takes 3 seconds to appear feels like a 
 3. **Never capture, predict, or fill** password fields, credit card fields (`autocomplete="cc-*"`), government ID numbers, or anything in a field marked sensitive.
 4. **Confidence gating.** Show a ghost only when confidence is above the threshold (default 0.7, configurable). A wrong ghost is worse than no ghost.
 5. **Never submit real forms on real websites** in tests or scripts. All automated tests run against the local demo pages in `demo/`.
-6. **No real personal data in the repo.** Use the fictional demo profile ("Alex Chen", see PLAN.md). Never commit API keys or `.env`.
+6. **No real personal data in the repo.** Use the fictional demo profile ("Alex Chen", seeded on first run; see `desktop/profile.example.json`). Never commit API keys or `.env`.
 
 ## Architecture (pnpm monorepo)
 
@@ -153,7 +153,7 @@ Many sites (React, Workday) ignore programmatic value changes. Set values with t
 ## Git workflow
 
 - Commit small, meaningful chunks with clear messages prefixed by area, like `extension: tab accepts ghost and advances`.
-- Push **directly to `main`** after every completed PLAN.md item. Always `git pull --rebase origin main` before pushing. Never force push.
+- Push **directly to `main`** after every completed item. Always `git pull --rebase origin main` before pushing. Never force push.
 - Never commit `.env`, keys, `node_modules`, or build output (except videos in `docs/media`).
 
 ## Per-run protocol
@@ -161,10 +161,10 @@ Many sites (React, Workday) ignore programmatic value changes. Set values with t
 1. Run `date` and note the start time. Each run gets about 50 minutes of wall clock because the next scheduled run starts an hour later.
 2. If the latest PROGRESS.md entry is marked IN PROGRESS and started less than 55 minutes ago, another run is active: add a one-line note and stop.
 3. Add a new PROGRESS.md entry marked IN PROGRESS, commit, push.
-4. Work the explicit **Top priority** in PLAN.md first, then remaining unchecked items in dependency order. For each: implement, test, check the box in PLAN.md, commit, pull with rebase, push.
+4. Work the top item in `MORNING.md`'s **Still open** list first, then the rest in dependency order. For each: implement, test, commit, pull with rebase, push.
 5. If an item fights you for more than about 15 minutes, put it behind a flag or revert it, write down why, and move on.
 6. At about 45 minutes, stop starting new items. Run all tests, finalize your PROGRESS.md entry (DONE, what changed, test status, what is next), update MORNING.md, commit, push.
-7. If PLAN.md is complete, work the Stretch section, then polish, harden, and add tests. Never idle.
+7. If **Still open** is empty, polish, harden, and add tests. Never idle.
 
 ## When keys or services are missing
 

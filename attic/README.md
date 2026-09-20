@@ -40,3 +40,20 @@ brain (`shared/src/knowledge` and `shared/src/coldstart` both import it).
 
 The invoice loop ("do it twice, Ghost does the rest") is no longer the product direction.
 Its machinery is still in the main tree and is the next candidate for this folder.
+
+## docs/ — moved here 2026-09-20
+
+Documentation for directions the product no longer takes. Same rule as the code: kept because it
+records a real decision, not because anything depends on it. Nothing links to these.
+
+| File | Why it is here |
+| --- | --- |
+| `PLAN.md` | The staged build plan. Superseded by the "Current boundary" section of `CLAUDE.md`, which contradicted it on the two things that mattered (native app, not an extension; no invoice loop). |
+| `ROUTINE_PROMPT.md` | The autonomous-run prompt that pointed at `PLAN.md`. |
+| `DEMO_WIN_PLAN.md` | Demo plan built around the invoice loop. Its one durable part — the sponsor track positioning — is now `docs/rox.md` and the other sponsor docs. |
+| `handoff.md` | A session handoff, long overtaken. |
+| `loops.md`, `workflows.md`, `handoff-composio.md` | "Do it twice and it does the rest", atomic workflows, and the Composio executor. No desktop caller. |
+| `compare-approaches.md` | Compared two directions the product took neither of. |
+| `sentry-audit.md`, `sentry-demo.md` | Point-in-time audit and a redirect stub. Live Sentry material is `SENTRY.md` plus `docs/observability.md`. |
+
+The live docs are listed in `docs/README.md`.

@@ -51,7 +51,7 @@ scripts/install-background.sh --dry-run
 scripts/install-background.sh
 ```
 
-The installer is per-user, never requires `sudo`, installs a loopback server and `Shabang.app`, and keeps secrets in `~/.config/ghost/env` rather than in the repository. See [`desktop/README.md`](desktop/README.md) for installation, permissions, data locations, and removal.
+The installer is per-user, never requires `sudo`, installs a loopback server and `Shabang.app`, and keeps secrets in `~/.config/shabang/env` rather than in the repository. See [`desktop/README.md`](desktop/README.md) for installation, permissions, data locations, and removal.
 
 ## Development checks
 
@@ -82,8 +82,23 @@ docs/      Current architecture and implementation notes
 attic/     Deliberately unsupported historical code, including the former extension
 ```
 
+## Sponsor tracks
+
+What we used, why it and not something else, the measured numbers, and what went wrong. Each one also
+says what *not* to claim.
+
+- [`SENTRY.md`](SENTRY.md) — six Sentry products, and four things Sentry data changed in the code.
+- [`docs/typesafe.md`](docs/typesafe.md) — Jev: calibrated confidence in 266 ms, and why our confidence gate means anything.
+- [`docs/baseten.md`](docs/baseten.md) — confidence without logprobs: a hedged vote, and why every word of text comes from here.
+- [`docs/openai.md`](docs/openai.md) — a useful negative result on calibration, and vision that rarely fires.
+- [`docs/rox.md`](docs/rox.md) — no SDK: the agent answered against the five judging criteria.
+- [`docs/warp.md`](docs/warp.md) — the terminal companion: real and tested, and honest that it does not render inside Warp.
+
+Raw evidence: [`docs/media/bench-providers.md`](docs/media/bench-providers.md).
+
 ## More documentation
 
+- [`docs/README.md`](docs/README.md) — index of every live document.
 - [`desktop/README.md`](desktop/README.md) — build, run, install, permissions, and troubleshooting.
 - [`docs/architecture.md`](docs/architecture.md) — current product architecture and data flow.
 - [`docs/desktop.md`](docs/desktop.md) — native pipeline and safety boundary.

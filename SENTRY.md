@@ -159,6 +159,117 @@ before a demo did.
 
 ---
 
+## 5b. The screen recording, shot by shot
+
+Ordered so each shot **earns** the next one. Roughly 3 minutes. Org is `university-of-waterloo-01`;
+every path below is the left sidebar unless a URL is given.
+
+### Before you hit record
+
+1. Server up and tagged: `curl -s localhost:8787/v1/health` → `"provider":"typesafe"`,
+   `"textProvider":"baseten"`. The startup line must say `sentry on env=demo ... profiling=on`.
+   **If it says `env=dev`, restart with `SHABANG_ENV=demo`** or the environment filter hides your data.
+2. In Sentry, set the environment filter to **demo** and the time range to **Last 1 hour**. Do this
+   once, off camera, so no shot starts with you fiddling with filters.
+3. Agent running and granted: `shabangctl trust` → `"trusted": true`.
+4. Have a Messages conversation open on a second space, ready for the live moment.
+
+> Ingestion is fast but not instant. Measured at 54 ms once; a check 20 s later has also come back
+> empty and then appeared. Give it a beat and refresh before saying anything on camera.
+
+### Shot 1 — the product, 20s
+
+Not in Sentry. Show a ghost appearing in Messages and taking it with right ⌘. The rest of the
+recording is meaningless without this: the viewer has to see the thing that produces the data.
+
+Say: *"Every one of these is a labelled training example — including the ones I turn down."*
+
+### Shot 2 — Logs: one line per outcome, 30s
+
+**Explore → Logs.** Filter is already `demo`.
+
+Point at a row reading `walk: 1 accepted, 0 rejected (0 typed over, 0 dismissed) of 1 ghosts`.
+**Expand it.** The attributes are the shot:
+
+```
+ghost.accepted 1    ghost.rejected 0    ghost.proposed 1
+ghost.surface  desktop              environment demo
+trace          3e0cb05b754a47228d4574dc0076e95e
+```
+
+Say: *"That is a user decision, and there is no page, no label and no value anywhere in it."*
+
+### Shot 3 — the click that makes the point, 25s
+
+Still in that expanded row: **click the trace id.** The trace opens.
+
+This is the single best moment in the recording. Say it out loud: *"Most teams install six SDKs that
+know nothing about each other. One click took me from a product event to the request that produced
+it."*
+
+### Shot 4 — Traces: the cache contrast, 30s
+
+**Explore → Traces.** Sort or scan for `/v1/predict/form`.
+
+You will see the same route at roughly **231 ms** and at **0–4 ms**. That is a cold Jev decision
+against a cache hit, side by side, and it is a better latency story than any number you could recite.
+`/v1/shabang-text` sits around **1.3 s** — that is Baseten writing a sentence, and it streams, so the
+user sees the first token far sooner.
+
+Open one form trace and show the spans **inside** it — our own, not just the HTTP envelope.
+
+### Shot 5 — Profiles: why it was slow, 20s
+
+**Explore → Profiles**, or the profile attached to the trace you already have open
+(`profileLifecycle: "trace"`, so it hangs off the trace).
+
+Show "Slowest Functions by P75". This is the §5.1 story and it is the strongest technical claim in
+the whole pitch: the local ranker is **0.06 ms**, accessibility capture is **~160 ms**, so capture is
+**~2,600× slower than the model-adjacent code we assumed was the problem.** Say that the fix — moving
+to incremental capture — came out of this view and nothing else.
+
+### Shot 6 — Metrics, 25s
+
+**Explore → Metrics.** `ghost.proposed`, `ghost.accepted`, `ghost.rejected`, `ghost.corrected`,
+`ghost.decision_ms`, each tagged `ghost.source`, `ghost.surface`, `ghost.confidence.bucket`.
+
+If you built the dashboard in §3, show widget 2: **corrections grouped by confidence bucket.** Say
+*"a correction in the high bucket is a confident wrong ghost, which is the worst thing this product
+can do — that chart is the regression alarm."*
+
+### Shot 7 — Session Replay, 20s
+
+**Replays**, project **`ghost-web`**. Open one and scrub.
+
+Say the privacy line while it plays: *"Every input is masked. We get the shape of the session, never
+its contents."*
+
+### Shot 8 — the live moment, 30s
+
+Back to the desktop, with Logs open on the other half of the screen.
+
+Take one ghost with **right ⌘**. Press **Escape** on the next one. Switch to **Explore → Logs**,
+refresh once, and show **both** rows appear — the accept and the reject.
+
+This is the only shot that proves the loop is live rather than recorded. It is worth rehearsing twice
+because the reject is the whole product: **before Sentry we could not see a single rejection.**
+
+### Shot 9 — the close, 20s
+
+Not in Sentry. Say the four things Sentry data changed, from §5, in this order: the rejection stream
+was invisible and the logs showed it (§5.2) · we were optimising the wrong thing and tracing proved
+it (§5.1) · we were blaming the model for our own prompt, 55% → 90% (§5.3) · three zombie servers
+(§5.4).
+
+### What to skip
+
+- **Issues.** Error monitoring is product #1 of six and the least interesting thing here, and the
+  smoke script's deliberate-500 route now returns 404, so the tab may be empty. Do not open a tab you
+  have not checked.
+- **AI Agent Monitoring.** See §6. It will not light up, and there is a good reason.
+
+---
+
 ## 6. What NOT to claim
 
 **AI Agent Monitoring.** It shows a setup screen and it is not going to light up. That product is
