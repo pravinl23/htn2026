@@ -28,7 +28,7 @@ function card(onDismiss: () => void): HTMLElement {
       h("li", {}, "Password, card and government ID fields are never read, predicted, filled or learned."),
       h("li", {}, "API keys stay on the local Ghost server. The extension holds none."),
       h("li", {}, "Form mapping sends field labels and the names of your facts, never their values."),
-      h("li", {}, "Ghosts only appear above your confidence threshold. A wrong ghost is worse than no ghost."),
+      h("li", {}, "Form-fill ghosts obey your confidence threshold. Exploratory next-action guesses stay low-confidence and can never unlock sensitive or destructive actions."),
     ),
     h("div", { class: "row" }, dismiss, demo, h("span", { class: "muted small" }, "Start the server and demo pages with pnpm dev.")),
   );

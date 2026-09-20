@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Ghost, NextCandidate } from "@ghost/shared";
 import type { ExecResult } from "../src/content/execute";
-import { NEXT_HOST_ID, NEXT_SETTLE_MS, PRESENCE_PING, collectCandidates, startNextAction } from "../src/content/nextAction";
+import { NEXT_HOST_ID, NEXT_SETTLE_CEILING_MS, NEXT_SETTLE_MS, PRESENCE_PING, collectCandidates, startNextAction } from "../src/content/nextAction";
 import type { NextActionDeps, NextActionHandle, NextMessage } from "../src/content/nextAction";
 
 const MAIL_VIEW = `
@@ -24,7 +24,7 @@ const MAIL_VIEW = `
     <div data-ghost-ui><button type="button" id="ghost-own">Ghost own control</button></div>
   </section>`;
 
-type Reply = { ok: true; candidateId: string; confidence: number; provider: string; calibrated: boolean; latencyMs: number | null } | null;
+type Reply = { ok: true; candidateId: string; confidence: number; provider: string; calibrated: boolean; latencyMs: number | null; value?: string } | null;
 
 let handle: NextActionHandle | null = null;
 let sent: NextMessage[] = [];
@@ -47,8 +47,8 @@ function idOf(label: string): string {
   return candidate.id;
 }
 
-function answer(label: string, confidence = 0.75): void {
-  reply = { ok: true, candidateId: idOf(label), confidence, provider: "memory", calibrated: false, latencyMs: 3 };
+function answer(label: string, confidence = 0.75, value?: string): void {
+  reply = { ok: true, candidateId: idOf(label), confidence, provider: "memory", calibrated: false, latencyMs: 3, ...(value ? { value } : {}) };
 }
 
 function start(over: Partial<NextActionDeps> = {}): NextActionHandle {
@@ -68,7 +68,8 @@ function start(over: Partial<NextActionDeps> = {}): NextActionHandle {
     isVisible: () => true, // jsdom has no layout
     execute: async (ghost, el): Promise<ExecResult> => {
       executed.push({ ghost, el });
-      return { ok: true, method: "click" };
+      if (ghost.action === "fill" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) el.value = ghost.value ?? "";
+      return { ok: true, method: ghost.action === "fill" ? "native" : "click" };
     },
     topFrame: true,
     presencePingMs: 0,
@@ -115,7 +116,7 @@ describe("collectCandidates", () => {
   it("offers visible buttons, links and fields, never sensitive, hidden, disabled or Ghost's own controls", () => {
     const { candidates, elements } = collectCandidates(document);
     const labels = candidates.map((c) => c.label);
-    expect(labels).toEqual(["Larkspur Mail", "Back to inbox", "Open calendar", "Reply", "Send reply"]);
+    expect(labels).toEqual(["Send reply", "Reply", "Open calendar", "Larkspur Mail", "Back to inbox"]);
     expect(candidates.find((c) => c.label === "Open calendar")).toMatchObject({ kind: "link", locked: false });
     expect(candidates.find((c) => c.label === "Reply")).toMatchObject({ kind: "field", locked: false });
     expect(candidates.find((c) => c.label === "Send reply")).toMatchObject({ kind: "button", locked: true });
@@ -127,17 +128,105 @@ describe("collectCandidates", () => {
   it("never carries a field's value", () => {
     $<HTMLTextAreaElement>("#reply").value = "Thursday 2:30 works for me";
     expect(JSON.stringify(collectCandidates(document))).not.toContain("2:30");
+    expect(collectCandidates(document).candidates.map((candidate) => candidate.label)).not.toContain("Reply");
   });
 
-  it("keeps at most 60, in DOM order", () => {
+  it("covers app-style controls beyond native forms", () => {
+    document.body.innerHTML = `
+      <div role="tab" aria-label="Activity"></div>
+      <div role="menuitem" aria-label="Move to folder"></div>
+      <div role="switch" aria-label="Dark mode"></div>
+      <div role="treeitem" aria-label="Projects"></div>
+      <div role="link" aria-label="Open dashboard"></div>
+      <div onclick="void 0" aria-label="Custom action"></div>
+      <details><summary>Advanced settings</summary></details>`;
+    const candidates = collectCandidates(document).candidates;
+    expect(candidates.map((candidate) => [candidate.label, candidate.kind])).toEqual([
+      ["Open dashboard", "link"],
+      ["Activity", "button"],
+      ["Move to folder", "button"],
+      ["Dark mode", "button"],
+      ["Projects", "button"],
+      ["Custom action", "button"],
+      ["Advanced settings", "button"],
+    ]);
+  });
+
+  it("keeps at most 60, with meaningful controls ahead of passive page chrome", () => {
     document.body.innerHTML = Array.from({ length: 80 }, (_, i) => `<button type="button">Action ${i}</button>`).join("");
     const { candidates } = collectCandidates(document);
     expect(candidates).toHaveLength(60);
     expect(candidates[0]?.label).toBe("Action 0");
   });
+
+  it("keeps generic search, checkout and media controls discoverable on large pages", () => {
+    document.body.innerHTML = `
+      <header><a href="/">Shop home</a>${Array.from({ length: 80 }, (_, i) => `<a href="/category/${i}">Category ${i}</a>`).join("")}
+        <form><input type="search" aria-label="Search products" /></form></header>
+      <main><form><button type="submit">Place your order</button></form></main>`;
+    const checkout = collectCandidates(document, 3).candidates;
+    expect(checkout.slice(0, 2).map((candidate) => candidate.label)).toEqual(["Place your order", "Search products"]);
+    expect(checkout[0]).toMatchObject({ locked: true });
+
+    document.body.innerHTML = `<header><input type="search" aria-label="Search videos" /></header><main><button>Play video</button><button>Full screen</button></main>`;
+    expect(collectCandidates(document, 3).candidates.map((candidate) => candidate.label)).toEqual(["Play video", "Full screen", "Search videos"]);
+  });
+
+  it("prefers an editable search box over its category selector and carousel navigation", () => {
+    document.body.innerHTML = `<header><form>
+      <select aria-label="Search in"><option>All</option></select>
+      <input type="text" aria-label="Search marketplace" />
+    </form></header><main><a href="#next" aria-label="Carousel next slide">Next</a></main>`;
+    expect(collectCandidates(document).candidates.map((candidate) => candidate.label)).toEqual([
+      "Search marketplace", "Search in", "Carousel next slide",
+    ]);
+  });
+
+  it("prefers generic commerce actions on a product page while keeping them locked", () => {
+    document.body.innerHTML = `<header><input type="search" aria-label="Search marketplace" /></header><main>
+      <h1>Product</h1><form><button type="submit">Add to Cart</button><button type="submit">Buy Now</button></form>
+    </main>`;
+    const candidates = collectCandidates(document).candidates;
+    expect(candidates.slice(0, 2).map((candidate) => candidate.label)).toEqual(["Add to Cart", "Buy Now"]);
+    expect(candidates.slice(0, 2).every((candidate) => candidate.locked)).toBe(true);
+  });
+
+  it("marks changing items with the value-free repeated group used by site memory", () => {
+    document.body.innerHTML = `<main><ul aria-label="Recommended"><li><a href="/v/1">First video</a></li><li><a href="/v/2">Second video</a></li></ul></main>`;
+    const grouped = collectCandidates(document).candidates.filter((candidate) => candidate.label.endsWith("video"));
+    expect(grouped).toHaveLength(2);
+    expect(grouped[0]?.group).toMatch(/^LIST\(/);
+    expect(grouped[1]?.group).toBe(grouped[0]?.group);
+  });
+
+  it("finds repeated cards through deeply nested component wrappers", () => {
+    const card = (i: number) => `<div class="result-card"><div><div><div><div><div><div>
+      <a href="/brand/${i}">Sponsored brand ${i}</a><a href="/item/${i}"><h2>Result ${i}</h2></a><a href="/reviews/${i}">Reviews</a>
+    </div></div></div></div></div></div><span>price</span></div>`;
+    document.body.innerHTML = `<main><div class="results">${card(1)}${card(2)}${card(3)}</div></main>`;
+    const grouped = collectCandidates(document).candidates.filter((candidate) => candidate.label.startsWith("Result"));
+    expect(grouped).toHaveLength(3);
+    expect(grouped.every((candidate) => candidate.group === grouped[0]?.group)).toBe(true);
+    expect(collectCandidates(document).candidates[0]?.label).toBe("Result 1");
+  });
 });
 
 describe("when a question is asked", () => {
+  it("rescans controls that a large SPA hydrates late, with a ceiling for continuous mutations", async () => {
+    vi.useFakeTimers();
+    document.body.replaceChildren();
+    start();
+    await vi.advanceTimersByTimeAsync(NEXT_SETTLE_MS - 1);
+    document.body.insertAdjacentHTML("beforeend", '<button type="button">Play video</button>');
+    await vi.advanceTimersByTimeAsync(NEXT_SETTLE_MS - 1);
+    expect(sent).toHaveLength(0);
+    // More framework churn resets the quiet timer but cannot postpone past the ceiling.
+    document.body.insertAdjacentHTML("beforeend", "<div>recommendations loaded</div>");
+    await vi.advanceTimersByTimeAsync(NEXT_SETTLE_CEILING_MS);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.candidates.map((candidate) => candidate.label)).toContain("Play video");
+  });
+
   it("asks once the page settles (300 ms), with the page's origin + path and the candidates", async () => {
     vi.useFakeTimers();
     start();
@@ -204,11 +293,12 @@ describe("when a question is asked", () => {
     expect(sent).toHaveLength(0);
   });
 
-  it("shows nothing below the confidence threshold, or for an id it did not offer", async () => {
+  it("shows an exploratory low-confidence guess, but never an id it did not offer", async () => {
     start();
     answer("Open calendar", 0.5);
     await handle?.predictNow();
-    expect(shown()).toBe(false);
+    expect(shown()).toBe(true);
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     reply = { ok: true, candidateId: "button|delete everything|0", confidence: 0.99, provider: "llm", calibrated: false, latencyMs: 1 };
     await handle?.predictNow();
     expect(shown()).toBe(false);
@@ -295,6 +385,19 @@ describe("the click ghost", () => {
     expect(document.activeElement).toBe($("#reply"));
     expect($<HTMLTextAreaElement>("#reply").value).toBe("");
     expect(executed).toHaveLength(0);
+  });
+
+  it("fills a search field from local history, then advances instead of getting stuck on it", async () => {
+    document.body.innerHTML = `<form><input type="search" aria-label="Search videos" /><button type="button">Search</button></form>`;
+    answer("Search videos", 0.86, "lofi coding mix");
+    start();
+    await handle?.predictNow();
+    expect(key("Tab").defaultPrevented).toBe(true);
+    await Promise.resolve();
+    expect(executed[0]?.ghost).toMatchObject({ action: "fill", value: "lofi coding mix", source: "cache" });
+    expect($<HTMLInputElement>('input[type="search"]').value).toBe("lofi coding mix");
+    expect(collectCandidates(document).candidates.map((candidate) => candidate.label)).not.toContain("Search videos");
+    expect(collectCandidates(document).candidates.map((candidate) => candidate.label)).toContain("Search");
   });
 });
 

@@ -17,6 +17,8 @@ export interface EpisodicMemory {
   /** The summary of "now" on this page plus the most similar pairs (exact matches first). */
   recall(events: readonly TraceEvent[], pathPattern: string, k?: number): Promise<{ summary: string; memory: EpisodicPair[] }>;
   retrieve(summary: string, k?: number): Promise<EpisodicPair[]>;
+  /** Newest pairs across states. The caller must filter them to the current origin before using them. */
+  recent(k?: number): Promise<EpisodicPair[]>;
   size(): Promise<number>;
   clear(): Promise<void>;
 }
@@ -74,6 +76,8 @@ export function createEpisodicMemory(deps: { storage?: KvStorage } = {}): Episod
     },
 
     retrieve: async (summary, k = EPISODIC_TOP_K) => (await load()).retrieve(summary, k),
+
+    recent: async (k = EPISODIC_TOP_K) => (await load()).recent(k),
 
     size: async () => (await load()).size,
 

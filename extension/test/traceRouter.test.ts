@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { TraceEvent } from "@ghost/shared";
 import { DEMO_ORIGIN, INVOICES, invoiceFacts, invoicePath, invoiceSession } from "../../shared/test/helpers/traceBuilder";
 import type { LoopMessage, LoopUiState } from "../src/lib/loopMessages";
-import { createEpisodicMemory } from "../src/background/episodic";
+import { createLocalFastLaneMemory } from "../src/background/fastLaneMemory";
 import { createMemoryKv } from "../src/background/kvStorage";
 import { createLoopStateStore, isBusy } from "../src/background/loopState";
 import { createLoopWatcher } from "../src/background/loopWatcher";
@@ -36,7 +36,7 @@ function rig(): Rig {
     onProposal: (proposal, tabId) => loopState.dispatch({ type: "propose", proposal, tabId }),
     emit: (_tabId, message) => void emitted.push(message),
   });
-  const services = { trace, memory: createEpisodicMemory({ storage: createMemoryKv() }), loopState, watcher };
+  const services = { trace, memory: createLocalFastLaneMemory({ graphStorage: createMemoryKv(), valueStorage: createMemoryKv() }), loopState, watcher };
   const router = createTraceRouter({ services, extensionId: EXTENSION_ID, isEnabled: async () => enabled.value });
   const send: Rig["send"] = async (message, sender = SENDER) => router.handle(message, sender);
   return {

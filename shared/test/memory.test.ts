@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EpisodicStore, actionFromEvent, jaccard, predictFromMemory, stateSummary } from "../src";
+import { EpisodicStore, actionFromEvent, jaccard, predictFromMemory, predictFromRecentSiteMemory, rankNextCandidates, stateSummary } from "../src";
 import type { EpisodicAction, NextCandidate } from "../src";
 import { TraceBuilder } from "./helpers/traceBuilder";
 
@@ -56,6 +56,13 @@ describe("EpisodicStore", () => {
     for (let i = 0; i < 8; i++) store.add("same state", action(`Button ${i}`));
     expect(store.retrieve("same state")).toHaveLength(5);
     expect(store.retrieve("same state", 3)).toHaveLength(3);
+  });
+
+  it("returns newest pairs across states for a site-filtered recent fallback", () => {
+    const store = new EpisodicStore();
+    store.add("old state", action("Calendar", "link"));
+    store.add("new state", action("Pick slot"));
+    expect(store.recent(2).map((pair) => pair.action.label)).toEqual(["Pick slot", "Calendar"]);
   });
 
   it("evicts the least recently used pair beyond the cap (300 by default)", () => {
@@ -124,5 +131,56 @@ describe("predictFromMemory", () => {
     expect(store.predict("s1", candidates)).toEqual({ candidateId: "link:Calendar", confidence: 0.5 });
     store.add("s1", action("Send"));
     expect(store.predict("s1", candidates)).toEqual({ candidateId: "button:Send", confidence: 0.9 });
+  });
+});
+
+describe("predictFromRecentSiteMemory", () => {
+  it("uses the newest compatible action across states and strengthens a repeated habit", () => {
+    const recent = [
+      { summary: "new", action: action("Calendar", "link"), count: 1 },
+      { summary: "older", action: action("Calendar", "link"), count: 1 },
+      { summary: "oldest", action: action("Pick slot"), count: 9 },
+    ];
+    expect(predictFromRecentSiteMemory(candidates, recent)).toEqual({ candidateId: "link:Calendar", confidence: 0.8 });
+    expect(predictFromRecentSiteMemory(candidates, recent.slice(0, 1))).toEqual({ candidateId: "link:Calendar", confidence: 0.65 });
+    expect(predictFromRecentSiteMemory(candidates, [{ summary: "x", action: action("Gone"), count: 3 }])).toEqual({ candidateId: "none", confidence: 0 });
+  });
+
+  it("generalizes a recent action to a changing item in the same repeated result group", () => {
+    const feed: NextCandidate[] = [
+      { id: "new-video", kind: "link", label: "A title never seen before", locked: false, group: "LIST(video-feed)" },
+      { id: "settings", kind: "button", label: "Settings", locked: false },
+    ];
+    const recent = [{ summary: "watch", action: { ...action("Old video", "link"), signature: "gone", targetShape: "LIST(video-feed)" }, count: 1 }];
+    expect(predictFromRecentSiteMemory(feed, recent)).toEqual({ candidateId: "new-video", confidence: 0.65 });
+  });
+});
+
+describe("rankNextCandidates", () => {
+  const cold: NextCandidate[] = [
+    { id: "logo", kind: "link", label: "Store home", locked: false },
+    { id: "search", kind: "field", label: "Search products", locked: false },
+    { id: "order", kind: "button", label: "Place your order", locked: true },
+    { id: "carousel", kind: "link", label: "Carousel next slide", locked: false },
+  ];
+
+  it("chooses meaningful task controls on cold start and keeps a locked final action eligible", () => {
+    expect(rankNextCandidates(cold).map((candidate) => candidate.id)).toEqual(["search", "order", "carousel", "logo"]);
+  });
+
+  it("moves from a search action into a changing result group and from play into viewing mode", () => {
+    const results: NextCandidate[] = [
+      { id: "search", kind: "field", label: "Search", locked: false },
+      { id: "next-page", kind: "link", label: "Next page", locked: false, group: "LIST(pagination)" },
+      { id: "filter", kind: "link", label: "Apply the filter Brand to narrow results", locked: false, group: "LIST(filters)" },
+      { id: "promotion", kind: "link", label: "Buy More, Save More", locked: false, group: "LIST(filters)" },
+      { id: "result", kind: "link", label: "Unseen result", locked: false, group: "LIST(results)" },
+    ];
+    expect(rankNextCandidates(results, { type: "input", label: "Search", signature: "search" })[0]?.id).toBe("result");
+    const media: NextCandidate[] = [
+      { id: "play", kind: "button", label: "Play", locked: false },
+      { id: "full", kind: "button", label: "Full screen", locked: false },
+    ];
+    expect(rankNextCandidates(media, { type: "click", label: "Play", signature: "play" })[0]?.id).toBe("full");
   });
 });

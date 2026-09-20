@@ -1,5 +1,5 @@
 import { NONE, type DecisionProvider } from "@ghost/shared";
-import { buildNextDecision, pickNextFromMemory, readNextAnswer, withoutSensitive, type NextPredictRequest } from "./nextQuestions";
+import { buildNextDecision, pickBestEffort, readNextAnswer, withoutSensitive, type NextPredictRequest } from "./nextQuestions";
 import { DECISION_TIMEOUT_MS, withDeadline } from "./timeout";
 
 const HEURISTIC = "heuristic";
@@ -21,7 +21,7 @@ export interface NextPredictorOptions {
 
 type Outcome = Omit<NextPrediction, "latencyMs">;
 
-/** Predicts the next element the user will act on: ONE choice question over the candidates plus none. */
+/** Predicts the next element the user will act on: ONE choice question over the safe candidates. */
 export function createNextPredictor(options: NextPredictorOptions): (req: NextPredictRequest) => Promise<NextPrediction> {
   const { provider, timeoutMs = DECISION_TIMEOUT_MS, onModelCall } = options;
 
@@ -33,18 +33,19 @@ export function createNextPredictor(options: NextPredictorOptions): (req: NextPr
     try {
       const result = await withDeadline(timeoutMs, () => provider.decide(state, questions));
       const pick = readNextAnswer(result.answers, aliases);
-      if (!pick) throw new Error("unusable answer");
+      // A candidate exists here, so "none" is also unusable. The loop must always make a best guess.
+      if (!pick || pick.candidateId === NONE) throw new Error("unusable answer");
       report(true);
       return { ...pick, provider: result.provider, calibrated: result.calibrated };
     } catch {
       report(false);
-      return { ...pickNextFromMemory(req), provider: HEURISTIC, calibrated: false, fallbackFrom: provider.name };
+      return { ...pickBestEffort(req), provider: HEURISTIC, calibrated: false, fallbackFrom: provider.name };
     }
   }
 
   async function compute(req: NextPredictRequest): Promise<Outcome> {
     if (req.candidates.length === 0) return { candidateId: NONE, confidence: 0.99, provider: HEURISTIC, calibrated: false };
-    if (provider.name === HEURISTIC) return { ...pickNextFromMemory(req), provider: HEURISTIC, calibrated: false };
+    if (provider.name === HEURISTIC) return { ...pickBestEffort(req), provider: HEURISTIC, calibrated: false };
     return askModel(req);
   }
 

@@ -131,6 +131,28 @@ describe("createPresence", () => {
     expect(beats(fetchMock, "chrome")).toBe(2);
   });
 
+  it("queues one refresh when settings change during the startup beat", async () => {
+    let releaseFirst!: () => void;
+    let first = true;
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      if (first) {
+        first = false;
+        await new Promise<void>((resolve) => { releaseFirst = resolve; });
+      }
+      return new Response(JSON.stringify({ ok: true }));
+    });
+    presence = createPresence(deps(fetchMock, { browser: "brave" }));
+
+    const startup = presence.beat();
+    await flush();
+    const settingsRefresh = presence.beat();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    releaseFirst();
+    await expect(startup).resolves.toBe(true);
+    await expect(settingsRefresh).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("omits the version when there is none", async () => {
     const fetchMock = okFetch();
     await createPresence(deps(fetchMock, { version: undefined, browser: "brave" })).beat();

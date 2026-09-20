@@ -109,7 +109,7 @@ export interface LoopStepOutcome {
 
 /** Reply to "ghost:next-candidates". */
 export type NextPredictionReply =
-  | { ok: true; candidateId: string; confidence: number; provider: string; calibrated: boolean; latencyMs: number | null }
+  | { ok: true; candidateId: string; confidence: number; provider: string; calibrated: boolean; latencyMs: number | null; /** Local-only remembered search text; never sent to the model/server. */ value?: string }
   | { ok: false; error: string };
 
 export type LoopMessage =
@@ -291,6 +291,8 @@ function cleanCandidate(raw: unknown): NextCandidate | null {
   const candidate: NextCandidate = { id, kind: raw.kind as NextCandidate["kind"], label, locked: raw.locked === true };
   const context = clip(raw.context, TRACE_LIMITS.context);
   if (context && !isSensitive({ label: context })) candidate.context = context;
+  const group = identifier(raw.group, TRACE_LIMITS.signature);
+  if (group && !isSensitive({ label: group })) candidate.group = group;
   return candidate;
 }
 

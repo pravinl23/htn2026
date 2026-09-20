@@ -74,7 +74,7 @@ export interface PresenceDeps {
 }
 
 export interface Presence {
-  /** POSTs now while Ghost is enabled. Resolves true when the server took it; never rejects. */
+  /** POSTs now while Ghost is enabled. A call during an in-flight beat queues one refresh; never rejects. */
   beat(): Promise<boolean>;
   /** The worker woke up (a message, a settings change): beats unless the last beat is younger than 25 s. */
   wake(): Promise<boolean>;
@@ -89,6 +89,7 @@ export function createPresence(deps: PresenceDeps): Presence {
   const bodies = presenceNames(deps.browser).map((browser) => JSON.stringify(deps.version ? { client: "extension", browser, version: deps.version } : { client: "extension", browser }));
   let lastBeat = Number.NEGATIVE_INFINITY;
   let inFlight: Promise<boolean> | null = null;
+  let refreshQueued = false;
   let timer: ReturnType<typeof setInterval> | null = null;
 
   async function post(base: string, body: string, signal: AbortSignal): Promise<boolean> {
@@ -123,12 +124,28 @@ export function createPresence(deps: PresenceDeps): Presence {
     }
   }
 
+  function launch(): Promise<boolean> {
+    const request = send();
+    inFlight = request;
+    void request.finally(() => {
+      if (inFlight === request) inFlight = null;
+      if (refreshQueued) {
+        refreshQueued = false;
+        launch();
+      }
+    });
+    return request;
+  }
+
   const presence: Presence = {
-    beat() {
-      inFlight ??= send().finally(() => {
-        inFlight = null;
-      });
-      return inFlight;
+    async beat() {
+      if (!inFlight) return launch();
+      // Settings can change while the startup beat is still resolving its old server URL. Coalescing that change
+      // into the old request leaves the newly configured server unaware for 30 seconds, so preserve one refresh.
+      refreshQueued = true;
+      const active = inFlight;
+      await active;
+      return (inFlight as Promise<boolean> | null) ?? false;
     },
     wake() {
       return now() - lastBeat < PRESENCE_MIN_GAP_MS ? Promise.resolve(false) : presence.beat();

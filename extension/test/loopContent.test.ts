@@ -2,7 +2,7 @@
 // driver and executor, the real background runner and state machine, against jsdom copies of the demo pages.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LoopMessage, LoopProposal } from "../src/lib/loopMessages";
-import { createEpisodicMemory } from "../src/background/episodic";
+import { createLocalFastLaneMemory } from "../src/background/fastLaneMemory";
 import { createMemoryKv } from "../src/background/kvStorage";
 import { createLoopBackground } from "../src/background/loopBackground";
 import type { LoopBackground } from "../src/background/loopBackground";
@@ -58,7 +58,7 @@ function world(): World {
   const trace = createTraceStore({ storage });
   const watcher = createLoopWatcher({ trace, emit, storage });
   const router = createTraceRouter({
-    services: { trace, memory: createEpisodicMemory({ storage }), loopState, watcher }, extensionId: EXTENSION, isEnabled: async () => true,
+    services: { trace, memory: createLocalFastLaneMemory({ graphStorage: storage, valueStorage: storage }), loopState, watcher }, extensionId: EXTENSION, isEnabled: async () => true,
   });
   let runs = 0;
   const runner = createLoopRunner({ loopState, storage, emit, newRunId: () => `run-${++runs}` });

@@ -35,6 +35,11 @@ interface MemoryLite {
   pairs?: Array<{ count: number; action: { type: string; label: string } }>;
 }
 
+interface QueryMemoryLite {
+  origin: string;
+  value: string;
+}
+
 function collectComplaints(page: Page): string[] {
   const complaints: string[] = [];
   page.on("pageerror", (error) => complaints.push(error.message));
@@ -134,7 +139,9 @@ test.describe("stage 5: the next action, beyond forms", () => {
     await freshInbox(page);
 
     const first = await openFirstEmail(page, worker);
-    expect(first.answer?.candidateId).toBe("none"); // never seen before: nothing to propose, and no memory to overrule it
+    // Cold start still makes a safe best-effort choice. The locked Send is off-screen, so it is not drawn and Tab
+    // remains native until the user teaches the better Open calendar action below.
+    expect(first.answer?.candidateId).toBe("button|button|||send reply|0");
     expect(first.body.candidates.map((c) => c.label)).toContain("Open calendar");
     // Only this site's actions, as path patterns: the message id never leaves the browser.
     expect(JSON.stringify(first.body)).not.toContain("msg-1001");
@@ -232,5 +239,35 @@ test.describe("stage 5: the next action, beyond forms", () => {
     await expect(page.getByRole("alert")).toHaveCount(0);
     await expect(page).toHaveURL(EMAIL);
     await expectNothingSent(page);
+  });
+
+  test("a corrected search becomes the next local suggestion and then advances to the next control", async ({ page, worker }) => {
+    await page.goto("/mail");
+    await page.evaluate(() => {
+      document.querySelectorAll("body > :not([data-ghost-ui])").forEach((el) => el.remove());
+      document.body.insertAdjacentHTML("afterbegin", '<input type="search" aria-label="Search videos">');
+    });
+    const first = page.getByRole("searchbox", { name: "Search videos" });
+    await first.fill("lofi coding mix");
+    await first.evaluate((el) => (el as HTMLInputElement).blur());
+    await expect.poll(async () => {
+      const entries = await readStorage<QueryMemoryLite[]>(worker, "ghost.query-memory");
+      return entries?.at(-1)?.value;
+    }, { message: "the user's search is persisted locally" }).toBe("lofi coding mix");
+
+    await page.goto("/calendar");
+    await page.evaluate(() => {
+      document.querySelectorAll("body > :not([data-ghost-ui])").forEach((el) => el.remove());
+      document.body.insertAdjacentHTML("afterbegin", '<input type="search" aria-label="Search videos">');
+    });
+    const remembered = page.getByRole("searchbox", { name: "Search videos" });
+    await expectCursorOn(page, remembered);
+    await page.keyboard.press("Tab");
+    await expect(remembered).toHaveValue("lofi coding mix");
+
+    // The filled field is no longer a candidate. A later control is picked up and Ghost continues instead of
+    // returning to the search box forever.
+    await page.evaluate(() => document.body.insertAdjacentHTML("afterbegin", '<button type="button">Search</button>'));
+    await expectCursorOn(page, page.getByRole("button", { name: "Search", exact: true }));
   });
 });

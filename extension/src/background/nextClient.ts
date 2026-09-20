@@ -1,20 +1,20 @@
 // Next-action prediction in the worker (docs/loops.md section 2): answers "ghost:next-candidates". Episodic memory
 // answers first with zero network; with a server configured, POST /v1/predict/next gets the tab's last 20 actions
-// (what was acted on, never a value), the candidates and the top 5 memories. A confident memory wins when the
-// server is down or slower than 800 ms.
+// (what was acted on, never a value), the candidates and the top 5 memories in the background. A calibrated model
+// answer warms a bounded cache for the next rescan; a remote call never blocks the visible Fast Lane suggestion.
 //
 // Recording is NOT done here: traceRouter.record already feeds every user action (clicks included) to
 // memory.observe, with the events before it as the state. Recording again would count one demonstration twice.
 //
 // One site never learns about another. Only this origin's actions go out, as origin + path PATTERN (an account
-// number in a path stays home). Memory pairs carry no origin, so a pair only counts when this origin's own trace
-// shows the user doing exactly that action in exactly that state (same summary, as the router computed it).
-import { EPISODIC_TOP_K, NONE, actionFromEvent, actionKey, filterNoise, isSensitive, normalizeUrl, predictFromMemory, stateSummary } from "@ghost/shared";
-import type { EpisodicPair, MemoryPrediction, NextCandidate, NormalizedUrl, TraceEvent } from "@ghost/shared";
+// number in a path stays home). Memory pairs carry no origin, so exact and recent-site recall only count when this
+// origin's own trace proves that the user performed that action in that recorded state.
+import { EPISODIC_MAX_PAIRS, EPISODIC_TOP_K, NONE, actionFromEvent, actionKey, filterNoise, isSensitive, normalizeUrl, predictFromMemory, predictFromRecentSiteMemory, rankNextCandidates, stateSummary } from "@ghost/shared";
+import type { EpisodicPair, FieldKind, MemoryPrediction, NextCandidate, NormalizedUrl, TraceEvent } from "@ghost/shared";
 import { isLoopMessage, sanitizeNextCandidates } from "../lib/loopMessages";
 import type { LoopMessageOf, NextPredictionReply } from "../lib/loopMessages";
 import { getSettings } from "../lib/storage";
-import type { EpisodicMemory } from "./episodic";
+import type { FastLaneMemory } from "./fastLaneMemory";
 import { serverBaseUrl } from "./serverClient";
 import type { FetchLike } from "./serverClient";
 import type { LoopSender } from "./traceRouter";
@@ -23,10 +23,11 @@ import type { TraceStore } from "./traceStore";
 
 export const NEXT_RECENT_ACTIONS = 20;
 export const NEXT_MEMORY = EPISODIC_TOP_K;
-/** How long a confident memory waits for the server before it answers on its own. */
-export const MEMORY_RACE_MS = 800;
 export const NEXT_TIMEOUT_MS = 2500;
 export const MEMORY_PROVIDER = "memory";
+export const BEST_EFFORT_CONFIDENCE = 0.25;
+export const SERVER_PICK_TTL_MS = 5 * 60_000;
+const SERVER_PICK_MAX = 100;
 /** The router's own window for "the state before an action" (traceRouter SUMMARY_WINDOW). */
 const ROUTER_WINDOW = 12;
 /** Exact matches with different actions all have to be tallied, not just the top 5. */
@@ -62,15 +63,13 @@ export interface NextRequestBody {
 
 export interface NextClientDeps {
   trace: Pick<TraceStore, "recent">;
-  memory: Pick<EpisodicMemory, "retrieve">;
+  memory: Pick<FastLaneMemory, "retrieve" | "recent" | "suggestInput" | "noteSuggestion">;
   extensionId: string;
   fetch?: FetchLike;
   getServerUrl?: () => Promise<string | null>;
-  getThreshold?: () => Promise<number>;
   isEnabled?: () => Promise<boolean>;
   now?: () => number;
   timeoutMs?: number;
-  raceMs?: number;
 }
 
 export interface NextClient {
@@ -216,19 +215,26 @@ function senderOrigin(sender: LoopSender): string | null {
   }
 }
 
-/** Resolves with the promise's value, or undefined once `ms` passed. The timer never outlives the race. */
-function within<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<undefined>((resolve) => {
-    timer = setTimeout(() => resolve(undefined), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+function candidateKind(kind: FieldKind): NextCandidate["kind"] {
+  if (kind === "button" || kind === "link") return kind;
+  return "field";
 }
 
 export function createNextClient(deps: NextClientDeps): NextClient {
   const now = deps.now ?? Date.now;
   const isEnabled = deps.isEnabled ?? (async () => (await getSettings()).enabled);
-  const getThreshold = deps.getThreshold ?? (async () => (await getSettings()).confidenceThreshold);
+  const serverPicks = new Map<string, { pick: ServerPick; expiresAt: number }>();
+
+  function serverKey(place: NormalizedUrl, summary: string, candidates: readonly NextCandidate[]): string {
+    return `${place.origin}${place.pathPattern}\n${summary}\n${candidates.map((candidate) => candidate.id).join("\n")}`;
+  }
+
+  function cacheServerPick(key: string, pick: ServerPick): void {
+    if (!pick.calibrated || pick.candidateId === NONE) return;
+    serverPicks.delete(key);
+    serverPicks.set(key, { pick, expiresAt: now() + SERVER_PICK_TTL_MS });
+    while (serverPicks.size > SERVER_PICK_MAX) serverPicks.delete(serverPicks.keys().next().value as string);
+  }
 
   /**
    * Tab summary first; the router summarizes the last actions of every tab, so that is the second key tried. Either
@@ -246,7 +252,31 @@ export function createNextClient(deps: NextClientDeps): NextClient {
     if (pick.candidateId === NONE && routerSummary !== summary && summaryIsFrom(routerSummary, routerEvents, place.origin)) {
       pick = predictFromMemory(routerSummary, candidates, await recall(routerSummary));
     }
-    return { summary, recalled, pick };
+    // Large SPAs rarely recreate the exact last-three-action state. Fall back to what this user did most recently
+    // on this origin when that target is available now; evidence prevents another website's memory from entering.
+    const recentHere = evidence.size === 0 ? [] : learnedHere(await deps.memory.recent(EPISODIC_MAX_PAIRS), evidence);
+    if (pick.candidateId === NONE) {
+      const recentPick = predictFromRecentSiteMemory(candidates, recentHere);
+      const clean = filterNoise(tabEvents);
+      let lastTargetIndex = -1;
+      for (let i = clean.length - 1; i >= 0; i--) {
+        if (clean[i]?.target) {
+          lastTargetIndex = i;
+          break;
+        }
+      }
+      const lastTarget = lastTargetIndex >= 0 ? clean[lastTargetIndex]?.target : undefined;
+      const repeated = candidates.find((candidate) => candidate.id === recentPick.candidateId);
+      // A navigation commonly follows an input/click. Do not turn that just-observed action into an immediate
+      // site-level loop (search -> search); contextual ranking can advance into results instead.
+      const repeatsLast = repeated !== undefined && lastTarget !== undefined
+        && (repeated.id === lastTarget.signature || (repeated.kind === candidateKind(lastTarget.kind) && repeated.label.trim().toLowerCase() === lastTarget.label.trim().toLowerCase()));
+      const afterTarget = clean.slice(lastTargetIndex + 1);
+      const immediateTransition = afterTarget.length <= 1 && afterTarget.every((event) => event.type === "navigate");
+      if (!repeatsLast || !immediateTransition) pick = recentPick;
+    }
+    const forServer = [...recalled, ...recentHere.filter((pair) => !recalled.some((exact) => exact.summary === pair.summary && actionKey(exact.action) === actionKey(pair.action)))];
+    return { summary, recalled: forServer, pick };
   }
 
   async function askServer(base: string, body: NextRequestBody, ids: ReadonlySet<string>): Promise<ServerPick | null> {
@@ -282,21 +312,48 @@ export function createNextClient(deps: NextClientDeps): NextClient {
     const allEvents = await deps.trace.recent(TRACE_MAX_EVENTS);
     const tabEvents = allEvents.filter((event) => event.tabId === tabId);
     const local = await fromMemory(tabEvents, allEvents, place, candidates);
-    const answer = (pick: MemoryPrediction | ServerPick, provider: string, calibrated: boolean): NextPredictionReply =>
-      ({ ok: true, candidateId: pick.candidateId, confidence: pick.confidence, provider, calibrated, latencyMs: now() - started });
-    const memoryAnswer = (): NextPredictionReply => answer(local.pick, MEMORY_PROVIDER, false);
+    const answer = async (pick: MemoryPrediction | ServerPick, provider: string, calibrated: boolean): Promise<NextPredictionReply> => {
+      const reply: Extract<NextPredictionReply, { ok: true }> =
+        { ok: true, candidateId: pick.candidateId, confidence: pick.confidence, provider, calibrated, latencyMs: now() - started };
+      const candidate = candidates.find((item) => item.id === pick.candidateId);
+      const value = candidate ? await deps.memory.suggestInput(place.origin, candidate).catch(() => null) : null;
+      if (value) reply.value = value;
+      if (candidate) await deps.memory.noteSuggestion({
+        tabId, origin: place.origin, pathPattern: place.pathPattern, state: local.summary,
+        candidate, confidence: pick.confidence, provider,
+      }).catch(() => undefined);
+      return reply;
+    };
+    const bestEffort = (): MemoryPrediction => {
+      if (local.pick.candidateId !== NONE) return local.pick;
+      const last = [...filterNoise(tabEvents)].reverse().find((event) => event.target)?.target;
+      const candidate = rankNextCandidates(candidates, last)[0];
+      return candidate
+        ? { candidateId: candidate.id, confidence: BEST_EFFORT_CONFIDENCE }
+        : local.pick;
+    };
+    const immediate = bestEffort();
+    const key = serverKey(place, local.summary, candidates);
+    const cached = serverPicks.get(key);
+    if (cached && cached.expiresAt <= now()) serverPicks.delete(key);
+    const usableCache = cached && cached.expiresAt > now()
+      && (local.pick.candidateId === NONE || cached.pick.confidence > local.pick.confidence)
+      ? cached.pick
+      : null;
 
-    const base = await (deps.getServerUrl ?? serverBaseUrl)().catch(() => null);
-    if (!base) return memoryAnswer();
-    const threshold = await getThreshold().catch(() => 0.7);
-    const confident = local.pick.candidateId !== NONE && local.pick.confidence >= threshold;
+    // Fast Lane rule: a remote model never blocks the visible suggestion. A calibrated answer warms a short local
+    // cache and may upgrade the next rescan; local learned behavior always wins when it is at least as confident.
     const body = buildNextRequest(place, tabEvents, candidates, local.summary, local.recalled);
-    const server = askServer(base, body, new Set(candidates.map((c) => c.id)));
-    const picked = confident ? await within(server, deps.raceMs ?? MEMORY_RACE_MS) : await server;
-    if (!picked) return memoryAnswer(); // down, refused, or slower than a memory that already knows
-    // An uncalibrated "none" (the server's heuristic) does not overrule a memory that saw this exact state before.
-    if (confident && picked.candidateId === NONE && !picked.calibrated) return memoryAnswer();
-    return answer(picked, picked.provider, picked.calibrated);
+    void (async () => {
+      const base = await (deps.getServerUrl ?? serverBaseUrl)().catch(() => null);
+      if (!base) return;
+      const pick = await askServer(base, body, new Set(candidates.map((c) => c.id)));
+      if (pick) cacheServerPick(key, pick);
+    })();
+
+    return usableCache
+      ? answer(usableCache, usableCache.provider, usableCache.calibrated)
+      : answer(immediate, MEMORY_PROVIDER, false);
   }
 
   return {
@@ -308,7 +365,7 @@ export function createNextClient(deps: NextClientDeps): NextClient {
 }
 
 /** Production wiring, called synchronously at worker start with the trace router's own store and memory. */
-export function registerNextClient(services: { trace: TraceStore; memory: EpisodicMemory }): NextClient {
+export function registerNextClient(services: { trace: TraceStore; memory: FastLaneMemory }): NextClient {
   const client = createNextClient({ trace: services.trace, memory: services.memory, extensionId: chrome.runtime.id });
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
     const reply = client.handle(message, sender);

@@ -1,8 +1,8 @@
 // Next-action ghosts beyond forms (docs/loops.md section 2, PLAN.md Stage 5). After a user action settles and the
-// form walk has nothing to offer, the visible buttons, links and fields near the viewport go to the worker as
-// candidates ("ghost:next-candidates"). A confident answer becomes a click ghost: the ghost cursor glides onto the
+// form walk has nothing to offer, the visible controls near the viewport go to the worker as candidates
+// ("ghost:next-candidates"). The best answer becomes a click ghost: the ghost cursor glides onto the
 // element, Tab clicks it (a locked one is only focused), Escape dismisses it, and any other user action takes it away.
-import { NONE, isSensitive, normalizeUrl } from "@ghost/shared";
+import { NONE, isSensitive, nextCandidatePriority, normalizeUrl } from "@ghost/shared";
 import type { FieldKind, Ghost, GhostSettings, NextCandidate, Rect } from "@ghost/shared";
 import { TRACE_LIMITS } from "../lib/loopMessages";
 import type { LoopMessageOf, NextPredictionReply } from "../lib/loopMessages";
@@ -12,10 +12,13 @@ import type { ExecResult } from "./execute";
 import { extensionAlive, watchForOrphan } from "./lifecycle";
 import { CURSOR_PATH, CURSOR_TIP, OVERLAY_CSS } from "./overlay-style";
 import { looksSensitiveValue } from "./pageFacts";
+import { listRefOf } from "./listContext";
 import { pageOwnsTab } from "./tabSurface";
 import { hasLayout, isCovered, isRendered, placement } from "./visibility";
 
 export const NEXT_SETTLE_MS = 300;
+/** A continuously mutating SPA still gets a prediction instead of postponing forever. */
+export const NEXT_SETTLE_CEILING_MS = 1200;
 export const NEXT_MAX_CANDIDATES = TRACE_LIMITS.candidates;
 /** Same string as background/presence.ts PRESENCE_PING (kept apart so the content bundle never pulls in worker code). */
 export const PRESENCE_PING = "ghost:presence";
@@ -81,7 +84,7 @@ function offscreenBy(rect: Rect, width: number, height: number): number {
 }
 
 /**
- * Visible, enabled, non-sensitive buttons, links and fields in or near the viewport, closest first when there are
+ * Visible, enabled, non-sensitive controls in or near the viewport, closest first when there are
  * more than `max`, handed out in DOM order. Ids are capture signatures: the same ones the trace recorder reports,
  * so a remembered action finds its element again. Nothing inside Ghost's own UI, never a value.
  */
@@ -90,21 +93,40 @@ export function collectCandidates(doc: Document = document, max: number = NEXT_M
   const width = view?.innerWidth ?? 0;
   const height = view?.innerHeight ?? 0;
   const measured = hasLayout(doc);
-  const pool: Array<{ order: number; distance: number; candidate: NextCandidate; el: HTMLElement }> = [];
+  const pool: Array<{ order: number; distance: number; priority: number; candidate: NextCandidate; el: HTMLElement }> = [];
   captureFields(doc).forEach((field, order) => {
     const kind = candidateKind(field.kind);
     const label = field.label.trim().slice(0, TRACE_LIMITS.label);
     if (!kind || !label || sensitiveText(label) || looksSensitiveValue(field.signature) || field.signature.length > TRACE_LIMITS.signature) return;
     const el = findElement(field.signature);
     if (!el || el.closest(GHOST_UI)) return;
+    // A non-empty text field is an action that already happened. Leaving it in the pool makes Ghost keep
+    // returning to the same search box instead of advancing to its button, suggestions or results.
+    if (["text", "textarea"].includes(field.kind) && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.value.trim() !== "") return;
     const distance = measured ? offscreenBy(field.rect, width, height) : 0;
     if (distance > height * NEAR_VIEWPORT) return;
     const candidate: NextCandidate = { id: field.signature, kind, label, locked: field.locked === true || submitsForm(el) };
     const context = field.context?.trim().slice(0, TRACE_LIMITS.context);
     if (context && !sensitiveText(context)) candidate.context = context;
-    pool.push({ order, distance, candidate, el });
+    const list = listRefOf(el);
+    if (list && !sensitiveText(list.listSignature)) candidate.group = `LIST(${list.listSignature})`;
+    let priority = nextCandidatePriority(candidate);
+    // A category selector and its adjacent query input can both be labelled "Search". Prefer the control the user
+    // can actually type a query into without baking in any site's markup.
+    if (["text", "textarea"].includes(field.kind)) priority += 12;
+    if (kind === "link" && (el.querySelector('h1, h2, h3, h4, h5, h6, [role="heading"]') || el.closest('h1, h2, h3, h4, h5, h6, [role="heading"]'))) priority += 30;
+    if (el.closest('dialog, [role="dialog"], [aria-modal="true"]')) priority += 55;
+    if (el.closest('main, [role="main"], article')) priority += 22;
+    if (el.closest("form")) priority += 18;
+    if (el.closest('header, nav, footer, [role="navigation"]')) priority -= 45;
+    if (el.hasAttribute("aria-current")) priority -= 50;
+    if (/\b(primary|cta)\b/i.test(`${el.className} ${el.getAttribute("data-variant") ?? ""}`)) priority += 28;
+    pool.push({ order, distance, priority, candidate, el });
   });
-  const kept = pool.sort((a, b) => a.distance - b.distance || a.order - b.order).slice(0, Math.max(0, max)).sort((a, b) => a.order - b.order);
+  // Rank before applying the cap: large pages often put dozens of header/category links before the task control.
+  const kept = pool
+    .sort((a, b) => b.priority - a.priority || a.distance - b.distance || a.order - b.order)
+    .slice(0, Math.max(0, max));
   return { candidates: kept.map((k) => k.candidate), elements: new Map(kept.map((k) => [k.candidate.id, k.el])) };
 }
 
@@ -116,6 +138,8 @@ export interface NextGhost {
   confidence: number;
   provider: string;
   locked: boolean;
+  /** Same-origin search text remembered locally by the worker. */
+  value?: string;
   /** Tab already focused this locked target: from now on only Enter or a click (the user's own) acts on it. */
   parked: boolean;
   /** Where the cursor glides in from (the user's last click). Used once, on the first paint. */
@@ -181,7 +205,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 export function parseNextReply(raw: unknown): Extract<NextPredictionReply, { ok: true }> | null {
   if (!isObject(raw) || raw.ok !== true || typeof raw.candidateId !== "string") return null;
   if (typeof raw.confidence !== "number" || !Number.isFinite(raw.confidence)) return null;
-  return {
+  const reply: Extract<NextPredictionReply, { ok: true }> = {
     ok: true,
     candidateId: raw.candidateId,
     confidence: raw.confidence,
@@ -189,6 +213,8 @@ export function parseNextReply(raw: unknown): Extract<NextPredictionReply, { ok:
     calibrated: raw.calibrated === true,
     latencyMs: typeof raw.latencyMs === "number" ? raw.latencyMs : null,
   };
+  if (typeof raw.value === "string" && raw.value.trim() && raw.value.length <= TRACE_LIMITS.value && !looksSensitiveValue(raw.value)) reply.value = raw.value;
+  return reply;
 }
 
 interface ClosedRootAccess {
@@ -263,6 +289,7 @@ class NextAction implements NextActionHandle {
   private epoch = 0;
   private running = false;
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
+  private settleStartedAt: number | null = null;
   private watchTimer: ReturnType<typeof setInterval> | null = null;
   private urlTimer: ReturnType<typeof setInterval> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -276,6 +303,7 @@ class NextAction implements NextActionHandle {
   /** Escaped on this page: not offered again until the next navigation. */
   private readonly dismissed = new Set<string>();
   private frameQueued = false;
+  private mutations: MutationObserver | null = null;
 
   constructor(private readonly deps: NextActionDeps) {
     this.doc = deps.doc ?? document;
@@ -295,6 +323,7 @@ class NextAction implements NextActionHandle {
     this.running = true;
     this.lastUrl = this.pageKey();
     this.listen(true);
+    this.watchMutations();
     this.urlTimer = setInterval(this.poll, URL_POLL_MS);
     const pingMs = this.deps.presencePingMs ?? PRESENCE_PING_MS;
     if (pingMs > 0) this.pingTimer = setInterval(this.ping, pingMs);
@@ -307,9 +336,12 @@ class NextAction implements NextActionHandle {
     this.running = false;
     this.epoch++;
     this.listen(false);
+    this.mutations?.disconnect();
+    this.mutations = null;
     for (const timer of [this.urlTimer, this.pingTimer]) if (timer) clearInterval(timer);
     if (this.settleTimer) clearTimeout(this.settleTimer);
     this.urlTimer = this.pingTimer = this.settleTimer = null;
+    this.settleStartedAt = null;
     this.stopOrphanWatch();
     this.clear();
     this.view.destroy();
@@ -325,11 +357,39 @@ class NextAction implements NextActionHandle {
 
   private schedule(): void {
     if (!this.running) return;
+    const now = Date.now();
+    this.settleStartedAt ??= now;
     if (this.settleTimer) clearTimeout(this.settleTimer);
+    const wait = Math.min(this.deps.settleMs ?? NEXT_SETTLE_MS, Math.max(0, NEXT_SETTLE_CEILING_MS - (now - this.settleStartedAt)));
     this.settleTimer = setTimeout(() => {
       this.settleTimer = null;
+      this.settleStartedAt = null;
       void this.predict();
-    }, this.deps.settleMs ?? NEXT_SETTLE_MS);
+    }, wait);
+  }
+
+  /** Hydrating SPAs replace controls after document_idle. Re-ask once their DOM settles, bounded by the ceiling. */
+  private watchMutations(): void {
+    const Observer = this.doc.defaultView?.MutationObserver;
+    const root = this.doc.documentElement;
+    if (!Observer || !root) return;
+    this.mutations = new Observer((records) => {
+      const relevant = records.some((record) => {
+        const target = record.target instanceof Element ? record.target : record.target.parentElement;
+        if (target?.closest(GHOST_UI)) return false;
+        if (record.type !== "childList") return true;
+        return [...record.addedNodes, ...record.removedNodes].some((node) => !(node instanceof Element) || !node.matches(GHOST_UI));
+      });
+      if (!relevant) return;
+      if (this.current && !this.current.el.isConnected) this.clear();
+      if (!this.current) this.schedule();
+    });
+    this.mutations.observe(root, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["hidden", "disabled", "aria-disabled", "aria-label", "role", "href", "tabindex"],
+    });
   }
 
   /** The page's own Tab surface, the form walk, the loop sheet and the on/off switch all outrank a next-action ghost. */
@@ -353,14 +413,15 @@ class NextAction implements NextActionHandle {
     const reply = parseNextReply(await this.send(message).catch(() => null));
     // Something happened meanwhile (an action, a native Tab, focus moved by anyone): the answer is about another moment.
     if (asked !== this.epoch || deepActive(this.doc) !== focusAtAsk || !reply || reply.candidateId === NONE) return;
-    if (reply.confidence < this.deps.getSettings().confidenceThreshold || !this.gateOpen()) return;
+    // Confidence describes how exploratory the suggestion is; it no longer suppresses a safe best guess.
+    if (!this.gateOpen()) return;
     const candidate = candidates.find((c) => c.id === reply.candidateId);
     const known = candidate ? elements.get(candidate.id) : undefined;
     const el = candidate ? (known?.isConnected ? known : findElement(candidate.id)) : null;
     if (!candidate || !el || isElementSensitive(el)) return;
     this.current = {
       candidate, el, confidence: reply.confidence, provider: reply.provider,
-      locked: candidate.locked || lockedHere(el), parked: false, from: this.pointer,
+      locked: candidate.locked || lockedHere(el), parked: false, from: this.pointer, ...(reply.value ? { value: reply.value } : {}),
     };
     this.watchTimer ??= setInterval(this.render, WATCH_MS);
     this.render();
@@ -467,8 +528,8 @@ class NextAction implements NextActionHandle {
 
   /**
    * Rule 2: a locked target is never activated by Tab; it gets focus (and keeps its lock badge) so an explicit
-   * Enter or click can confirm. A field is focused, never filled (Jev picks, it does not write). Anything else is
-   * clicked through execute.ts, which re-checks the lock on the live DOM and marks the click as Ghost's own.
+   * Enter or click can confirm. A field with local same-origin history is filled; an unknown field is only
+   * focused. Anything else is clicked through execute.ts, which re-checks the live DOM lock.
    */
   private async accept(ghost: NextGhost): Promise<void> {
     this.epoch++;
@@ -480,7 +541,19 @@ class NextAction implements NextActionHandle {
       return;
     }
     this.clear();
-    if (candidate.kind === "field") return reveal(el);
+    if (candidate.kind === "field") {
+      if (!ghost.value) return reveal(el);
+      const fill: Ghost = { signature: candidate.id, action: "fill", value: ghost.value, displayText: ghost.value, confidence: ghost.confidence, locked: false, source: "cache" };
+      const result = await (this.deps.execute ?? executeGhost)(fill, el).catch(() => ({ ok: false, method: "none" } as ExecResult));
+      if (result.ok) {
+        // executeGhost focuses the input so real browser insertion works. The value is now committed and this
+        // Fast Lane owns the continuation, so release text-entry focus before asking for the following action.
+        if (hasFocus(this.doc, el)) el.blur();
+        this.lastActed = el;
+        this.schedule();
+      }
+      return;
+    }
     const click: Ghost = { signature: candidate.id, action: "click", displayText: candidate.label, confidence: ghost.confidence, locked: false, source: "server" };
     await (this.deps.execute ?? executeGhost)(click, el).catch(() => undefined);
     this.schedule(); // what the click did is the next state to predict from
@@ -639,7 +712,9 @@ class NextView {
     cursor.style.transform = translate(tip.x - CURSOR_TIP.x, tip.y - CURSOR_TIP.y);
     lock.style.transform = translate(tip.x + 14, tip.y + 22);
     key.style.transform = translate(tip.x + 18, tip.y + 20);
-    parts.keyText.textContent = ghost.candidate.kind === "field" ? "to focus" : "to click";
+    parts.keyText.textContent = ghost.candidate.kind === "field"
+      ? ghost.value ? `to fill “${shortValue(ghost.value)}”` : "to focus"
+      : "to click";
     const locked = String(ghost.locked);
     for (const el of [ring, cursor]) {
       setAttr(el, "data-visible", "true");
@@ -775,6 +850,11 @@ function px(n: number): string {
 
 function translate(x: number, y: number): string {
   return `translate(${px(x)},${px(y)})`;
+}
+
+function shortValue(value: string): string {
+  const clean = value.replace(/\s+/g, " ").trim();
+  return clean.length <= 36 ? clean : `${clean.slice(0, 35)}…`;
 }
 
 /** The content entry's one call. Runs in the top frame only; returns a handle whose stop() removes everything. */

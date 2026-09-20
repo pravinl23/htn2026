@@ -162,6 +162,7 @@ function parseCandidate(raw: unknown, path: string): NextCandidate {
     label: text(candidate.label, `${path}.label`, 200),
     locked: candidate.locked,
     context: optionalText(candidate.context, `${path}.context`, 300),
+    group: optionalText(candidate.group, `${path}.group`, 300),
   });
 }
 

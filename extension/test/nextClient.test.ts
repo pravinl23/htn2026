@@ -2,11 +2,11 @@
 // Actions reach memory exactly as in production: through the trace router, which remembers every user action.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextCandidate, TraceTarget } from "@ghost/shared";
-import { createEpisodicMemory } from "../src/background/episodic";
+import { createLocalFastLaneMemory } from "../src/background/fastLaneMemory";
 import { createMemoryKv } from "../src/background/kvStorage";
 import type { LoopStateStore } from "../src/background/loopState";
 import type { LoopWatcher } from "../src/background/loopWatcher";
-import { MEMORY_RACE_MS, createNextClient } from "../src/background/nextClient";
+import { createNextClient } from "../src/background/nextClient";
 import type { NextClient, NextClientDeps } from "../src/background/nextClient";
 import { createTraceRouter } from "../src/background/traceRouter";
 import type { LoopSender, TraceRouter } from "../src/background/traceRouter";
@@ -72,7 +72,7 @@ const goBack = async (tabId = TAB): Promise<void> => {
 
 function makeClient(over: Partial<NextClientDeps> = {}): NextClient {
   const { trace, memory } = router.services;
-  return createNextClient({ trace, memory, extensionId: ID, isEnabled: async () => true, getThreshold: async () => 0.7, getServerUrl: async () => null, ...over });
+  return createNextClient({ trace, memory, extensionId: ID, isEnabled: async () => true, getServerUrl: async () => null, ...over });
 }
 
 function ask(client: NextClient, candidates: unknown = CANDIDATES, from: LoopSender = sender()): Promise<NextPredictionReply> {
@@ -99,11 +99,16 @@ function sentBody(fetchMock: ReturnType<typeof vi.fn<typeof fetch>>): Record<str
   return JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
 }
 
+async function letServerWarm(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
+}
+
 beforeEach(() => {
   clock = 1_800_000_000_000;
   const services = {
     trace: createTraceStore({ storage: createMemoryKv(), now: () => clock + 60_000 }),
-    memory: createEpisodicMemory({ storage: createMemoryKv() }),
+    memory: createLocalFastLaneMemory({ graphStorage: createMemoryKv(), valueStorage: createMemoryKv() }),
     loopState: {} as LoopStateStore,
     watcher: { onEvent: vi.fn(), onFacts: vi.fn(), dismiss: vi.fn(async () => undefined), cancel: vi.fn() } as unknown as LoopWatcher,
   };
@@ -115,13 +120,13 @@ afterEach(() => {
 });
 
 describe("episodic memory answers first, with zero network", () => {
-  it("proposes Open calendar after it was done once in the same state (0.75), and more firmly after twice (0.9)", async () => {
+  it("learns the action the user actually chose instead of its unseen-state guess", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = makeClient({ fetch: fetchMock });
 
     await openInbox();
     await openEmail();
-    expect(await ask(client)).toMatchObject({ ok: true, candidateId: "none" }); // never seen: nothing to propose
+    expect(await ask(client)).toMatchObject({ ok: true, candidateId: SEND, confidence: 0.25 }); // unseen: semantic best guess, still locked
 
     await clickOpenCalendar();
     await goBack();
@@ -135,14 +140,34 @@ describe("episodic memory answers first, with zero network", () => {
     expect(fetchMock).not.toHaveBeenCalled(); // no server configured: memory only
   });
 
-  it("does not propose from a different state (the calendar was opened from the inbox, not from the email)", async () => {
+  it("falls back to the most recent compatible action on this site when the exact state is new", async () => {
     const client = makeClient();
     await openInbox();
     await openEmail();
     await clickOpenCalendar();
     await record("navigate", "/mail");
     await record("navigate", "/mail/msg-1002"); // a different route into the email: another state
-    expect(await ask(client)).toMatchObject({ ok: true, candidateId: "none" });
+    expect(await ask(client)).toMatchObject({ ok: true, candidateId: OPEN_CALENDAR, confidence: 0.65, provider: "memory" });
+  });
+
+  it("advances from a just-used search field into results after navigation instead of repeating search", async () => {
+    const client = makeClient();
+    await record("input", "/", target("search-field", "Search catalog", "text"), "wireless keyboard");
+    await record("navigate", "/s");
+    const resultCandidates: NextCandidate[] = [
+      { id: "search-field", kind: "field", label: "Search catalog", locked: false },
+      { id: "new-result", kind: "link", label: "A product not seen before", locked: false, group: "LIST(result-grid)" },
+    ];
+    expect(await askOn(client, ORIGIN, "/s", resultCandidates, TAB)).toMatchObject({
+      ok: true, candidateId: "new-result", confidence: 0.25, provider: "memory",
+    });
+  });
+
+  it("attaches a same-origin remembered search value locally without sending it to the server", async () => {
+    const searchCandidates: NextCandidate[] = [{ id: "search-field", kind: "field", label: "Search videos", locked: false }];
+    await record("input", "/", target("search-field", "Search videos", "text"), "lofi coding mix");
+    const reply = await askOn(makeClient(), ORIGIN, "/", searchCandidates, TAB);
+    expect(reply).toMatchObject({ ok: true, candidateId: "search-field", value: "lofi coding mix" });
   });
 
   it("keeps the state per tab: another tab's actions in between do not hide the memory", async () => {
@@ -181,11 +206,14 @@ describe("POST /v1/predict/next", () => {
     await openEmail();
   }
 
-  it("sends the tab's last 20 actions WITHOUT values, the candidates and at most 5 memories, as JSON", async () => {
+  it("answers from local memory immediately while warming a value-free server upgrade", async () => {
     await memorised();
     const fetchMock = serverReply({ candidateId: OPEN_CALENDAR, confidence: 0.93, provider: "typesafe", calibrated: true, latencyMs: 120 });
-    const reply = await ask(makeClient({ fetch: fetchMock, getServerUrl: async () => BASE }));
-    expect(reply).toMatchObject({ ok: true, candidateId: OPEN_CALENDAR, confidence: 0.93, provider: "typesafe", calibrated: true });
+    const client = makeClient({ fetch: fetchMock, getServerUrl: async () => BASE });
+    const reply = await ask(client);
+    expect(reply).toMatchObject({ ok: true, candidateId: OPEN_CALENDAR, confidence: 0.75, provider: "memory", calibrated: false });
+    await letServerWarm();
+    expect(await ask(client)).toMatchObject({ ok: true, candidateId: OPEN_CALENDAR, confidence: 0.93, provider: "typesafe", calibrated: true });
 
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(url).toBe(`${BASE}/v1/predict/next`);
@@ -224,12 +252,11 @@ describe("POST /v1/predict/next", () => {
     expect(JSON.stringify(sentBody(fetchMock))).not.toContain("assword");
   });
 
-  it("a confident memory wins when the server is slower than 800 ms", async () => {
+  it("a confident memory is immediate even while the server is slow", async () => {
     await memorised();
     vi.useFakeTimers();
     const fetchMock = serverReply({ candidateId: BACK, confidence: 0.99, provider: "typesafe", calibrated: true, latencyMs: 2000 }, 2000);
     const pending = ask(makeClient({ fetch: fetchMock, getServerUrl: async () => BASE }));
-    await vi.advanceTimersByTimeAsync(MEMORY_RACE_MS + 1);
     await expect(pending).resolves.toMatchObject({ ok: true, candidateId: OPEN_CALENDAR, confidence: 0.75, provider: "memory" });
     await vi.advanceTimersByTimeAsync(3000); // the late answer lands and is ignored
   });
@@ -250,11 +277,22 @@ describe("POST /v1/predict/next", () => {
     expect(await ask(makeClient({ fetch: fetchMock, getServerUrl: async () => BASE }))).toMatchObject({ candidateId: OPEN_CALENDAR, provider: "memory" });
   });
 
-  it("without a confident memory, the server's answer is the answer (Jev's calibrated confidence)", async () => {
+  it("a fast uncalibrated cold-start choice does not overrule a different action the user taught", async () => {
+    await memorised();
+    const fetchMock = serverReply({ candidateId: BACK, confidence: 0.25, provider: "heuristic", calibrated: false, latencyMs: 1 });
+    expect(await ask(makeClient({ fetch: fetchMock, getServerUrl: async () => BASE }))).toMatchObject({
+      candidateId: OPEN_CALENDAR, confidence: 0.75, provider: "memory",
+    });
+  });
+
+  it("without memory, shows a local guess immediately and uses the warmed calibrated answer next", async () => {
     await openInbox();
     await openEmail();
     const fetchMock = serverReply({ candidateId: OPEN_CALENDAR, confidence: 0.82, provider: "typesafe", calibrated: true, latencyMs: 300 });
-    expect(await ask(makeClient({ fetch: fetchMock, getServerUrl: async () => BASE }))).toMatchObject({ ok: true, candidateId: OPEN_CALENDAR, confidence: 0.82, provider: "typesafe", calibrated: true });
+    const client = makeClient({ fetch: fetchMock, getServerUrl: async () => BASE });
+    expect(await ask(client)).toMatchObject({ ok: true, candidateId: SEND, confidence: 0.25, provider: "memory", calibrated: false });
+    await letServerWarm();
+    expect(await ask(client)).toMatchObject({ ok: true, candidateId: OPEN_CALENDAR, confidence: 0.82, provider: "typesafe", calibrated: true });
   });
 });
 
@@ -295,7 +333,7 @@ describe("one site never learns about another", () => {
     await recordOn(A, "navigate", "/docs", undefined, 1);
 
     await recordOn(B, "navigate", "/", undefined, 2); // same path, same shape, another site
-    expect(await askOn(client, B, "/", docs, 2)).toMatchObject({ ok: true, candidateId: "none" });
+    expect(await askOn(client, B, "/", docs, 2)).toMatchObject({ ok: true, candidateId: DOCS, confidence: 0.25 });
 
     await recordOn(A, "navigate", "/", undefined, 3); // back on A (a new tab): its own memory still works
     expect(await askOn(client, A, "/", docs, 3)).toMatchObject({ ok: true, candidateId: DOCS, confidence: 0.75 });
@@ -337,9 +375,9 @@ describe("one site never learns about another", () => {
     await recordOn(A, "navigate", "/", undefined, 6);
     const fetchMock = serverReply({ candidateId: "none", confidence: 0.6, provider: "heuristic", calibrated: false, latencyMs: 1 });
     const reply = await askOn(makeClient({ fetch: fetchMock, getServerUrl: async () => BASE }), A, "/", docs, 6);
-    expect(reply).toMatchObject({ candidateId: "none" });
+    expect(reply).toMatchObject({ candidateId: DOCS, confidence: 0.25 });
     expect(String(fetchMock.mock.calls[0]?.[1]?.body)).not.toContain("Transfer");
-    expect(await askOn(client, A, "/", docs, 6)).toMatchObject({ candidateId: "none" });
+    expect(await askOn(client, A, "/", docs, 6)).toMatchObject({ candidateId: DOCS, confidence: 0.25 });
   });
 });
 

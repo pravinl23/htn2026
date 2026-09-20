@@ -4,8 +4,8 @@
 import { getSettings, onStorageChanged } from "../lib/storage";
 import { isLoopMessage } from "../lib/loopMessages";
 import type { LoopUiState } from "../lib/loopMessages";
-import { createEpisodicMemory } from "./episodic";
-import type { EpisodicMemory } from "./episodic";
+import { createLocalFastLaneMemory } from "./fastLaneMemory";
+import type { FastLaneMemory } from "./fastLaneMemory";
 import { createRemoteSynthesizer } from "./loopRemote";
 import { createLoopStateStore, isBusy, toUiState } from "./loopState";
 import type { LoopStateStore } from "./loopState";
@@ -19,7 +19,7 @@ const SUMMARY_WINDOW = 12;
 
 export interface LoopServices {
   trace: TraceStore;
-  memory: EpisodicMemory;
+  memory: FastLaneMemory;
   loopState: LoopStateStore;
   watcher: LoopWatcher;
 }
@@ -127,7 +127,7 @@ export function startLoopBackground(): TraceRouter {
     onProposal: (proposal, tabId) => loopState.dispatch({ type: "propose", proposal, tabId }),
     emit: (tabId, message) => chrome.tabs.sendMessage(tabId, message),
   });
-  const router = createTraceRouter({ services: { trace, memory: createEpisodicMemory(), loopState, watcher }, extensionId: chrome.runtime.id });
+  const router = createTraceRouter({ services: { trace, memory: createLocalFastLaneMemory(), loopState, watcher }, extensionId: chrome.runtime.id });
   onStorageChanged((changes) => {
     if (changes.settings && !changes.settings.enabled) router.disable().catch((error: unknown) => console.warn("[ghost] loop reset failed", error));
   });

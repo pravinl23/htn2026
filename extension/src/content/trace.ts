@@ -20,7 +20,8 @@ export const SYNTHETIC_WINDOW_MS = 250;
 const URL_POLL_MS = 500;
 const GHOST_UI = '#ghost-overlay-host, [data-ghost-ui], [id^="ghost-"][id$="-host"]';
 const ACTIONABLE =
-  'a[href], button, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="option"], ' +
+  'a[href], button, summary, [onclick], [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], ' +
+  '[role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"], ' +
   'input[type="submit"], input[type="button"], input[type="reset"], input[type="image"]';
 const FORM_PARTS = "input, textarea, select, option, label";
 const MARKED_SENSITIVE = "[data-ghost-sensitive], [data-sensitive]";
@@ -69,8 +70,10 @@ function kindOf(el: Element): FieldKind {
   if (el.tagName === "INPUT") return INPUT_KINDS[(el as HTMLInputElement).type] ?? "other";
   if (el.tagName === "TEXTAREA") return "textarea";
   if (el.tagName === "SELECT") return "select";
-  if (el.tagName === "BUTTON" || el.getAttribute("role") === "button") return "button";
-  return el.tagName === "A" ? "link" : "other";
+  const role = el.getAttribute("role")?.toLowerCase() ?? "";
+  if (el.tagName === "A" || role === "link") return "link";
+  if (el.tagName === "BUTTON" || el.tagName === "SUMMARY" || el.hasAttribute("onclick") || ["button", "menuitem", "menuitemcheckbox", "menuitemradio", "tab", "option", "treeitem", "switch", "checkbox", "radio"].includes(role)) return "button";
+  return "other";
 }
 
 function isTextControl(el: Element): el is TextControl {

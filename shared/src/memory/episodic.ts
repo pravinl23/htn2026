@@ -6,6 +6,8 @@ export const EPISODIC_MAX_PAIRS = 300;
 export const EPISODIC_TOP_K = 5;
 export const MEMORY_CONFIDENCE_ONCE = 0.75;
 export const MEMORY_CONFIDENCE_REPEATED = 0.9;
+export const MEMORY_CONFIDENCE_SITE_RECENT = 0.65;
+export const MEMORY_CONFIDENCE_SITE_REPEATED = 0.8;
 /** Two different actions followed this state equally often: below the default threshold, so no ghost. */
 export const MEMORY_CONFIDENCE_AMBIGUOUS = 0.5;
 const SUMMARY_KEYS = 3;
@@ -35,6 +37,8 @@ export interface NextCandidate {
   label: string;
   locked: boolean;
   context?: string;
+  /** Value-free structural group (for example a repeated result list). */
+  group?: string;
 }
 
 export interface MemoryPrediction {
@@ -124,6 +128,11 @@ export class EpisodicStore {
       .map((s) => copyPair(s.pair));
   }
 
+  /** Most recently observed pairs first, regardless of state. Callers must enforce site isolation. */
+  recent(k: number = EPISODIC_TOP_K): EpisodicPair[] {
+    return this.pairs.slice(-Math.max(0, k)).reverse().map(copyPair);
+  }
+
   predict(summary: string, candidates: readonly NextCandidate[]): MemoryPrediction {
     return predictFromMemory(summary, candidates, this.retrieve(summary, this.max));
   }
@@ -149,7 +158,58 @@ function findCandidate(action: EpisodicAction, candidates: readonly NextCandidat
   const label = action.label.trim().toLowerCase();
   if (label === "") return null;
   const byLabel = candidates.filter((c) => c.kind === candidateKind(action.kind) && c.label.trim().toLowerCase() === label);
-  return byLabel.length === 1 ? (byLabel[0] ?? null) : null;
+  if (byLabel.length === 1) return byLabel[0] ?? null;
+  // Feeds, search results and product grids change item labels on every visit. A stable, value-free list shape
+  // lets recent site memory learn "the user acts in this result group" without learning one site's DOM.
+  const byGroup = candidates.filter((c) => c.kind === candidateKind(action.kind) && c.group === action.targetShape);
+  return byGroup[0] ?? null;
+}
+
+const POSITIVE_INTENT = [
+  /\b(search|find|look up|browse|discover)\b/,
+  /\b(continue|next|proceed|checkout|place (?:the |your )?order|add(?: [a-z]+){0,3} to (?:the )?cart|go to (?:the )?cart|cart|buy(?: it)? now|confirm|pay|purchase|submit|send|post|upload|save|finish|done|apply|book|reserve)\b/,
+  /\b(play|watch|open|start|view|read|full ?screen|expand)\b/,
+];
+const NEGATIVE_INTENT = /\b(back|cancel|close|dismiss|delete|remove|sign ?out|log ?out|unsubscribe|clear|reset)\b/;
+const CHROME_INTENT = /\b(home|logo|account|profile|settings|help|menu|navigation)\b/;
+const PASSIVE_NAVIGATION = /\b(carousel|slideshow|previous slide|next slide|previous page|next page|apply (?:the )?filter|narrow results|sort by|buy more[, ]+save more)\b/;
+
+export interface PreviousCandidateAction {
+  type?: string;
+  label?: string;
+  signature?: string;
+}
+
+/** Site-agnostic cold-start salience based on accessible semantics, never hostnames or selectors. */
+export function nextCandidatePriority(candidate: NextCandidate, previous?: PreviousCandidateAction): number {
+  const text = `${candidate.label} ${candidate.context ?? ""}`.toLowerCase();
+  let score = candidate.kind === "button" ? 24 : candidate.kind === "field" ? 18 : 0;
+  if (POSITIVE_INTENT[0]?.test(text)) score += candidate.kind === "field" ? 80 : 45;
+  if (POSITIVE_INTENT[1]?.test(text)) score += 70;
+  if (POSITIVE_INTENT[2]?.test(text)) score += 45;
+  if (candidate.group) score += 8;
+  if (NEGATIVE_INTENT.test(text)) score -= 90;
+  if (CHROME_INTENT.test(text)) score -= 30;
+  if (PASSIVE_NAVIGATION.test(text)) score -= 90;
+  const previousLabel = previous?.label?.toLowerCase() ?? "";
+  if (previous?.signature === candidate.id || (previousLabel !== "" && previousLabel === candidate.label.toLowerCase())) score -= 120;
+  // After committing a discovery field, advance into its result group instead of suggesting the same field again.
+  if (/\b(search|find|look up|browse|discover)\b/.test(previousLabel)) {
+    if (candidate.group) score += 60;
+    if (candidate.kind === "link" || candidate.kind === "button") score += 20;
+    if (candidate.kind === "field") score -= 35;
+  }
+  // Media controls are a generic state transition: play/watch commonly precedes a viewing-mode action.
+  if (/\b(play|watch|start)\b/.test(previousLabel) && /\b(full ?screen|expand|theater|cinema)\b/.test(text)) score += 75;
+  return score;
+}
+
+/** Highest semantic priority first, stable for ties. */
+export function rankNextCandidates<T extends NextCandidate>(candidates: readonly T[], previous?: PreviousCandidateAction): T[] {
+  return candidates
+    .map((candidate, order) => ({ candidate, order, score: nextCandidatePriority(candidate, previous) }))
+    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .map(({ candidate }) => candidate);
 }
 
 interface Tally {
@@ -186,4 +246,27 @@ export function predictFromMemory(
   if (runnerUp && runnerUp.count === best.count) return { candidateId: best.candidate.id, confidence: MEMORY_CONFIDENCE_AMBIGUOUS };
   const confidence = best.count >= 2 ? MEMORY_CONFIDENCE_REPEATED : MEMORY_CONFIDENCE_ONCE;
   return { candidateId: best.candidate.id, confidence };
+}
+
+/**
+ * Site-level fallback for a state that has never occurred before. The newest compatible real user action wins;
+ * repetition raises confidence, but never above an exact-state memory. `memory` must already belong to one origin.
+ */
+export function predictFromRecentSiteMemory(
+  candidates: readonly NextCandidate[],
+  memory: readonly EpisodicPair[],
+): MemoryPrediction {
+  let newest: NextCandidate | null = null;
+  let observations = 0;
+  for (const pair of memory) {
+    const candidate = findCandidate(pair.action, candidates);
+    if (!candidate) continue;
+    if (!newest) newest = candidate;
+    if (candidate.id === newest.id) observations += pair.count;
+  }
+  if (!newest) return { candidateId: "none", confidence: 0 };
+  return {
+    candidateId: newest.id,
+    confidence: observations >= 2 ? MEMORY_CONFIDENCE_SITE_REPEATED : MEMORY_CONFIDENCE_SITE_RECENT,
+  };
 }

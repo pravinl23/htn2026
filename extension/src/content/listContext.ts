@@ -27,7 +27,9 @@ const CHROME = 'nav, [role="navigation"], [role="menubar"], [role="menu"], [role
 const SEMANTIC_CONTAINERS = 'ul, ol, menu, tbody, [role="list"], [role="listbox"], [role="feed"], [role="rowgroup"], [role="grid"], [role="table"]';
 const CELL_CONTROLS = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
 const SEMANTIC_DEPTH = 12;
-const GENERIC_DEPTH = 6;
+// Modern component trees often wrap a result card in several layout/telemetry layers. Stay bounded, but deep
+// enough to reach the repeated card rather than treating the site as one enormous unstructured page.
+const GENERIC_DEPTH = 12;
 const MIN_SEMANTIC_ITEMS = 2;
 const MIN_SIMILAR_ITEMS = 3;
 const MAX_KEY = 120;

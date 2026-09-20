@@ -123,8 +123,8 @@ Response: `FormPredictResponse` plus `cache` and optional `fallbackFrom` / `fast
 - The response-level `calibrated` is true only when every assignment that can produce a ghost (`factKey != "none"`) is calibrated, so a mixed heuristic + Jev response is `calibrated: false`.
 
 ### `POST /v1/predict/next`
-Request: `{ origin, url, recentActions: TraceEvent[] (max 20), candidates: NextCandidate[] (max 60), memory?: EpisodicPair[] (max 5) }` where `NextCandidate = { id: string, kind: "button"|"link"|"field", label: string, locked: boolean, context?: string }`.
-One `choice` question over candidate ids plus `none`. Heuristic provider: prefer the candidate that followed the same previous action in `memory`, else `none`.
+Request: `{ origin, url, recentActions: TraceEvent[] (max 20), candidates: NextCandidate[] (max 60), memory?: EpisodicPair[] (max 5) }` where `NextCandidate = { id: string, kind: "button"|"link"|"field", label: string, locked: boolean, context?: string, group?: string }`. `group` is an optional value-free structural shape for repeated results/feeds.
+One `choice` question over candidate ids. The heuristic provider prefers learned behavior, otherwise returns a low-confidence semantic best guess. Search/results and play/view-mode transitions use the last action as context. Locked actions remain eligible predictions but execution still requires explicit confirmation.
 Sensitive candidates (password, card, government ID labels), and recent actions or memories that touch one, are dropped on the server before the heuristic or any model sees them, so they can never be the prediction.
 Response: `{ candidateId: string | "none", confidence, provider, calibrated, latencyMs }`.
 
