@@ -1024,7 +1024,7 @@ static BOOL (^gPauseCheck)(NSString *);
  */
 + (void)accept:(GHHarnessRequest *)request controller:(GHController *)controller target:(NSRunningApplication *)target
     completion:(void (^)(NSDictionary<NSString *, id> *))completion {
-    if (!controller) { completion(GHHarnessErrorResponse(@"no-pipeline", @"Ghost is off, or its pipeline is not running")); return; }
+    if (!controller) { completion(GHHarnessErrorResponse(@"no-pipeline", ([NSString stringWithFormat:@"%@ is off, or its pipeline is not running", GHProductName]))); return; }
     NSDictionary<NSString *, id> *before = [controller harnessState];
     NSDictionary<NSString *, id> *ghost = before[@"current"];
     if (!ghost) { completion(GHHarnessErrorResponse(@"no-ghost", @"nothing is proposed in this window right now")); return; }
@@ -1053,7 +1053,7 @@ static BOOL (^gPauseCheck)(NSString *);
 
 + (void)autotab:(GHHarnessRequest *)request controller:(GHController *)controller target:(NSRunningApplication *)target
      completion:(void (^)(NSDictionary<NSString *, id> *))completion {
-    if (!controller) { completion(GHHarnessErrorResponse(@"no-pipeline", @"Ghost is off, or its pipeline is not running")); return; }
+    if (!controller) { completion(GHHarnessErrorResponse(@"no-pipeline", ([NSString stringWithFormat:@"%@ is off, or its pipeline is not running", GHProductName]))); return; }
     GHAutotabRunner *runner = [[GHAutotabRunner alloc] initWithSubject:(id<GHAutotabSubject>)controller poster:[[GHHarnessTabPoster alloc] init]];
     runner.maxDuration = request.autotabBudget;
     NSString *bundleId = target.bundleIdentifier ?: @"unknown";

@@ -1,6 +1,6 @@
-# Observability: reading a Ghost prediction in Sentry
+# Observability: reading a Shabang prediction in Sentry
 
-Ghost's whole thesis is latency. A ghost that appears in 80 ms feels like Cursor; the same ghost at 3 s feels like a
+Shabang's whole thesis is latency. A ghost that appears in 80 ms feels like Cursor; the same ghost at 3 s feels like a
 slow agent. So tracing here is not decoration: **the trace is the answer to "where did the time go", and the logs are
 the answer to "why was that ghost shown, or not"**.
 
@@ -48,7 +48,7 @@ Read it as three gaps:
 | Gap | What it is | What to do when it grows |
 | --- | --- | --- |
 | transaction minus `predict.form` | Hono, the local-only guard, CORS, JSON parsing | almost always sub-millisecond; if not, look at body size |
-| `predict.form` minus `decide.*` | **Ghost's own code**: the heuristic, the field digest, the cache key, the gate | this is the part we control; it should stay near 1 ms |
+| `predict.form` minus `decide.*` | **Shabang's own code**: the heuristic, the field digest, the cache key, the gate | this is the part we control; it should stay near 1 ms |
 | `decide.*` minus `model.request` | the provider's own work: retries, consensus over samples, parsing | for Baseten this gap holds K + H **sibling** `model.request` spans, because one decision is that many parallel requests |
 | `model.request` | the network and the model | this is the number Jev's 70–500 ms latency budget refers to |
 
@@ -96,7 +96,7 @@ warn   baseten failed after 2503ms; the heuristic answers instead
 warn   typesafe answered in 2100ms, close to the 2500ms deadline
 ```
 
-- "answered N of M" counts fields that got a fact key; "without a fact" is `factKey: "none"`, which is a field Ghost
+- "answered N of M" counts fields that got a fact key; "without a fact" is `factKey: "none"`, which is a field Shabang
   deliberately left alone (a consent checkbox, a button, a sensitive field).
 - "guesses" is the `always-propose` bucketing: anything below 0.85 is shown as a guess, so this is the number of
   ghosts the user saw with a "guess" chip.
@@ -126,7 +126,7 @@ the extension reporting what the user did — a calibration pair that was not ac
 ## How to read a slow prediction
 
 1. **Traces → `span.op:http.server`**, sort by duration. Open the slowest `POST /v1/predict/form`.
-2. Look at `predict.form`'s `self_time`. If it is more than a few milliseconds, the slowness is Ghost's own code, not
+2. Look at `predict.form`'s `self_time`. If it is more than a few milliseconds, the slowness is Shabang's own code, not
    the model — check `ghost.request.fields` and `ghost.request.fact_keys`, because the decision grows with both.
 3. Otherwise open `decide.*`. Compare its duration with the `model.request` span(s) under it.
    - One `model.request` that takes nearly all of it → the provider is slow; check `gen_ai.usage.input_tokens`, and
@@ -157,7 +157,7 @@ Three layers, in this order:
    longer than 120 characters is replaced **whole** by `[redacted:<reason>:<length>]`. Redacting only the match would
    leak the text around it, which is usually the more identifying half.
 
-Stack traces are the one thing kept verbatim: they are Ghost's own source and are what makes an error actionable.
+Stack traces are the one thing kept verbatim: they are Shabang's own source and are what makes an error actionable.
 Exception messages are still content-checked.
 
 Three default integrations are switched off for the same reason: `LocalVariables` (would attach the captured fields to

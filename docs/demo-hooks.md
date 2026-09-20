@@ -108,10 +108,10 @@ Absolute paths are in `files`.
 
 ## Mail and calendar
 
-The mail and calendar demo is built: inbox → message → "Open calendar" → pick Thursday 2:30 PM → "Back to mail" → the picked-time chip shows above the reply box, and "Send reply" is the locked action. The 2026-09-19 smoke audit covers reset, cross-tab storage, native-setter textarea writes, sending the fictional local reply, console errors and 375px layouts. Ghost does not yet choose the slot, navigate back or draft the reply itself.
+The mail and calendar demo is built: inbox → message → "Open calendar" → pick Thursday 2:30 PM → "Back to mail" → the picked-time chip shows above the reply box, and "Send reply" is the locked action. The 2026-09-19 smoke audit covers reset, cross-tab storage, native-setter textarea writes, sending the fictional local reply, console errors and 375px layouts. Shabang does not yet choose the slot, navigate back or draft the reply itself.
 
 **Pages**
-- `/mail` lists 8 fictional emails, ids `msg-1001` to `msg-1008`, all from `@example.com` senders. `msg-1001` is from Priya Nair with subject "Quick chat Thursday afternoon?". No subject contains a word Ghost's lock rules treat as irreversible, so opening an email never looks locked.
+- `/mail` lists 8 fictional emails, ids `msg-1001` to `msg-1008`, all from `@example.com` senders. `msg-1001` is from Priya Nair with subject "Quick chat Thursday afternoon?". No subject contains a word Shabang's lock rules treat as irreversible, so opening an email never looks locked.
 - `/mail/:id` shows the message and the reply composer. An unknown id renders `data-testid="mail-missing"`.
 - `/calendar` renders "Week of Sep 21, 2026", Monday to Friday, 9 AM to 5 PM in 30 minute rows, with 17 free slots in total. Thursday has two free slots: 10:30 AM in the morning and 2:30 PM, the only one in the afternoon. The table uses no rowspans, so every cell's column index matches its day header.
 

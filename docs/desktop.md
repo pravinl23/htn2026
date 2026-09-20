@@ -1,6 +1,6 @@
-# Ghost Desktop: the background agent that makes Ghost work in every browser and app (macOS)
+# Shabang Desktop: the background agent that makes Shabang work in every browser and app (macOS)
 
-The Chrome extension only covers Chromium browsers. Ghost Desktop is a native menu-bar agent that runs in the background and gives the same experience (ghost text, ghost cursor, Tab to accept, locks) in **any** app that exposes an accessibility tree: Safari, Chrome, Arc, Firefox, Edge, Electron apps, and native apps. It talks to the same local prediction server and reuses the same tested mapping logic.
+The Chrome extension only covers Chromium browsers. Shabang Desktop is a native menu-bar agent that runs in the background and gives the same experience (ghost text, ghost cursor, Tab to accept, locks) in **any** app that exposes an accessibility tree: Safari, Chrome, Arc, Firefox, Edge, Electron apps, and native apps. It talks to the same local prediction server and reuses the same tested mapping logic.
 
 **Implementation status (2026-09-19):** the native form agent described through the capture/controller/writer/overlay pipeline is implemented and has 167 passing unit tests. Cross-app claims have not been live-rehearsed during the current audit, loop automation is not implemented, and the real-world Greenhouse/file-upload harness is only a plan in `desktop-realworld.md`. Presence deduplication is also incomplete as described below.
 
@@ -35,9 +35,9 @@ build/Ghost.app       output (gitignored)
 | `GHCapture` | AX roles to kinds: `AXTextField` text (email/tel/url inferred from label and subrole), `AXTextArea` textarea, `AXComboBox`/`AXPopUpButton` select (options from `AXChildren` of the menu when cheap, else lazily when the ghost becomes current), `AXCheckBox` checkbox, `AXRadioGroup`/`AXRadioButton` one radio field with options, `AXButton`/`AXLink` button/link. Label precedence: `AXTitleUIElement` text, `AXTitle`, `AXDescription`, `AXPlaceholderValue`, `AXHelp`, nearest preceding `AXStaticText` sibling. **Never capture** `AXSecureTextField`, or any element whose label/placeholder/identifier trips `GhostCore.isSensitive` (not even the label). Skip disabled (`AXEnabled` false), hidden, zero-size, and off-window elements. Signature = role, subrole, normalized label, DOM identifier (`AXDOMIdentifier`) when present, index among same-label siblings. Never include values. |
 | `GHCore` | JavaScriptCore bridge. Loads `ghost-core.js` once. See "Core bridge". |
 | `GHServerClient` | `NSURLSession` to `http://127.0.0.1:8787`: `POST /v1/predict/form` (fact KEYS only, never values), `POST /v1/ghost-text` (SSE parsing, relevant non-sensitive facts only, same filtering rules as the extension), `GET /v1/health`. 3 s timeout, silent offline fallback. Must send `Content-Type: application/json` and no `Origin` header. Per (bundle id + window title host + form signature) in-memory + on-disk cache so repeat visits make zero calls. |
-| `GHProfileStore` | `~/Library/Application Support/Ghost/profile.json`, `settings.json` and `answers.json` (same shapes as the extension: `Profile`, `GhostSettings`, `LearnedAnswersSnapshot`), seeded with the fictional demo profile from the core, file-watched for edits. Files are created with mode 0600, written atomically (temp file + rename). `answers.json` is never seeded: an absent file IS "nothing learned yet", and a missing, corrupt, truncated or wrong-shaped one reads as an empty store rather than stopping Ghost from proposing. Every malformed entry is dropped on load, the store caps at 500, and nothing in it is ever logged or sent anywhere. |
+| `GHProfileStore` | `~/Library/Application Support/Ghost/profile.json`, `settings.json` and `answers.json` (same shapes as the extension: `Profile`, `GhostSettings`, `LearnedAnswersSnapshot`), seeded with the fictional demo profile from the core, file-watched for edits. Files are created with mode 0600, written atomically (temp file + rename). `answers.json` is never seeded: an absent file IS "nothing learned yet", and a missing, corrupt, truncated or wrong-shaped one reads as an empty store rather than stopping Shabang from proposing. Every malformed entry is dropped on load, the store caps at 500, and nothing in it is ever logged or sent anywhere. |
 | `GHController` | The same state machine as `extension/src/content/controller.ts`: ghost list in reading order (top to bottom, then left to right, using rects), current ghost, accept/advance, dismiss, typing override, focus follow, rescan on AX notifications, never touch fields that already have a value, lock ghost parked last. Pure logic is separated from AX so it is unit-testable with fake fields. |
-| `GHEventTap` | `CGEventTap` (session level, head insert) for keyDown. **Consumes Tab only when** Ghost is enabled, the frontmost app is not paused, a current ghost is visible on screen, no modifier keys are held, and the system-wide focused element is the current ghost's element, the element the walk just left, or the window itself. Otherwise the event passes through untouched. Esc dismisses the current ghost (consumed only if something was dismissed). Any other printable key while focus is in a ghosted field dismisses that ghost (typing overrides) and passes through. Auto-repeat Tab = hold-Tab: accept every unlocked, non-pending ghost, stop at the lock. If the tap is disabled by timeout (`kCGEventTapDisabledByTimeout`), re-enable it. The tap callback must return in well under 10 ms: do the write asynchronously on the main queue after consuming the event. |
+| `GHEventTap` | `CGEventTap` (session level, head insert) for keyDown. **Consumes Tab only when** Shabang is enabled, the frontmost app is not paused, a current ghost is visible on screen, no modifier keys are held, and the system-wide focused element is the current ghost's element, the element the walk just left, or the window itself. Otherwise the event passes through untouched. Esc dismisses the current ghost (consumed only if something was dismissed). Any other printable key while focus is in a ghosted field dismisses that ghost (typing overrides) and passes through. Auto-repeat Tab = hold-Tab: accept every unlocked, non-pending ghost, stop at the lock. If the tap is disabled by timeout (`kCGEventTapDisabledByTimeout`), re-enable it. The tap callback must return in well under 10 ms: do the write asynchronously on the main queue after consuming the event. |
 | `GHWriter` | Accept = focus the element (`AXFocused` true), set `AXValue`, read back and verify. If the value did not stick (common in web views for React inputs) fall back to real typing: select all in the field (`AXSelectedTextRange` over the whole value) then post unicode key events with `CGEventKeyboardSetUnicodeString` in chunks, then verify again. Selects: `AXPress` the popup, choose the matching `AXMenuItem` by title. Checkbox/radio: `AXPress` only when the state differs. **Locked targets are never pressed**; Tab only moves focus to them. Re-check sensitivity immediately before writing. Stop the walk on the first verification failure and show the reason in the HUD. |
 | `GHOverlayWindow` | One borderless, transparent, click-through (`ignoresMouseEvents`), non-activating `NSPanel` per screen at `NSScreenSaverWindowLevel - 1`, `collectionBehavior` can-join-all-spaces + full-screen-auxiliary + stationary. Draws with Core Animation layers: gray ghost text clipped to the field rect (system font sized to the field height since AX does not expose fonts; multi-line for text areas), highlight ring, gliding ghost cursor (180 ms ease), Tab keycap, lock badge "Enter to confirm", bottom-right HUD (provider, latency, cache, keystrokes saved). AX rects are top-left origin in global display coordinates: convert per screen. Hide the overlay instantly when the frontmost app or window changes, while the window is moving/resizing, and when the field scrolls (re-query rect on `AXLayoutChanged`/scroll, 60 ms throttle). |
 
@@ -71,7 +71,7 @@ to the next site).
 Both engines are the SHARED ones (`shared/src/answers/**`, `shared/src/form/**`), so the desktop agent and the
 Chrome extension answer the same form the same way. `desktop/core/predict.ts` only adds what the desktop has:
 
-- **Ghost proposes something for every question**: a profile fact, then an answer the user gave before, then a
+- **Shabang proposes something for every question**: a profile fact, then an answer the user gave before, then a
   conservative inference, then the most neutral option. A protected question (gender, race, veteran, disability)
   is answered with the form's OWN "prefer not to answer" option, which is `answerProtectedWithDecline` in
   `settings.json` and is on by default; set it to `false` to leave those questions to the user entirely.
@@ -84,7 +84,7 @@ Chrome extension answer the same form the same way. `desktop/core/predict.ts` on
   anything else -- and the ghost carries the intended answer as text. A protected one carries
   `lazyMatch: "decline"` instead: `GHComboBoxDriver` then picks whichever option MEANS "prefer not to answer"
   (`GHMatchDeclineOption`, the native port of the shared `isDeclineOption`) and **types nothing at all**, so no
-  wording of Ghost's ever lands in a demographic field. A list with no way to decline is left exactly as it was.
+  wording of Shabang's ever lands in a demographic field. A list with no way to decline is left exactly as it was.
 - **The gate**: a terminal action (Submit, Send, Pay, Continue) is proposed ONLY when every required field
   before it is filled or already accepted. Otherwise there is no Submit ghost at all -- no cursor, no lock badge
   -- and the HUD and the menu-bar line read "2 required fields still empty: Country". A pending ghost meets
@@ -92,7 +92,7 @@ Chrome extension answer the same form the same way. `desktop/core/predict.ts` on
   Requiredness comes from `AXRequired` and from a `*` / `(required)` marker beside the label (`GHCapture`), and
   the shared `isRequired` applies the `(optional)` veto on top.
 - **Learning a correction**: with `learningEnabled` on, `GHController` compares each captured field's value with
-  the one the previous capture reported and treats a change Ghost did not write as the user's own answer. There
+  the one the previous capture reported and treats a change Shabang did not write as the user's own answer. There
   is no key logging: the evidence is what the page reports. The correction goes through
   `GhostCore.recordCorrection` and is written to `answers.json` atomically, keyed by the QUESTION
   (site-independent), so the same question is answered from it on every site afterwards. Values that look like
@@ -102,9 +102,9 @@ Chrome extension answer the same form the same way. `desktop/core/predict.ts` on
 
 Strings in, strings out (JSON), so the Objective-C side stays thin and the behavior stays identical to the extension and covered by the existing TypeScript tests. `make core` must fail loudly if the bundle is missing an export.
 
-## Ghost anywhere: the window is not a form (`docs/anywhere.md`)
+## Shabang anywhere: the window is not a form (`docs/anywhere.md`)
 
-Most windows are not forms. When the form walk has nothing to offer, Ghost proposes the one control the window's
+Most windows are not forms. When the form walk has nothing to offer, Shabang proposes the one control the window's
 own affordances, the kind of place it is and the user's habits say comes next: the video's fullscreen button once
 it is playing, the first item of a grid, the search box on a shop, the cart when it has something in it. No rule
 anywhere in this path names an app, a bundle id, a host or a brand.
@@ -117,21 +117,21 @@ anywhere in this path names an app, a bundle id, a host or a brand.
 | `GHRoleMemoryStore` | `~/Library/Application Support/Ghost/memory.json`: counts per `(page kind, previous role, role)` and nothing else -- no label, no value, no app, no site. Mode 0600, written atomically, and a corrupt, truncated or foreign file reads as "nothing learned yet" rather than as a reason to stop proposing. One accept ties the strongest prior, two accepts (0.88) take the lead, every refusal takes 0.15 off. |
 | `GHVision` | Naming what has no name (`docs/anywhere.md` section 4). The controls the core could not name are cropped out of a screenshot, laid side by side into ONE small strip and sent to `POST /v1/vision/label`. The strip holds nothing but those controls: no page text, no window title, no surroundings, and the route refuses a window title anyway. At most one call per page view, a cache keyed by the page plus the exact box geometry (any move is a miss), at most 40 boxes, and NOTHING at all from a window with a sensitive field on screen. A returned label the shared rules call irreversible locks the control; one they call sensitive is dropped. A model can lock, never unlock. |
 
-**Screen Recording.** The crop needs the macOS Screen Recording permission, which Ghost may not have; `GHVision`
+**Screen Recording.** The crop needs the macOS Screen Recording permission, which Shabang may not have; `GHVision`
 asks `CGPreflightScreenCaptureAccess` and never prompts. Without it `unavailableReason` is `"needs Screen
 Recording"`, one line is logged once, the HUD says so, and everything else keeps working exactly as before --
 blind to icon-only controls, which then rely on their identifiers and class tokens alone.
 
 **The gate.** A proposal is drawn only above the user's `confidenceThreshold` (0.7 by default). The strongest
-prior of a place Ghost recognizes is exactly 0.7, so a player, a feed, a shop, a mailbox or a document always
-yields one proposal the first time it is seen. A window Ghost cannot place (`app` / `unknown`) tops out at 0.66
+prior of a place Shabang recognizes is exactly 0.7, so a player, a feed, a shop, a mailbox or a document always
+yields one proposal the first time it is seen. A window Shabang cannot place (`app` / `unknown`) tops out at 0.66
 and deliberately proposes nothing until role memory lifts a role above the gate: rule 4, a wrong ghost is worse
 than no ghost. Lower `confidenceThreshold` in `settings.json` to trade that for a ghost on literally every window.
 
 ## Safety rules (identical to CLAUDE.md, enforced natively)
 
 1. Tab is consumed only when a ghost is visible and focus is in the walk. Never trap the keyboard. Shift+Tab and modified Tab always pass through.
-2. Locked actions (submit, send, pay, delete, confirm...) are never pressed by Ghost. Lock badge + explicit Enter or click by the user.
+2. Locked actions (submit, send, pay, delete, confirm...) are never pressed by Shabang. Lock badge + explicit Enter or click by the user.
 3. `AXSecureTextField`, card, government ID and sensitive-labelled fields are never captured, predicted, filled, cached or logged.
 4. Confidence gating with the shared threshold. A wrong ghost is worse than no ghost.
 5. Never log values. Logs go to `~/Library/Logs/Ghost/desktop.log`, with field labels truncated and no values.
@@ -146,7 +146,7 @@ than no ghost. Lower `confidenceThreshold` in `settings.json` to trade that for 
   input, the phone widget and the file-upload group expose nothing), so the gate cannot see them. The page-level
   legend "* indicates a required field" explains the marker and deliberately does NOT make every field required.
 - **Two-sentence option sets.** "Have you served?" offering "I am a protected veteran" / "I am not a protected
-  veteran" cannot be tied to a profile's "No" by `matchOption`, so Ghost proposes nothing there rather than
+  veteran" cannot be tied to a profile's "No" by `matchOption`, so Shabang proposes nothing there rather than
   guessing which sentence is meant. A question like that with a decline option is answered by declining.
 - **A demographic option set with no decline option** ("How do you identify?" -> Man / Woman / Non-binary) is
   classified `ordinary` by the shared classifier, which only calls an option set protected when a decline option
@@ -161,7 +161,7 @@ When the extension is active in a browser, both can draw ghosts. The intended de
 
 ## CLI modes (for testing without the UI)
 
-- `Ghost.app/Contents/MacOS/Ghost --selftest`: loads the core, runs mapping on a built-in sample form, prints PASS/FAIL. No permissions needed.
+- `Ghost.app/Contents/MacOS/Shabang --selftest`: loads the core, runs mapping on a built-in sample form, prints PASS/FAIL. No permissions needed.
 - `--dump`: prints the captured fields of the frontmost window as JSON (labels only, no values) after a 3 s delay so the user can focus a browser. Needs the Accessibility permission.
 - `--trust`: prints whether the process is trusted and exits 0/1.
 
@@ -174,4 +174,4 @@ When the extension is active in a browser, both can draw ghosts. The intended de
 
 - Chromium family (Chrome, Arc, Brave, Edge, Opera, Vivaldi): the same `extension/dist` folder, Load unpacked.
 - Firefox: `pnpm --filter @ghost/extension build:firefox` writes `extension/dist-firefox` (MV3 with `background.scripts`, `browser_specific_settings.gecko.id`, no `debugger` permission; the debugger fallback reports "unsupported").
-- Safari: needs full Xcode (`xcrun safari-web-extension-converter extension/dist`). Until then Safari is covered by Ghost Desktop.
+- Safari: needs full Xcode (`xcrun safari-web-extension-converter extension/dist`). Until then Safari is covered by Shabang Desktop.

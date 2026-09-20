@@ -59,7 +59,7 @@ static int GHSelfTest(void) {
     NSString *path = [GHCore defaultBundlePath];
     NSError *error;
     GHCore *core = path ? [[GHCore alloc] initWithBundlePath:path error:&error] : nil;
-    GHPrint(@"Ghost Desktop self-test");
+    GHPrint([NSString stringWithFormat:@"%@ Desktop self-test", GHProductName]);
     GHPrint(@"  core bundle: %@", path ?: @"(not found)");
     if (!core) {
         GHPrint(@"FAIL: %@", error.localizedDescription ?: @"ghost-core.js not found; run `make core`");

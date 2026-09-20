@@ -1,13 +1,13 @@
-# Ghost for the terminal
+# Shabang for the terminal
 
-Ghost predicts your next shell command and shows it as gray text after the cursor, the way it ghosts the next field in a form. Press **Tab** to take it. Nothing ever runs by itself: accepting only puts the text on your command line, and **Enter** stays yours.
+Shabang predicts your next shell command and shows it as gray text after the cursor, the way it ghosts the next field in a form. Press **Tab** to take it. Nothing ever runs by itself: accepting only puts the text on your command line, and **Enter** stays yours.
 
 ```
 ~/northwind-app (main*) $ git add -A
 ~/northwind-app (main*) $ git commit -m "|"        <- gray until you press Tab; the cursor lands inside the quotes
 ```
 
-It is a single zsh file, `ghost.zsh`, with no dependencies beyond `curl` (which ships with macOS). The prediction comes from the Ghost server (`POST /v1/predict/command`, see `docs/server-api.md`, section "Terminal"), which builds candidates in code and asks Jev (TypeSafe) to pick one.
+It is a single zsh file, `ghost.zsh`, with no dependencies beyond `curl` (which ships with macOS). The prediction comes from the Shabang server (`POST /v1/predict/command`, see `docs/server-api.md`, section "Terminal"), which builds candidates in code and asks Jev (TypeSafe) to pick one.
 
 ## Install
 
@@ -20,13 +20,13 @@ It is a single zsh file, `ghost.zsh`, with no dependencies beyond `curl` (which 
 
 3. Open a new terminal. Run a couple of commands; the ghost appears on the next empty prompt, and again as you type.
 
-Nobody edits your `~/.zshrc` for you, not even the installer. To turn Ghost off, remove the line or set `GHOST_TERMINAL_DISABLE=1` (it is checked at load and before every request, so `export GHOST_TERMINAL_DISABLE=1` in a running shell works too).
+Nobody edits your `~/.zshrc` for you, not even the installer. To turn Shabang off, remove the line or set `GHOST_TERMINAL_DISABLE=1` (it is checked at load and before every request, so `export GHOST_TERMINAL_DISABLE=1` in a running shell works too).
 
 ## Keys
 
 | Key | With a ghost visible | Without a ghost |
 | --- | --- | --- |
-| **Tab** | inserts the ghost (the cursor lands inside `""` when it ends with empty quotes) | exactly what Tab did before Ghost loaded (usually `expand-or-complete`, or whatever you bound: completion keeps working) |
+| **Tab** | inserts the ghost (the cursor lands inside `""` when it ends with empty quotes) | exactly what Tab did before Shabang loaded (usually `expand-or-complete`, or whatever you bound: completion keeps working) |
 | **Right arrow** at the end of the line | inserts the ghost | unchanged (`forward-char`, `vi-forward-char`) |
 | **Esc** | dismisses the ghost for the rest of this command line | unchanged |
 | typing | a character that matches the ghost just shrinks it (no new request); anything else clears it and asks again after 120 ms | |
@@ -36,7 +36,7 @@ Nobody edits your `~/.zshrc` for you, not even the installer. To turn Ghost off,
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `GHOST_TERMINAL_URL` | `http://127.0.0.1:8787` | the Ghost server |
+| `GHOST_TERMINAL_URL` | `http://127.0.0.1:8787` | the Shabang server |
 | `GHOST_TERMINAL_DISABLE` | unset | `1` turns everything off |
 | `GHOST_TERMINAL_MIN_CONFIDENCE` | `0.7` | ghosts below this confidence are not shown: a wrong ghost is worse than no ghost |
 | `GHOST_TERMINAL_HIGHLIGHT` | `fg=8` | the `region_highlight` style of the ghost (gray) |
@@ -64,15 +64,15 @@ The request body goes to `curl` on stdin, so it never appears in `ps`, and `curl
 
 - **Never destructive.** The server never offers these as candidates, and the plugin refuses to show them even if a server did: `rm -rf` (any recursive or forced `rm`), `git push --force` / `-f` / `+ref`, pushes that delete a remote branch (`-d`, `--delete`, `:branch`, `--prune`), `git reset --hard`, `git clean -f`, `git branch -D`, `sudo`, `dd`, `mkfs`, `chmod -R 777`, SQL `DROP` / `TRUNCATE`, `kubectl delete`, `terraform destroy`, `docker system prune`, `killall`, `curl ... | sh`, `npm publish` and a few more (`server/src/command/filter.ts`).
 - **Never executes.** Tab and Right arrow only edit the line. The plugin never calls `accept-line`. Nothing the server sends is ever evaluated: the reply is parsed as data (a `\u` escape must be exactly 4 hex digits, or the whole reply is dropped) and only ever inserted as text, so even a hostile server at `GHOST_TERMINAL_URL` cannot make the plugin run anything (it can still suggest a bad command, which is why destructive ones are refused here too and Enter stays yours).
-- **Never in the way.** The request runs in a background job whose answer arrives through `zle -F`, so the prompt and your typing never wait for the network. A server that is down is a silent no-op (Ghost then waits 10 s before trying again), and nothing is ever printed to your terminal.
+- **Never in the way.** The request runs in a background job whose answer arrives through `zle -F`, so the prompt and your typing never wait for the network. A server that is down is a silent no-op (Shabang then waits 10 s before trying again), and nothing is ever printed to your terminal.
 
 ## Compatibility
 
 - **iTerm2 and Terminal.app** work (anything that runs zsh's own line editor, ZLE).
-- **Warp does not render it.** Warp replaces the shell's line editor with its own input editor, so ZLE widgets, `POSTDISPLAY` and `region_highlight` (what zsh-autosuggestions and Ghost draw with) are not shown there, and Warp's own Tab binding wins. Sourcing `ghost.zsh` in Warp is harmless but you will not see ghosts. The server route itself is editor-agnostic (plain JSON over HTTP), but showing its answer inside Warp would need a Warp-side integration, which we have not built or verified.
-- **vi mode** (`bindkey -v`) works: Tab and Right arrow accept in insert mode; Esc keeps entering command mode (Ghost is not bound to Esc in vi mode) and entering command mode hides the ghost for that line.
-- **zsh-autosuggestions** draws in the same place (`POSTDISPLAY`). Ghost never overwrites a suggestion it did not draw, and only accepts its own ghost on Tab. With both loaded you will mostly see whichever answers first; we suggest using one of them. If you keep both, load zsh-autosuggestions first and Ghost last.
-- **zsh-syntax-highlighting** may repaint the ghost in its own colors if it is loaded after Ghost; load Ghost last.
+- **Warp does not render it.** Warp replaces the shell's line editor with its own input editor, so ZLE widgets, `POSTDISPLAY` and `region_highlight` (what zsh-autosuggestions and Shabang draw with) are not shown there, and Warp's own Tab binding wins. Sourcing `ghost.zsh` in Warp is harmless but you will not see ghosts. The server route itself is editor-agnostic (plain JSON over HTTP), but showing its answer inside Warp would need a Warp-side integration, which we have not built or verified.
+- **vi mode** (`bindkey -v`) works: Tab and Right arrow accept in insert mode; Esc keeps entering command mode (Shabang is not bound to Esc in vi mode) and entering command mode hides the ghost for that line.
+- **zsh-autosuggestions** draws in the same place (`POSTDISPLAY`). Shabang never overwrites a suggestion it did not draw, and only accepts its own ghost on Tab. With both loaded you will mostly see whichever answers first; we suggest using one of them. If you keep both, load zsh-autosuggestions first and Shabang last.
+- **zsh-syntax-highlighting** may repaint the ghost in its own colors if it is loaded after Shabang; load Shabang last.
 - **Bracketed paste** is untouched; a pasted command is filtered like typed text before it can be sent.
 - Requires zsh 5.3 or newer (for `add-zle-hook-widget`); macOS ships 5.9.
 
@@ -81,7 +81,7 @@ The request body goes to `curl` on stdin, so it never appears in `ps`, and `curl
 1. `precmd` (first in the list, so it sees the real `$?`) starts a background job with `exec {fd}< <(...)` and registers `zle -F $fd`. The job reads the history, runs `git status`, reads `package.json` / `Makefile`, filters, builds the JSON and calls `curl`.
 2. On every buffer change (`zle-line-pre-redraw`), typing along the ghost just shrinks it; anything else kills the old job and starts a new one with the typed prefix after a 120 ms debounce. Keys still queued (fast typing) are waited out, so a burst costs one request.
 3. When the answer arrives, the `zle -F` handler checks that it is single-line, confident enough, not secret-looking, not destructive and still extends what is on the line, then sets `POSTDISPLAY` and a gray `region_highlight` entry.
-4. Tab and Right arrow are bound in the `emacs` and `viins` keymaps to widgets that accept the ghost if one is visible and otherwise call the widget that key had before Ghost loaded.
+4. Tab and Right arrow are bound in the `emacs` and `viins` keymaps to widgets that accept the ghost if one is visible and otherwise call the widget that key had before Shabang loaded.
 
 ## Tests
 

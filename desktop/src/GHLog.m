@@ -1,4 +1,15 @@
 #import "GHLog.h"
+
+NSString *const GHProductName = @"Shabang";
+
+NSString *GHBundleDisplayName(void) {
+    NSBundle *bundle = [NSBundle mainBundle];
+    for (NSString *key in @[ @"CFBundleDisplayName", @"CFBundleName" ]) {
+        NSString *name = [bundle objectForInfoDictionaryKey:key];
+        if ([name isKindOfClass:[NSString class]] && name.length) return name;
+    }
+    return GHProductName;
+}
 #include <sys/stat.h>
 
 static NSString *gPath;

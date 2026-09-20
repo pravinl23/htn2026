@@ -1,6 +1,6 @@
-# Where Ghost's brain lives, and how small it stays
+# Where Shabang's brain lives, and how small it stays
 
-Binding design. Everything Ghost learns about a person stays on that person's computer, in one small file. No account, no sync service, no upload. The budget below is deliberate: a brain you can read in a text editor, delete in one click, and carry in a backup without thinking about it.
+Binding design. Everything Shabang learns about a person stays on that person's computer, in one small file. No account, no sync service, no upload. The budget below is deliberate: a brain you can read in a text editor, delete in one click, and carry in a backup without thinking about it.
 
 ## 1. One canonical file
 

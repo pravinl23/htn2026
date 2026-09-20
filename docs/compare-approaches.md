@@ -10,7 +10,7 @@ decide with before the judging script is frozen.
 
 ### A — "demonstration-learned loops + Tab walk" (Pravin's stream)
 
-Ghost watches the page you are on. It captures the visible interactive elements, asks the server **one batched
+Shabang watches the page you are on. It captures the visible interactive elements, asks the server **one batched
 question for the whole form**, and paints translucent ghosts on the fields it can answer; Tab accepts one and
 moves to the next, at 0 ms per Tab because every answer is already in memory. Meanwhile it records a
 value-light action trace and page facts. When you do the same multi-step routine **twice**, it aligns the two
@@ -18,12 +18,12 @@ runs, generalizes the differing values to page-fact locators, synthesizes a JSON
 remaining items in hidden iframes to fill a preview grid, and runs all of them after **one** explicit
 confirmation — stopping at anything irreversible.
 
-> **User-visible promise:** "Do it twice, Ghost does the rest." You never describe the task. You just do it,
-> and the third time Ghost offers to finish the other 48.
+> **User-visible promise:** "Do it twice, Shabang does the rest." You never describe the task. You just do it,
+> and the third time Shabang offers to finish the other 48.
 
 ### B — "atomic workflows" (Samir's and Tahseen's stream)
 
-Ghost looks at whatever app is focused, builds a small privacy-safe description of it (app name, window title,
+Shabang looks at whatever app is focused, builds a small privacy-safe description of it (app name, window title,
 focused element, a few lines of nearby static text), and sends it to the server. The server filters a catalog
 of known actions down to a handful that are appropriate for the current workflow step and the accounts you
 have connected, asks Jev **one choice question** — "which of these is the next atomic action?" — and shows the
@@ -31,7 +31,7 @@ winner as a suggestion with a human-readable preview. Approving it mints a singl
 bound to a required confirmation mode, and execution goes out through Composio (Gmail, Calendar, GitHub,
 Slack, Notion) or comes back as a local directive the client performs and reports on.
 
-> **User-visible promise:** "Ghost knows what you are about to do across your whole Mac, and can do it in the
+> **User-visible promise:** "Shabang knows what you are about to do across your whole Mac, and can do it in the
 > apps themselves — not by clicking around, by calling them."
 
 ---
@@ -102,7 +102,7 @@ path never exercises the question that the live path depends on — which is exa
 ### 3.4 Two candidate filters
 
 - **A:** `collectCandidates` (`extension/src/content/nextAction.ts:87`) — visible, enabled, non-sensitive,
-  inside or within 0.5 viewports of the edge (`:26,101`), nothing inside Ghost's own UI (`:96`), capped at 60
+  inside or within 0.5 viewports of the edge (`:26,101`), nothing inside Shabang's own UI (`:96`), capped at 60
   (`extension/src/lib/loopMessages.ts:167`), closest-first then DOM order (`:104`). Plus `withoutSensitive`
   server-side as defence in depth (`server/src/providers/nextQuestions.ts:80`).
 - **B:** `getRelevantActions` (`server/src/workflows/candidates.ts:114`) — a hand-written state machine over
@@ -182,7 +182,7 @@ Ranked by demo value per line of diff.
 
 **Why:** A's next-action prediction can only ever propose something already on screen
 (`collectCandidates`, `nextAction.ts:87`). B's catalog is a ready-made list of things that are *not* on
-screen. Merging them is the single change that turns "Ghost finishes this page" into "Ghost finishes this
+screen. Merging them is the single change that turns "Shabang finishes this page" into "Shabang finishes this
 task".
 
 **Diff:** in `background/nextClient.ts`, after `collectCandidates`, append B's candidates mapped into the
@@ -203,7 +203,7 @@ same `none`, one question. One Jev choice ranks "click Reply" against "create th
 (`catalog.ts:11`) is the better model, and it is the thing that lets Tab stay cheap for reads while staying
 honest for sends.
 
-**Diff:** add `confirmation?: "tab" | "review" | "explicit"` to `Ghost` (`shared/src/types.ts:81`), default
+**Diff:** add `confirmation?: "tab" | "review" | "explicit"` to `Shabang` (`shared/src/types.ts:81`), default
 `locked ? "explicit" : "tab"`. `controller.ts:556` (`park`) already implements `explicit`; `review` becomes
 "Tab opens the preview, Enter confirms" — the loop panel's exact behaviour (`loopPanel.ts:290-297`), reused.
 
@@ -260,7 +260,7 @@ the ids. Then B's token means what A's token means.
 **Be decisive: A leads the surface. B becomes a candidate source and an execution backend behind it.**
 
 One overlay, one Tab contract, one confidence gate, one preview, one confirmation. The judges should never see
-two different UIs for "Ghost thinks you want to do X".
+two different UIs for "Shabang thinks you want to do X".
 
 ```
          DOM elements  ─┐
@@ -277,13 +277,13 @@ two different UIs for "Ghost thinks you want to do X".
 gray ghost text, lock badges, the preview grid, the HUD — and it degrades to a working product with zero
 keys. B owns the one capability A cannot fake: an effect in an app that is not open. B has no browser client
 (§3.7), no latency budget (§2), and is inert without Composio (§2), so it cannot lead. But A caps out at
-"Ghost is very good inside this tab", and that is a smaller story than the one we want to tell.
+"Shabang is very good inside this tab", and that is a smaller story than the one we want to tell.
 
 **Smallest set of changes to get there** (in dependency order):
 
 1. **Merge the candidate lists.** A ← B #1. `background/nextClient.ts` appends catalog actions as
    `NextCandidate`s with an `action:` id prefix. No new question, no new route. *~40 lines.*
-2. **Add `confirmation` to `Ghost`.** A ← B #2. Three-level mode replaces the boolean at the ghost layer;
+2. **Add `confirmation` to `Shabang`.** A ← B #2. Three-level mode replaces the boolean at the ghost layer;
    `explicit` reuses `park`, `review` reuses the loop panel's Tab-then-Enter. *~30 lines.*
 3. **Route an `action:` win to B.** `nextAction.accept` (`nextAction.ts:469`) branches: DOM candidate →
    `executeGhost`; `action:` candidate → `/v1/workflows/approve` + `/execute`, with the confirmation the
@@ -316,9 +316,9 @@ tested, and it should stay parked until the browser story is one story.
 3. **A locked button could be approved by an ordinary Tab.** B's confirmation is a client-chosen string
    (§3.2). Put B's actions behind A's Tab without escalating via `isLockedAction` (B ← A #2) and Rule 2
    — irreversible needs an explicit Enter or click — is violated by construction.
-4. **The trace would learn Ghost's own actions as the user's.** A tags its own writes synthetic within a
+4. **The trace would learn Shabang's own actions as the user's.** A tags its own writes synthetic within a
    250 ms window (`extension/src/content/trace.ts:19,39`). A Composio effect that changes the page seconds
-   later is outside that window, so the loop detector would count Ghost's own work as a user demonstration
+   later is outside that window, so the loop detector would count Shabang's own work as a user demonstration
    and propose looping it. `detectLoop` ignores synthetic events (`loopWatcher.ts:189`) — but only the ones
    that were tagged.
 5. **Two servers' worth of state for one user.** `WorkflowStore` (in-memory, per `userId`,

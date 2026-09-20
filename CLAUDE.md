@@ -1,4 +1,4 @@
-# Ghost: Cursor Tab for your whole computer
+# Shabang: Cursor Tab for your whole computer
 
 ## Never read `attic/`
 
@@ -9,11 +9,11 @@ every tsconfig, and nothing in the repo may import from it. `attic/README.md` sa
 and why, and that one file is the only thing worth opening — and only if you are deciding whether to
 revive something.
 
-## What Ghost is, in one paragraph
+## What Shabang is, in one paragraph
 
-The user is on a screen, anywhere: a web page, a native app, a terminal. Ghost proposes the single
+The user is on a screen, anywhere: a web page, a native app, a terminal. Shabang proposes the single
 thing they are most likely to do next. They press Tab to take it, or they do something else. **Every
-outcome is recorded — taken or replaced.** Locally, so Ghost learns this person; and to Sentry, so
+outcome is recorded — taken or replaced.** Locally, so Shabang learns this person; and to Sentry, so
 the stream of rejected proposals can improve the model for everyone. That loop is the entire
 product. If a change does not serve it, it does not belong in the main tree.
 
@@ -27,11 +27,11 @@ Read `PLAN.md` (what to build, in order), `PROGRESS.md` (what previous runs did)
 
 **Current boundary (2026-09-20, supersedes `PLAN.md` and `ROUTINE_PROMPT.md`):**
 
-1. **Ghost is a native macOS app.** The Chrome extension is in `attic/` and is NOT the product. Do
+1. **Shabang is a native macOS app.** The Chrome extension is in `attic/` and is NOT the product. Do
    not build browser features, do not revive it, do not add a second client. The native agent reads
    the accessibility tree of whatever app is frontmost, so browsers are just one case it already
    handles — and they are the only case an extension could ever have handled.
-2. **The invoice loop is dead.** "Do it twice, Ghost does the rest" is no longer the product.
+2. **The invoice loop is dead.** "Do it twice, Shabang does the rest" is no longer the product.
    `PLAN.md` and `ROUTINE_PROMPT.md` still name it and are stale; trust this file over both.
 3. The brain (`shared/src/knowledge`, `shared/src/affordance`, `shared/src/coldstart`) is built and
    benchmarked, and `desktop/core/knowledge.ts` consumes it. The desktop's next-action path is
@@ -52,13 +52,13 @@ Do not infer that anything else in the target architecture below already exists.
 
 ## The product
 
-Ghost predicts your next action **anywhere on your Mac** — a web page, Discord, Slack, System
+Shabang predicts your next action **anywhere on your Mac** — a web page, Discord, Slack, System
 Settings, Finder, a terminal — and shows it as a translucent "ghost": a ghost cursor gliding onto the
 button or field you are about to use, and gray ghost text inside the field you are about to fill.
 Pressing **Tab** accepts it. Example: open a job application, the ghost cursor is already sitting on
 the first field with your name ghosted in, and Tab, Tab, Tab fills the whole form.
 
-**Every outcome is recorded — taken or replaced.** Locally, so Ghost learns this person, and to
+**Every outcome is recorded — taken or replaced.** Locally, so Shabang learns this person, and to
 Sentry, so the stream of rejected proposals can improve the model for everyone. A ghost the user
 turns down is a labelled training example, and it is the only thing the product learns from.
 

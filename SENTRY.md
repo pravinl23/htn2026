@@ -3,14 +3,14 @@
 Everything in this file was verified live against the `university-of-waterloo-01` org on
 **2026-09-20**, not read off a config. If a claim is not in here, do not make it on stage.
 
-**The prize asks for two products beyond error monitoring. Ghost uses six products, five of them
+**The prize asks for two products beyond error monitoring. Shabang uses six products, five of them
 beyond error monitoring.**
 
 ---
 
 ## 1. The pitch, in one paragraph
 
-> Ghost proposes the next thing you are about to do, anywhere on your Mac, and you press Tab to take
+> Shabang proposes the next thing you are about to do, anywhere on your Mac, and you press Tab to take
 > it. The interesting half is what happens when you *don't*. Every ghost the user turns down is a
 > labelled training example, and before Sentry we could not see a single one of them. Sentry gives us
 > the rejection stream, the trace that explains a slow ghost, the profile of the code that made it
@@ -25,7 +25,7 @@ the rubric actually scores.
 
 Open these in order. Every row has real data.
 
-| # | Product | What Ghost sends | Where to click |
+| # | Product | What Shabang sends | Where to click |
 | --- | --- | --- | --- |
 | 1 | **Error Monitoring** | Unhandled route errors via our own middleware | **Issues** |
 | 2 | **Logs** | One line per ghost outcome: `walk: 1 accepted, 0 rejected (0 typed over, 0 dismissed) of 1 ghosts` | **Explore → Logs** |
@@ -72,7 +72,7 @@ anything.
 
 Four widgets tell the whole story on one screen:
 
-1. `ghost.accepted / ghost.proposed` over time — **is Ghost getting better?**
+1. `ghost.accepted / ghost.proposed` over time — **is Shabang getting better?**
 2. `ghost.corrected` grouped by `ghost.confidence.bucket` — **are we wrong when we said we were sure?**
 3. `ghost.decision_ms` p50/p95 — **how fast does a human take the ghost?**
 4. `ghost.proposed` grouped by `ghost.source` — heuristic vs model vs learned.
@@ -99,7 +99,7 @@ worst thing this product can do. That chart is the regression alarm.
 would fail to compile, not leak at runtime. On top of that, `beforeSend`, `beforeSendTransaction`,
 `beforeSendLog` and `beforeSendMetric` all run a scrubber with an attribute allowlist. Confidence
 leaves as a bucket, never a number — a confidence attached to one field is a fingerprint of what
-Ghost saw on screen.
+Shabang saw on screen.
 
 **Every metric is tagged** `ghost.class`, `ghost.source`, `ghost.confidence.bucket`, `ghost.surface`,
 so acceptance rate is one division in the UI and splits by any dimension.
@@ -162,7 +162,7 @@ before a demo did.
 ## 6. What NOT to claim
 
 **AI Agent Monitoring.** It shows a setup screen and it is not going to light up. That product is
-built around conversation threads, tool calls and handoffs, and Ghost has none of those — Jev returns
+built around conversation threads, tool calls and handoffs, and Shabang has none of those — Jev returns
 typed decisions, not messages. It is a product mismatch, not a wiring gap.
 
 While checking, we did fix a real correctness bug: `gen_ai.operation.name` carried our own words
@@ -219,7 +219,7 @@ make -C desktop lib && make -C desktop install-lib
 
 ### If Accessibility keeps refusing
 
-Several builds at different paths all report as "Ghost" with bundle id `dev.ghost.desktop` and shadow
+Several builds at different paths all report as "Shabang" with bundle id `dev.ghost.desktop` and shadow
 each other in the Accessibility list, so granting the visible one does nothing. Reset and grant once:
 
 ```bash

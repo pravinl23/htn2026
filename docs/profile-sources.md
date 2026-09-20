@@ -1,6 +1,6 @@
 # Knowing the user first: a fact graph built from what they already have
 
-Binding design. Ghost's mapping layer currently assumes a résumé: 19 fixed keys (`firstName … workAuthorization, referralSource`). That is why it shines on a job form and goes blank on a shipping address, a support ticket, a conference signup or a doctor's intake form. The fix is not more keys, it is a different shape: **learn who the user is from the accounts and files they already have, store typed facts with provenance, and let any form match against that graph.**
+Binding design. Shabang's mapping layer currently assumes a résumé: 19 fixed keys (`firstName … workAuthorization, referralSource`). That is why it shines on a job form and goes blank on a shipping address, a support ticket, a conference signup or a doctor's intake form. The fix is not more keys, it is a different shape: **learn who the user is from the accounts and files they already have, store typed facts with provenance, and let any form match against that graph.**
 
 ## 1. The fact graph
 

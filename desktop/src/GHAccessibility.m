@@ -133,7 +133,7 @@ static void GHAXObserverCallback(AXObserverRef observer, AXUIElementRef element,
     GHTrustState next = self.trustProbe() ? GHTrustStateTrusted : GHTrustStateUntrusted;
     if (next == _trustState) return NO;
     _trustState = next;
-    GHLog(@"accessibility: %@", next == GHTrustStateTrusted ? @"trusted" : @"NOT trusted (grant Ghost in System Settings > Privacy & Security > Accessibility)");
+    GHLog(@"accessibility: %@", next == GHTrustStateTrusted ? @"trusted" : [NSString stringWithFormat:@"NOT trusted (grant %@ in System Settings > Privacy & Security > Accessibility)", GHBundleDisplayName()]);
     if (next == GHTrustStateTrusted) {
         [GHAXElementNode applyMessagingTimeout];
         _lastError = kAXErrorSuccess;

@@ -74,7 +74,7 @@ static const CGFloat kMargin = 24;
                                                   styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskUtilityWindow | NSWindowStyleMaskNonactivatingPanel
                                                     backing:NSBackingStoreBuffered
                                                       defer:NO];
-    _panel.title = @"Ghost test";
+    _panel.title = [NSString stringWithFormat:@"%@ test", GHProductName];
     _panel.level = NSStatusWindowLevel;
     _panel.hidesOnDeactivate = NO;   // Ghost is never the active app
     _panel.canHide = NO;
@@ -86,10 +86,10 @@ static const CGFloat kMargin = 24;
 
     NSButton *tab = [NSButton buttonWithTitle:@"Tab" target:self action:@selector(tabPressed:)];
     tab.frame = CGRectMake(12, 44, 112, 32);
-    tab.toolTip = @"Posts a real Tab one second from now. Nothing does? The key never reached Ghost.";
+    tab.toolTip = [NSString stringWithFormat:@"Posts a real Tab one second from now. Nothing does? The key never reached %@.", GHProductName];
     NSButton *accept = [NSButton buttonWithTitle:@"Accept" target:self action:@selector(acceptPressed:)];
     accept.frame = CGRectMake(136, 44, 112, 32);
-    accept.toolTip = @"Takes the current ghost one second from now, the same way the Ghost key does.";
+    accept.toolTip = @"Takes the current ghost one second from now, the same way the accept key does.";
 
     _result = [NSTextField labelWithString:self.resultLine];
     _result.frame = CGRectMake(12, 14, kWidth - 24, 22);

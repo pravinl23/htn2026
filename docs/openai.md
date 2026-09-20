@@ -1,6 +1,6 @@
-# OpenAI in Ghost: the eyes
+# OpenAI in Shabang: the eyes
 
-Ghost predicts your next action and shows it as a ghost you accept with Tab. To predict, it turns the screen into text: the DOM in the browser extension, the macOS accessibility (AX) tree in Ghost Desktop. Jev (TypeSafe) then picks the next action from that text in one batched call.
+Shabang predicts your next action and shows it as a ghost you accept with Tab. To predict, it turns the screen into text: the DOM in the browser extension, the macOS accessibility (AX) tree in Shabang Desktop. Jev (TypeSafe) then picks the next action from that text in one batched call.
 
 That works until a control has no text. An icon-only button, a canvas app (Figma, Google Docs, games), an image-only PDF form, a custom-drawn toolbar: the DOM or AX tree reports "a button" and nothing else. Jev cannot choose "the button that attaches a file" when every candidate is called `button`.
 
@@ -24,7 +24,7 @@ The server half (step 3) is built and tested. The desktop steps 1, 2 and 4 are t
 
 ```
 AX tree: AXButton with no AXTitle / AXDescription / AXHelp / nearby static text
-   │  Ghost Desktop crops the window region around it (1x or 2x, PNG, <= 1.5 MB)
+   │  Shabang Desktop crops the window region around it (1x or 2x, PNG, <= 1.5 MB)
    ▼
 POST /v1/vision/label  { image, boxes: [{ id: "<AX signature>", x, y, width, height }], context: { app, nearbyText } }
    │  ONE Responses API call: input_text (image size + boxes) + input_image, strict JSON schema output
@@ -37,7 +37,7 @@ Desktop writes the label into its captured element ("Attach file", source: visio
    ▼
 Jev: ONE decision over the page's candidates (+ "none")  →  "Attach file" at 0.91
    ▼
-Ghost cursor glides to the paperclip  →  Tab accepts (a locked target still needs Enter or a click)
+Shabang cursor glides to the paperclip  →  Tab accepts (a locked target still needs Enter or a click)
 ```
 
 1. **Capture.** `GHCapture` already walks the AX tree and computes a label from `AXTitleUIElement`, `AXTitle`, `AXDescription`, `AXPlaceholderValue`, `AXHelp` or the nearest static text (`docs/desktop.md`). An enabled, visible `AXButton` / `AXLink` / `AXCheckBox` whose label comes out empty is a vision candidate. Sensitive elements (`AXSecureTextField`, anything `isSensitive` flags) are never cropped.
@@ -45,9 +45,9 @@ Ghost cursor glides to the paperclip  →  Tab accepts (a locked target still ne
 3. **Label.** `POST /v1/vision/label` (contract in `docs/server-api.md`, "Vision fallback"). The server validates the image by its magic bytes, forwards it once, and drops it.
 4. **Merge.** The returned label is stored on the element exactly like an AX label, marked `source: vision`, and cached by the element's AX signature, so the same toolbar never costs a second call. Low-confidence labels (below the 0.7 gate) are not used.
 5. **Decide.** Jev gets the page's candidates, now including "Attach file", in its usual ONE batched call. It picks; it never sees the image.
-6. **Ghost.** The ghost cursor goes to the chosen element. Tab accepts. If the label or the model says the control is irreversible (send, submit, pay, delete, confirm, publish), the ghost shows a lock and needs Enter or a click, whatever the model said: code can lock, the model can never unlock.
+6. **Shabang.** The ghost cursor goes to the chosen element. Tab accepts. If the label or the model says the control is irreversible (send, submit, pay, delete, confirm, publish), the ghost shows a lock and needs Enter or a click, whatever the model said: code can lock, the model can never unlock.
 
-When the AX tree has no element at all for what Ghost wants (a canvas app draws everything itself), `POST /v1/vision/locate` answers "where is *the attach resume button*?" with a box in image pixels. That is the computer-use-style fallback, reduced to pointing: the result is only ever a ghost suggestion, and nothing clicks.
+When the AX tree has no element at all for what Shabang wants (a canvas app draws everything itself), `POST /v1/vision/locate` answers "where is *the attach resume button*?" with a box in image pixels. That is the computer-use-style fallback, reduced to pointing: the result is only ever a ghost suggestion, and nothing clicks.
 
 The browser extension can use the same routes for icon-only buttons with no `aria-label`, `title` or text, and for `<canvas>` regions.
 
@@ -56,7 +56,7 @@ The browser extension can use the same routes for icon-only buttons with no `ari
 - **One call per request, one request per crop.** `POST /v1/responses` with `instructions`, one user message holding `input_text` (a small JSON state: image size, boxes renamed `b1..bN` with their centers, `context.app`, filtered `context.nearbyText`) and `input_image` (the base64 data URL), and `text.format: { type: "json_schema", strict: true }`.
 - **Fixed schemas.** The label and locate schemas never change per request, because OpenAI documents extra latency the first time it sees a schema. Box ids and length limits are therefore enforced in code, not in the schema.
 - **Pick-style output, checked by code.** The model returns short labels, a role from a closed enum, a lock flag and a confidence. Code drops entries with unknown or repeated ids, wrong types or roles outside the enum, trims and clips labels to 40 characters, and throws away a label that looks like personal data (an email address, 7 or more digits). `irreversible` is the model's flag OR the shared `isLockedAction` on the model's full label, read before clipping and scrubbing (and on the instruction for locate). `sensitive` is the shared `isSensitive` on that full label. Locate never returns a target whose label is sensitive, null, or scrubbed. All text is NFKC-folded and stripped of invisible characters (soft hyphens, zero-width characters, Unicode tags, variation selectors) before any rule reads it, and text with bidi overrides is refused or dropped, so hidden characters cannot hide a lock, a sensitive field or an instruction.
-- **Who may call.** Vision spends the user's paid quota and carries screen pixels, so it uses the loop routes' caller rules: no web page (not even on localhost), only the pinned extension (`GHOST_EXTENSION_ID`) or a caller with `X-Ghost-Token`, or a local process without an `Origin` (Ghost Desktop).
+- **Who may call.** Vision spends the user's paid quota and carries screen pixels, so it uses the loop routes' caller rules: no web page (not even on localhost), only the pinned extension (`GHOST_EXTENSION_ID`) or a caller with `X-Ghost-Token`, or a local process without an `Origin` (Shabang Desktop).
 - **Privacy.** Client ids never reach the model (an AX signature can contain a label). `context.windowTitle` is refused with 400: window titles name documents, threads and people. `nearbyText` lines that look sensitive are dropped before the prompt. `store: false` asks OpenAI not to keep the response for later retrieval (OpenAI's own abuse-monitoring retention is governed by its data controls, not by this flag). The server keeps no image, ever; its log line has sizes, counts, token counts and latency only. It keeps validated LABELS for a page a client asked it to remember ("The per-page cache" below), never the image and never the client's box ids.
 - **Cost.** A per-process budget (`GHOST_VISION_BUDGET`, default 200 billed calls, retries included) returns 429 when spent. The deadline scales with the batch, because one call answers every box: 8 s plus 400 ms per box, capped at 24 s (9.2 s for 3 boxes, 16 s for 20, 24 s for 40). Measured calls come in at a quarter of that. No retries on 4xx (429 included); one retry on a 5xx only if time remains and a budget unit can be taken, taken before the backoff so a concurrent request cannot spend it. Images over 1.5 MB, or over OpenAI's 30,000-patch limit, are refused before any call.
 
@@ -75,7 +75,7 @@ Per model, the server sends only what that model documents: `reasoning: { effort
 
 ## Anywhere, not just forms (docs/anywhere.md section 4)
 
-Vision exists because "Ghost anywhere" needs names for controls that have none. A player bar, a cart glyph, a kebab menu: the DOM and the AX tree say "a button". So the label route is shaped for a whole page, not for one field:
+Vision exists because "Shabang anywhere" needs names for controls that have none. A player bar, a cart glyph, a kebab menu: the DOM and the AX tree say "a button". So the label route is shaped for a whole page, not for one field:
 
 - **One call per page view, up to 40 boxes.** A whole icon toolbar, or a player bar plus a grid of buttons, is ONE request. Asking about 20 boxes instead of 3 costs about 1.7 s more and less than a tenth of a cent (numbers below). Never one call per control.
 - **Every entry carries an affordance role.** Each label comes back as `{ id, label, role, affordance, irreversible, sensitive, confidence }`. `affordance` is one of the roles in `docs/anywhere.md` section 2 (`play`, `fullscreen`, `next`, `search`, `cart`, `checkout`, `compose`, `reply`, `send`, `save`, `download`, `share`, `more`, `menu`, `settings`, `close`, `back`, `forward`, `scroll-more`, `field`, `submit`, `unknown`, ...). It is derived **in code**, never asked of the model, which never sees the taxonomy. That is what turns a row of pixels into `play`, then `fullscreen`, on a site nobody wrote a rule for.
@@ -131,7 +131,7 @@ Verbatim shape of the body that returned `200` on `POST https://api.openai.com/v
 ```json
 {
   "model": "gpt-5.6-luna",
-  "instructions": "You are the eyes of Ghost, an accessibility helper ...",
+  "instructions": "You are the eyes of Shabang, an accessibility helper ...",
   "input": [{ "role": "user", "content": [
     { "type": "input_text", "text": "{\"image\":{\"width\":288,\"height\":96},\"boxes\":[{\"id\":\"b1\",\"x\":24,...}],\"context\":{\"app\":\"Video player\"}}" },
     { "type": "input_image", "image_url": "data:image/png;base64,...", "detail": "original" }
@@ -169,13 +169,13 @@ Confirmed against the real API, first try, nothing rejected:
 | Reply validation (ids, roles, label cleaning, sensitivity, point-to-box mapping and clamping) | Unit-tested with mocked replies. The downscale mapping follows the documented algorithm but is still NOT confirmed against a real model that downscales (the default does not). |
 | Caller rules, image validation, budget 429, timeout, 4xx/5xx retry policy, 503 without a key, `windowTitle` refused, logs free of values | Unit-tested (`server/test/vision.test.ts`, `server/test/visionImage.test.ts`). |
 | Every other vision-capable model (`gpt-5.6-sol`, `gpt-6-astra`, `gpt-4.1-mini`, `gpt-4o`, ...) | **Not measured.** Only the per-model request shape is unit-tested; no latency, cost or accuracy comparison has been run. |
-| Desktop crop and merge (steps 1, 2 and 4 of the flow above) | **Not built.** Ghost Desktop does not call `/v1/vision/*` yet. Cropping needs macOS Screen Recording permission in addition to Accessibility. |
+| Desktop crop and merge (steps 1, 2 and 4 of the flow above) | **Not built.** Shabang Desktop does not call `/v1/vision/*` yet. Cropping needs macOS Screen Recording permission in addition to Accessibility. |
 | Extension use for icon-only buttons / canvas | **Not built.** The extension's next-action ranker does not call the route yet. |
 | The affordance vocabulary itself | Owned and unit-tested in `shared/src/affordance/roles.ts` (another agent's work, landed during this run). `server/src/vision/affordance.ts` is a thin adapter over it and holds no vocabulary of its own. |
 
 ## Codex in the product (proposal, not implemented)
 
-"Do it twice, Ghost does the rest" already learns a loop: two demonstrations become a `LoopProgram` (iterator, extract / fill / click steps, irreversible steps), previewed in a grid and run after ONE confirmation. That program lives inside Ghost. The second OpenAI feature would make it **durable**: Codex turns a learned loop into a small, tested script the user owns, can read, can put in cron, and can run without Ghost.
+"Do it twice, Shabang does the rest" already learns a loop: two demonstrations become a `LoopProgram` (iterator, extract / fill / click steps, irreversible steps), previewed in a grid and run after ONE confirmation. That program lives inside Shabang. The second OpenAI feature would make it **durable**: Codex turns a learned loop into a small, tested script the user owns, can read, can put in cron, and can run without Shabang.
 
 Why Codex and not a plain LLM call: writing the script is the easy part. Codex runs it against the local demo copy, reads the failure, fixes it and runs it again, inside a sandbox, until the test passes. That is the difference between "generated code" and "a script that works".
 
@@ -211,10 +211,10 @@ export async function codifyLoop(program: LoopProgram, sampleRows: PreviewRow[],
       "program.irreversible must stop and require --confirm. Run the test until it passes.",
     { outputSchema: RESULT_SCHEMA },
   );
-  return JSON.parse(turn.finalResponse);   // then Ghost re-runs testCommand ITSELF before trusting `passed`
+  return JSON.parse(turn.finalResponse);   // then Shabang re-runs testCommand ITSELF before trusting `passed`
 }
 ```
 
 The same job from the CLI, for CI or a cron: `codex exec --sandbox workspace-write --skip-git-repo-check --output-schema result.schema.json -o result.json "<same prompt>"` (documented `codex exec` flags).
 
-Proposed route: `POST /v1/loop/codify { program, sampleRows } -> { runId }`, streaming progress, ending with `{ files, testCommand, passed }`. Guardrails, same as the loop executor: same caller rules as `/v1/loop/execute` (pinned extension or `X-Ghost-Token`); fictional sample rows only (no profile values, secrets masked by the existing `loop/secrets.ts`); Ghost re-runs the test itself before showing "Saved as a script"; the generated script keeps every locked step behind an explicit `--confirm`, and running it for real still goes through `/v1/loop/preview` and its single-use `confirmToken`.
+Proposed route: `POST /v1/loop/codify { program, sampleRows } -> { runId }`, streaming progress, ending with `{ files, testCommand, passed }`. Guardrails, same as the loop executor: same caller rules as `/v1/loop/execute` (pinned extension or `X-Ghost-Token`); fictional sample rows only (no profile values, secrets masked by the existing `loop/secrets.ts`); Shabang re-runs the test itself before showing "Saved as a script"; the generated script keeps every locked step behind an explicit `--confirm`, and running it for real still goes through `/v1/loop/preview` and its single-use `confirmToken`.

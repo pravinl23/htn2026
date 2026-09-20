@@ -17,7 +17,7 @@ Open `http://localhost:5173/workflow/index.html`. The no-key demo is explicitly 
 2. Create a reviewed draft response (reversible; the complete proposed change is visible before approval).
 3. Create a reviewed tentative event (reversible).
 
-Choose “Try Slack → GitHub issue” to switch to the second polished workflow: Ghost captures the visible bug report, offers one reviewed `github.create_issue` action, and completes with deterministic issue #42 in simulator mode.
+Choose “Try Slack → GitHub issue” to switch to the second polished workflow: Shabang captures the visible bug report, offers one reviewed `github.create_issue` action, and completes with deterministic issue #42 in simulator mode.
 
 The “Try local field action” button demonstrates the same loop returning a `local.fill_focused_field` directive. The client writes it and reports the verified result before the server predicts again.
 

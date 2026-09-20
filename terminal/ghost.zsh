@@ -1,4 +1,4 @@
-# Ghost for the terminal: predicts your next shell command and shows it as gray text after the cursor.
+# Shabang for the terminal: predicts your next shell command and shows it as gray text after the cursor.
 #
 #   Tab          accepts the ghost, but ONLY while one is visible; otherwise Tab does exactly what it did before
 #   Right arrow  at the end of the line accepts too (the usual autosuggestion convention)
@@ -475,7 +475,7 @@ _ghost_dismiss() {
   _ghost_render
 }
 
-# Calls whatever the key did before Ghost was loaded, in the keymap the key was pressed in.
+# Calls whatever the key did before Shabang was loaded, in the keymap the key was pressed in.
 _ghost_call_orig() {
   emulate -L zsh
   local which=$1 km=$KEYMAP widget
@@ -565,7 +565,7 @@ _ghost_precmd() {
   _ghost_start '' ''
 }
 
-# Remembers what the key did in that keymap, then binds it to Ghost.
+# Remembers what the key did in that keymap, then binds it to Shabang.
 _ghost_bind() {
   emulate -L zsh
   local which=$1 km=$2 key=$3 widget=$4 current

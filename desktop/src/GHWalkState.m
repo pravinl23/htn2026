@@ -1,4 +1,5 @@
 #import "GHWalkState.h"
+#import "GHLog.h"   // GHProductName: the brand, written down once
 
 NSString *const GHWalkFocusElsewhere = @"elsewhere";
 
@@ -325,7 +326,7 @@ GHKeyDecision GHDecideEscape(GHWalkSnapshot snapshot, GHKeyModifiers modifiers, 
 }
 
 - (void)fail:(NSString *)signature reason:(NSString *)reason {
-    _error = [NSString stringWithFormat:@"Ghost could not fill this field (%@)", reason.length ? reason : @"failed"];
+    _error = [NSString stringWithFormat:@"%@ could not fill this field (%@)", GHProductName, reason.length ? reason : @"failed"];
     [self dismiss:signature];
 }
 

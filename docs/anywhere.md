@@ -1,6 +1,6 @@
-# Ghost anywhere: predicting the next action on any page or app
+# Shabang anywhere: predicting the next action on any page or app
 
-Binding design. Ghost must feel the same on YouTube, Amazon, Gmail, Figma, Finder or a job form. Nothing in this document names a website. Everything is derived from what a page or window *offers*.
+Binding design. Shabang must feel the same on YouTube, Amazon, Gmail, Figma, Finder or a job form. Nothing in this document names a website. Everything is derived from what a page or window *offers*.
 
 ## 1. The problem with label ranking
 
@@ -38,11 +38,11 @@ Two prediction sources, combined in code before anything is asked of a model:
 1. **Priors.** Per `PageKind`, an ordered list of roles people usually want next: `media` → `play`, then `fullscreen`, then `next`; `feed` → `primary-item`, then `search`, then `scroll-more`; `commerce` with a non-empty cart → `cart`, then `checkout` (locked); `reader` → `scroll-more`, then `back`. Priors are weak (0.55 to 0.7) and never beat memory.
 2. **Role-keyed memory.** The episodic store gains a second key: `(pageKind, previous role, affordance role)` alongside the existing signature key. This is what makes "I always go fullscreen after starting a video" transfer to a video it has never seen, and "I always click the cart after adding" transfer between shops. Signature memory stays for exact repeats on one page.
 
-The model (Jev) still makes the final choice over the filtered candidates, now labelled with their role and the page kind in the state, plus `none`. Code decides what is even offered; the model picks; code verifies and executes. Ghost ALWAYS proposes the top candidate; the threshold only decides how it is drawn (`docs/always-propose.md`). A prior alone is enough on a page it has never seen.
+The model (Jev) still makes the final choice over the filtered candidates, now labelled with their role and the page kind in the state, plus `none`. Code decides what is even offered; the model picks; code verifies and executes. Shabang ALWAYS proposes the top candidate; the threshold only decides how it is drawn (`docs/always-propose.md`). A prior alone is enough on a page it has never seen.
 
 ## 4. Naming what has no name (OpenAI vision)
 
-When a candidate has no accessible name and its role is still `unknown` after the heuristics, Ghost crops that control from a screenshot and asks `POST /v1/vision/label` (already built: OpenAI Responses API, strict JSON, code re-derives locks and sensitivity). The returned label feeds the same affordance mapping, so one vision call can turn a row of icon buttons into `play`, `fullscreen`, `captions`.
+When a candidate has no accessible name and its role is still `unknown` after the heuristics, Shabang crops that control from a screenshot and asks `POST /v1/vision/label` (already built: OpenAI Responses API, strict JSON, code re-derives locks and sensitivity). The returned label feeds the same affordance mapping, so one vision call can turn a row of icon buttons into `play`, `fullscreen`, `captions`.
 
 Rules: at most one vision call per page view, batched over up to 40 boxes, cached by a hash of the box geometry plus the page's path pattern, never for a page with a sensitive field on screen, and never blocking: the ghost appears from heuristics first and upgrades when the labels arrive. No key, no vision: everything still works, just blind to icons.
 

@@ -38,14 +38,14 @@ A proposal always exists (`docs/always-propose.md`); these levels only decide wh
 
 ## 3. Cold start builds all three
 
-Beyond the résumé-ish sources already specified, the scan must populate **surfaces and habits** from what the machine already knows, because a first-run user has no history with Ghost:
+Beyond the résumé-ish sources already specified, the scan must populate **surfaces and habits** from what the machine already knows, because a first-run user has no history with Shabang:
 
 - **Browser history aggregates** (all Chromium-family profiles; Safari with permission): per origin, visit counts, hour buckets, and the top origin-to-origin transitions. Counters only.
 - **The Dock, login items, recent applications and recent documents**: the apps this person actually lives in, and how recently.
 - **Application inventory**: what is installed, so a surface seen for the first time can still be recognized as an app they own.
 - Nothing else. No page text, no titles, no URLs beyond origins, no document contents.
 
-That gives Ghost, on its first run, a ranked picture of the ten or twenty surfaces this person uses and when, which is most of what "predict anything" needs.
+That gives Shabang, on its first run, a ranked picture of the ten or twenty surfaces this person uses and when, which is most of what "predict anything" needs.
 
 ## 4. Learning never stops
 
@@ -77,10 +77,10 @@ screen can get those three right, which is the whole point of the layer.
 Three conditions, measured as **where the action the person wants came in the ranking**:
 
 1. **empty** — a graph that knows nothing. The shape-only prior decides.
-2. **cold start** — day one, before Ghost has been taught anything: synthetic history goes through the real
+2. **cold start** — day one, before Shabang has been taught anything: synthetic history goes through the real
    pipeline (`aggregateHabits` -> `seedFromColdStart`), which only ever learns *per kind of screen*, never per
    place. Nothing in it is keyed to any screen in the table.
-3. **after five sessions** — five simulated visits with the ranker in the loop: Ghost proposes, the person takes
+3. **after five sessions** — five simulated visits with the ranker in the loop: Shabang proposes, the person takes
    it or does something else, and every outcome is recorded exactly as a client records it.
 
 Run it with `node scripts/bench-knowledge.mjs`; `shared/test/knowledge.benchmark.test.ts` asserts on the same
@@ -116,7 +116,7 @@ numbers and fails if any column stops improving.
 
 <!-- benchmark:end -->
 
-**The three things this table says.** A screen Ghost has never seen is useful immediately (10/16 from shape
+**The three things this table says.** A screen Shabang has never seen is useful immediately (10/16 from shape
 alone). The scan makes it better before the user does anything (13/16, and 12 of the 16 top proposals now come
 from something learned about this person rather than from the shape). And five sessions get every screen right,
 including the three where this person does something no shape prior would ever guess.

@@ -1,6 +1,6 @@
-# Ghost prediction server API (`server/`, http://localhost:8787)
+# Shabang prediction server API (`server/`, http://localhost:8787)
 
-Keys stay on the server. The Chrome extension calls form prediction, next-action prediction, ghost text, profile extraction, metrics, presence, walk telemetry and loop/executor routes while retaining instant local fallback. Ghost Desktop calls form/free-text/health/presence. The atomic workflow lab calls `/v1/workflows/*` directly, while the tested native `GHWorkflowCoordinator` seam is not yet connected to the desktop pipeline. All non-SSE bodies are JSON. CORS allows `chrome-extension://*` and `http://localhost:*` only.
+Keys stay on the server. The Chrome extension calls form prediction, next-action prediction, ghost text, profile extraction, metrics, presence, walk telemetry and loop/executor routes while retaining instant local fallback. Shabang Desktop calls form/free-text/health/presence. The atomic workflow lab calls `/v1/workflows/*` directly, while the tested native `GHWorkflowCoordinator` seam is not yet connected to the desktop pipeline. All non-SSE bodies are JSON. CORS allows `chrome-extension://*` and `http://localhost:*` only.
 
 Browserbase and Composio paths are unit/mock-tested and fall back to simulated executors without credentials. On the audited developer machine, direct TypeSafe/Jev is configured: a live 12-field decision and the three-action atomic workflow passed with calibrated Jev choices. Browserbase and Composio keys are present, but their real executor/account effects have not been live-verified. Sentry has no DSN yet. The ignored `.env` must never be committed.
 
@@ -44,7 +44,7 @@ Loop execution (Stage 8):
 
 | Variable | Meaning |
 | --- | --- |
-| `GHOST_EXTENSION_ID` | The Ghost extension's id from `chrome://extensions` (32 letters a to p, anything else is ignored). Only `chrome-extension://<this id>` may run REAL batches. |
+| `GHOST_EXTENSION_ID` | The Shabang extension's id from `chrome://extensions` (32 letters a to p, anything else is ignored). Only `chrome-extension://<this id>` may run REAL batches. |
 | `GHOST_EXECUTE_TOKEN` | Per-install secret, at least 16 characters (shorter is ignored). A caller without an `Origin` (the desktop daemon, a script) sends it as `X-Ghost-Token`. Never logged. |
 | `BROWSERBASE_API_KEY` + `BROWSERBASE_PROJECT_ID` | Enable `parallel` mode. Both are required. |
 | `BROWSERBASE_CONCURRENCY` | Cloud browsers open at once, default 5, clamped to 10. The cap is process-wide, not per request. |
@@ -163,7 +163,7 @@ Response:
 ```
 - The server first runs the shared `synthesizeProgram` that the planned extension loop coordinator will also use. With nothing unresolved, or no LLM configured, that result is returned (`provider: "heuristic"`, `modelCalls: 0`). `program: null` means the two runs do not generalize.
 - Otherwise ONE chat call asks, for all open fills at once, which labeled page value explains both typed values. The model may only pick a candidate index and one transform from the closed list `trim | number | date-iso | lowercase | uppercase | first-word | last-word | digits-only`. Code then verifies that the pick reproduces BOTH typed values; anything else is dropped. A verified pick becomes an `extract` step, so `extract.from.transform` can be any of those eight (wider than the shared `ValueTransform`).
-- Prompt hygiene: page text only appears as JSON string values inside `<untrusted_page_data>`; no urls, locators, constants, resolved values or profile data are sent. Sensitive-looking facts (by label or locator name) are dropped at validation. Page text shaped like an SSN, or a SIN / 13 to 19 digit number with a valid Luhn check digit, is dropped at validation too (the heuristic never sees it, so Ghost never copies it). In front of the prompt the broader shape test applies to typed values AND candidate text: any SSN shape, SIN shape or 13 to 19 digit run is left out, whatever its label says, before the prompt and the cache key are built.
+- Prompt hygiene: page text only appears as JSON string values inside `<untrusted_page_data>`; no urls, locators, constants, resolved values or profile data are sent. Sensitive-looking facts (by label or locator name) are dropped at validation. Page text shaped like an SSN, or a SIN / 13 to 19 digit number with a valid Luhn check digit, is dropped at validation too (the heuristic never sees it, so Shabang never copies it). In front of the prompt the broader shape test applies to typed values AND candidate text: any SSN shape, SIN shape or 13 to 19 digit run is left out, whatever its label says, before the prompt and the cache key are built.
 - Identical questions are answered from an LRU cache (100 entries). Model timeout 8 s; on any model failure the heuristic program is returned with `fallbackFrom: "llm"`.
 
 ### Loop execution: access and confirmation
@@ -253,9 +253,9 @@ Latency attribution: each model call is recorded under the provider that made it
 
 Every model call logs one line: `provider route latencyMs questions=<n> calibrated=<bool> cache=<hit|miss>`. Never log field values, profile values, or keys.
 
-## `/v1/presence` (coexistence of the extension and Ghost Desktop)
+## `/v1/presence` (coexistence of the extension and Shabang Desktop)
 
-Both clients can draw ghosts in a browser. The extension says "I am alive in this browser" with a heartbeat; Ghost Desktop reads the list and stays out of a browser whose extension heartbeat is younger than 90 s (`docs/desktop.md`, "Coexistence with the extension"). Code: `server/src/routes/presence.ts`. In memory only, nothing is logged, and no model is ever called.
+Both clients can draw ghosts in a browser. The extension says "I am alive in this browser" with a heartbeat; Shabang Desktop reads the list and stays out of a browser whose extension heartbeat is younger than 90 s (`docs/desktop.md`, "Coexistence with the extension"). Code: `server/src/routes/presence.ts`. In memory only, nothing is logged, and no model is ever called.
 
 Same access rules as every other route (`Content-Type: application/json` on `POST` or `415`, foreign `Origin` `403`, foreign `Host` `403`). Body limit 2 KB, streamed bytes included (`413`).
 
@@ -284,12 +284,12 @@ await fetch(`${serverUrl}/v1/presence`, {
   body: JSON.stringify({ client: "extension", browser: browserName(), version: chrome.runtime.getManifest().version }),
 }).catch(() => undefined); // fire and forget: the server may be down, and that must never surface to the user
 ```
-- Send one immediately when the worker starts, then every 30 s. Desktop's freshness window is 90 s, so two lost heartbeats in a row are tolerated. Send only while Ghost is enabled in the extension; to hand a browser back to Desktop just stop sending (there is no "leave" call, the entry ages out).
+- Send one immediately when the worker starts, then every 30 s. Desktop's freshness window is 90 s, so two lost heartbeats in a row are tolerated. Send only while Shabang is enabled in the extension; to hand a browser back to Desktop just stop sending (there is no "leave" call, the entry ages out).
 - An MV3 service worker is stopped after about 30 s of idleness and a `setInterval` dies with it. Drive the heartbeat with `chrome.alarms` (`periodInMinutes: 0.5`, the minimum since Chrome 120; needs the `"alarms"` permission in `manifest.json` AND `manifest.firefox.json`, the Firefox build fails when the two permission lists drift), or have each visible content script send a `ghost:presence` message every 30 s and let the background throttle to one POST per 25 s (no new permission).
-- `browser` must be one of the names Ghost Desktop maps bundle ids to (`desktop/src/GHServerClient.m`): `chrome`, `chromium`, `arc`, `brave`, `edge`, `opera`, `vivaldi`, `firefox`, `safari`. Detection order: `chrome.runtime.getURL("")` starts with `moz-extension://` is `firefox`; else `navigator.userAgentData.brands` containing `Microsoft Edge` is `edge`, `Opera` is `opera`, `Brave` is `brave`, `Google Chrome` is `chrome`; else `chromium`. Arc and Vivaldi present themselves as Chrome, so they need a user override (an options setting) or Desktop will keep drawing in them.
+- `browser` must be one of the names Shabang Desktop maps bundle ids to (`desktop/src/GHServerClient.m`): `chrome`, `chromium`, `arc`, `brave`, `edge`, `opera`, `vivaldi`, `firefox`, `safari`. Detection order: `chrome.runtime.getURL("")` starts with `moz-extension://` is `firefox`; else `navigator.userAgentData.brands` containing `Microsoft Edge` is `edge`, `Opera` is `opera`, `Brave` is `brave`, `Google Chrome` is `chrome`; else `chromium`. Arc and Vivaldi present themselves as Chrome, so they need a user override (an options setting) or Desktop will keep drawing in them.
 - Firefox: the worker's `Origin` is `moz-extension://<uuid>`, which `ALLOWED_ORIGIN` in `server/src/lib/guard.ts` does not accept yet, so every server call from the Firefox build (this one included) gets `403` until that pattern allows `moz-extension://[0-9a-f-]+`.
 
-Ghost Desktop may send `{ "client": "desktop", "version": "<CFBundleShortVersionString>" }` on the same schedule; nothing depends on it yet.
+Shabang Desktop may send `{ "client": "desktop", "version": "<CFBundleShortVersionString>" }` on the same schedule; nothing depends on it yet.
 
 ## Vision fallback (`/v1/vision/*`, OpenAI)
 
@@ -297,7 +297,7 @@ Jev reads text only. When the DOM or the macOS accessibility tree has a control 
 
 Configuration: enabled only when the server's LLM config is OpenAI (`OPENAI_API_KEY`; `OPENAI_BASE_URL` is honored). Every offline switch that drops that config also disables vision: `GHOST_PROVIDER=heuristic` (e2e), `GHOST_DECISION_PROVIDER=heuristic` + `GHOST_TEXT_PROVIDER=template`. An xAI or Baseten key does not enable it. `OPENAI_VISION_MODEL` (default `gpt-5.6-luna`), `GHOST_VISION_BUDGET` (default 200 billed calls per process, retries included; `0` disables), `GHOST_VISION_CACHE` (default 200 remembered pages; `0` disables).
 
-Access: the local-only guard of every route (JSON `Content-Type` or `415`, foreign `Origin` / `Host` `403`), PLUS the loop routes' caller rules (`executors/access.ts`), because vision spends paid quota and carries screen pixels: a web page is refused with `403` even on localhost; a browser extension must be the pinned one (`GHOST_EXTENSION_ID`) or send a valid `X-Ghost-Token` (`GHOST_EXECUTE_TOKEN`), else `403`; a caller without an `Origin` (Ghost Desktop, a script) is admitted; a wrong token is `401`. Checked before availability, so a refused caller never costs a budget unit. `GET /v1/vision` stays open (no call, no pixels). Body limit 2.1 MB (`413`).
+Access: the local-only guard of every route (JSON `Content-Type` or `415`, foreign `Origin` / `Host` `403`), PLUS the loop routes' caller rules (`executors/access.ts`), because vision spends paid quota and carries screen pixels: a web page is refused with `403` even on localhost; a browser extension must be the pinned one (`GHOST_EXTENSION_ID`) or send a valid `X-Ghost-Token` (`GHOST_EXECUTE_TOKEN`), else `403`; a caller without an `Origin` (Shabang Desktop, a script) is admitted; a wrong token is `401`. Checked before availability, so a refused caller never costs a budget unit. `GET /v1/vision` stays open (no call, no pixels). Body limit 2.1 MB (`413`).
 
 ### `GET /v1/vision`
 `{ "available": true, "provider": "openai" | null, "model": "gpt-5.6-luna" | null, "budget": { "limit": 200, "used": 3, "remaining": 197 }, "cache": { "enabled": true, "entries": 4, "hits": 9, "misses": 4 } }`. No model call.
@@ -388,7 +388,7 @@ Builds the open fact graph from what the user already has (`docs/profile-sources
 
 **Nothing is persisted.** No document, fetched page, proposal or value is written to disk, cached between requests or logged. The response is the only place a value appears, and it goes back to the caller, which shows each proposal with its source and evidence and accepts them one by one. `/v1/predict/form` keeps receiving fact KEYS only.
 
-**Access**: the loop and vision caller rules minus the pinning requirement — a web page never reaches this route, not even one on `http://localhost` (`403`, the proposals are the user's own details); with `GHOST_EXTENSION_ID` set only that extension's origin is admitted (`403` otherwise); a caller without an `Origin` (Ghost Desktop, a script) is local by the global guard, and a wrong `X-Ghost-Token` is `401`.
+**Access**: the loop and vision caller rules minus the pinning requirement — a web page never reaches this route, not even one on `http://localhost` (`403`, the proposals are the user's own details); with `GHOST_EXTENSION_ID` set only that extension's origin is admitted (`403` otherwise); a caller without an `Origin` (Shabang Desktop, a script) is local by the global guard, and a wrong `X-Ghost-Token` is `401`.
 
 ### `GET /v1/facts`
 `{ "adapters": ["github","website","text","resume"], "model": { "provider": "xai", "model": "grok-…" } | null, "conflicts": { "provider": "typesafe", "calibrated": true } | null, "limits": { "sources": 5, "textChars": 20000, "proposals": 60 } }`. `model: null` means no text key: the code extractors answer alone. `conflicts: null` means no decision provider: conflicts are settled in code.

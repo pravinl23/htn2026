@@ -1,4 +1,4 @@
-# Action trace, next-action prediction, and "Do it twice, Ghost does the rest"
+# Action trace, next-action prediction, and "Do it twice, Shabang does the rest"
 
 Design and implementation status for PLAN.md Stages 5 and 6.
 
@@ -39,8 +39,8 @@ export interface TraceEvent {
 }
 ```
 
-- The content script records; the background worker owns the trace (ring buffer of 400 events in `chrome.storage.session`, survives worker sleep, cleared on browser restart). Nothing is sent to the server except the last 20 normalized events for `/v1/predict/next`, and only while Ghost is enabled.
-- Ghost's own programmatic actions (`data-ghost-writing`, executor clicks) are tagged `synthetic: true` and ignored by the loop detector's "did the user do it twice" rule but recorded for episodic memory.
+- The content script records; the background worker owns the trace (ring buffer of 400 events in `chrome.storage.session`, survives worker sleep, cleared on browser restart). Nothing is sent to the server except the last 20 normalized events for `/v1/predict/next`, and only while Shabang is enabled.
+- Shabang's own programmatic actions (`data-ghost-writing`, executor clicks) are tagged `synthetic: true` and ignored by the loop detector's "did the user do it twice" rule but recorded for episodic memory.
 - Never record anything from sensitive elements (not even that an event happened on them).
 
 ### Page facts (needed for generalizing values)
@@ -109,7 +109,7 @@ export type StepTarget = { signature?: string; label: string; kind: FieldKind; c
 
 ### 3.4 Preview grid (planned)
 
-When a loop is detected, Ghost shows a bottom sheet: "You did this twice. Ghost can do the remaining N." with a grid: one row per remaining item, one column per variable, extracted by **dry run**: load each item URL in a pool of 4 hidden same-origin iframes, wait for the locator, read the text, apply the transform. Each row has a confidence (1.0 exact locator hit, 0.6 fallback locator, 0 missing) and low-confidence rows are flagged and unchecked by default. The footer lists every irreversible effect with counts (e.g. "Send reply 'Received' x 48") and has ONE confirmation control. Tab focuses the confirm button; only an explicit Enter or click on it starts the run (it is a locked action).
+When a loop is detected, Shabang shows a bottom sheet: "You did this twice. Shabang can do the remaining N." with a grid: one row per remaining item, one column per variable, extracted by **dry run**: load each item URL in a pool of 4 hidden same-origin iframes, wait for the locator, read the text, apply the transform. Each row has a confidence (1.0 exact locator hit, 0.6 fallback locator, 0 missing) and low-confidence rows are flagged and unchecked by default. The footer lists every irreversible effect with counts (e.g. "Send reply 'Received' x 48") and has ONE confirmation control. Tab focuses the confirm button; only an explicit Enter or click on it starts the run (it is a locked action).
 
 ### 3.5 Executor (extension visible/background modes planned; server parallel/API modes implemented)
 
@@ -130,5 +130,5 @@ When a loop is detected, Ghost shows a bottom sheet: "You did this twice. Ghost 
 
 - `/invoices`: inbox of 50 invoice emails (deterministic seeded data: vendor, invoice number `INV-1xxx`, date, total). Clicking one opens `/invoices/:id` with the invoice fields rendered as `<dl>` with `data-field` attributes and a "Reply: received" button (locked, marks the email as replied in localStorage; NOT a real send). Replied and logged states are visible in the inbox list.
 - `/sheet`: spreadsheet grid (columns Vendor, Invoice #, Date, Total, 60 rows) persisted in localStorage and synced across tabs/iframes via the `storage` event. Cells are inputs; `window.__sheet` exposes the rows for tests.
-- `/mail` + `/mail/:id` and `/calendar`: the "can we meet Thursday afternoon?" demo surface. Calendar shows a week with busy blocks and one free Thursday afternoon slot; picking it stores `pickedSlot` in localStorage. The textarea is compatible with programmatic fills and **Send is locked**, but Ghost does not yet navigate the flow or draft the reply.
+- `/mail` + `/mail/:id` and `/calendar`: the "can we meet Thursday afternoon?" demo surface. Calendar shows a week with busy blocks and one free Thursday afternoon slot; picking it stores `pickedSlot` in localStorage. The textarea is compatible with programmatic fills and **Send is locked**, but Shabang does not yet navigate the flow or draft the reply.
 - All demo state resets with `/reset` or `?reset=1` so e2e runs are deterministic.

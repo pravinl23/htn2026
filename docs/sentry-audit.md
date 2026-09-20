@@ -37,7 +37,7 @@ a replay harness: it scores each fixture against expectations derived from that 
 | 10 | "`GHOST_PROVIDER=heuristic` intentionally disables Sentry" | **PROVEN** | `config.ts:163,186`; `offline` requires that literal value. |
 | 11 | "With no `SENTRY_DSN` … reporting `captured: false`" | **PROVEN by code path** | `config.sentry` undefined → `NoopWalkOutcomeSink` → `capture()` returns `undefined` → `captured: false`. Not re-run live this pass. |
 | 12 | "Deterministic replay eval" catches regressions — `learning-loop.md` | **FALSE as written** | Self-comparison; see below. |
-| 13 | "The native client only needs to emit it" (Ghost Desktop) | **PROVEN absent** | `grep -ril "walk-outcome\|walkOutcome\|walk/outcomes" desktop/` → no hits. |
+| 13 | "The native client only needs to emit it" (Shabang Desktop) | **PROVEN absent** | `grep -ril "walk-outcome\|walkOutcome\|walk/outcomes" desktop/` → no hits. |
 
 ## Delivery evidence
 
@@ -111,7 +111,7 @@ pollution via a literal `"__proto__"` key in the raw JSON body also had no effec
 `evaluateGhostWalkReplay(fixture)` and passes no `actual`, so it defaults to `fixture.observed`
 (`shared/src/walkTelemetry.ts:240-243`). `createGhostWalkReplayFixture` (`:193-207`) derives
 `expected.state/reason/actions/outcomes/maxProposals` *from* `observed`. Five of the six checks compare a
-frozen JSON blob against itself. Nothing re-runs Ghost against a page, so no change to the extension,
+frozen JSON blob against itself. Nothing re-runs Shabang against a page, so no change to the extension,
 controller, predictor or server can ever move this number.
 
 Proven: I exported 6 live fixtures and ran the documented command. 5 passed with **zero human review**;

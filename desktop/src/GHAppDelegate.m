@@ -350,13 +350,13 @@ static OSStatus GHHotKeyHandler(EventHandlerCallRef next, EventRef event, void *
         return YES;
     }];
     image.template = YES;
-    image.accessibilityDescription = active ? @"Ghost is on" : @"Ghost is off";
+    image.accessibilityDescription = [NSString stringWithFormat:active ? @"%@ is on" : @"%@ is off", GHProductName];
     return image;
 }
 
 - (void)installStatusItem {
     _statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
-    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Ghost"];
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:GHProductName];
     menu.delegate = self;
     menu.autoenablesItems = NO;
     _statusItem.menu = menu;
@@ -386,8 +386,8 @@ static OSStatus GHHotKeyHandler(EventHandlerCallRef next, EventRef event, void *
 - (void)refreshStatusItem {
     _statusItem.button.image = [GHAppDelegate statusImageActive:[self isActive]];
     NSString *pipeline = [self pipelineLine];
-    _statusItem.button.toolTip = pipeline ? [NSString stringWithFormat:@"Ghost: %@\n%@", [self statusTitle], pipeline]
-                                          : [NSString stringWithFormat:@"Ghost: %@", [self statusTitle]];
+    _statusItem.button.toolTip = pipeline ? [NSString stringWithFormat:@"%@: %@\n%@", GHProductName, [self statusTitle], pipeline]
+                                          : [NSString stringWithFormat:@"%@: %@", GHProductName, [self statusTitle]];
     // The menu may be open right now: its lines follow the state live.
     _toggleItem.state = self.ghostEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _statusInfoItem.title = [self statusTitle];

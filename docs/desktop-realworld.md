@@ -1,4 +1,4 @@
-# Ghost Desktop real-world target: Greenhouse with Tab only
+# Shabang Desktop real-world target: Greenhouse with Tab only
 
 This document is a **future implementation and validation plan**, not a description of current behavior.
 
@@ -26,7 +26,7 @@ The server now exposes `/v1/presence`; the extension heartbeat is not wired yet,
 
 ## Target smoke test
 
-On a real Greenhouse job application, Ghost should eventually fill supported personal fields, choose only high-confidence dropdown answers, draft essay answers, skip EEO/demographic questions, optionally attach the fictional resume, and stop parked on **Submit application** with a lock. The user should not need the mouse for supported fields.
+On a real Greenhouse job application, Shabang should eventually fill supported personal fields, choose only high-confidence dropdown answers, draft essay answers, skip EEO/demographic questions, optionally attach the fictional resume, and stop parked on **Submit application** with a lock. The user should not need the mouse for supported fields.
 
 Non-negotiable rules:
 

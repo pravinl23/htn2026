@@ -1,8 +1,8 @@
 # Cold start: build the knowledge graph from the machine you already own
 
-Binding design. A brand-new Ghost knows nothing, so its first hour is its worst hour. But the answers are already on the computer: the user's own contact card, their résumé, the sites they open every morning, the addresses in their order confirmations, the people they mail. **Cold start** is the one-time (and then incremental) pass that turns that into the fact graph from `docs/profile-sources.md` and the habit priors from `docs/anywhere.md`, entirely locally.
+Binding design. A brand-new Shabang knows nothing, so its first hour is its worst hour. But the answers are already on the computer: the user's own contact card, their résumé, the sites they open every morning, the addresses in their order confirmations, the people they mail. **Cold start** is the one-time (and then incremental) pass that turns that into the fact graph from `docs/profile-sources.md` and the habit priors from `docs/anywhere.md`, entirely locally.
 
-The product promise: install Ghost, click **Scan my Mac**, review what it found, and from that moment Tab is useful on any form and any page.
+The product promise: install Shabang, click **Scan my Mac**, review what it found, and from that moment Tab is useful on any form and any page.
 
 ## 1. Non-negotiable stance
 
@@ -45,7 +45,7 @@ Every extracted candidate passes `shared/src/sensitive.ts` plus value-shape chec
 
 ## 6. What the user sees
 
-1. First run: "Ghost works better when it knows you. Everything stays on this Mac." with the per-source list, counts from Spotlight, and estimated time.
+1. First run: "Shabang works better when it knows you. Everything stays on this Mac." with the per-source list, counts from Spotlight, and estimated time.
 2. Progress with a live count and a Cancel.
 3. Review: facts grouped by category with evidence; habits summarized in plain language ("You open mail, then calendar, most weekday mornings"); "Skipped 23 items as sensitive".
 4. Save. From then on, form filling and next-action ghosts use it, and every correction refines it (`docs/answers.md`).

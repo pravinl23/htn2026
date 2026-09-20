@@ -1,6 +1,7 @@
 // The dark chips of the overlay: the "Enter to confirm" lock badge and the HUD. Classes are declared in GHOverlayLayers.h.
 #import "GHOverlayLayers.h"
 #import "GHOverlayDrawing.h"
+#import "GHLog.h"   // GHProductName: the brand, written down once
 
 static CGFloat GHSnapTo(CGFloat value, CGFloat scale) {
     CGFloat s = scale > 0 ? scale : 1;
@@ -134,7 +135,7 @@ static NSAttributedString *GHHudText(GHOverlayHUDInfo *hud) {
         [out appendAttributedString:part];
     };
     NSArray<NSString *> *segments = hud.segments;
-    append(@"Ghost", brandFont, GHColor(255, 255, 255, 0.92), 12);
+    append(GHProductName, brandFont, GHColor(255, 255, 255, 0.92), 12);
     for (NSUInteger i = 0; i + 1 < segments.count; i += 2) {
         BOOL last = i + 2 >= segments.count, isCache = [segments[i] isEqualToString:@"cache"];
         append(segments[i], mono, GHColor(255, 255, 255, 0.48), 5);

@@ -1,4 +1,4 @@
-# Ghost: Demo-Winning Plan
+# Shabang: Demo-Winning Plan
 
 **Objective:** make one unforgettable, dependable 3-minute demo—not a broad automation platform.
 
@@ -15,15 +15,15 @@ Therefore the next build is the invoice-loop vertical slice below, not another d
 
 ## The story judges should repeat
 
-> "Ghost watches you do two invoice entries, learns the routine, previews the remaining 48, safely completes 47, and holds one messy invoice for review—with Tab as the control surface."
+> "Shabang watches you do two invoice entries, learns the routine, previews the remaining 48, safely completes 47, and holds one messy invoice for review—with Tab as the control surface."
 
-Open with a 10-second proof that Ghost also fills a job application field-by-field. The invoice loop is the main event; it demonstrates learning, reasoning, verification, and safe action at a scale that feels impossible in a weekend.
+Open with a 10-second proof that Shabang also fills a job application field-by-field. The invoice loop is the main event; it demonstrates learning, reasoning, verification, and safe action at a scale that feels impossible in a weekend.
 
 ## Definition of demo-ready
 
 - A fresh local run works with no external API keys via deterministic fallbacks.
 - The extension overlays and accepts a job application walkthrough with Tab, ending at a visibly locked Submit button.
-- A prepared invoice run can be demonstrated twice manually, then Ghost identifies the pattern, previews the 48 remaining rows, flags one intentional exception, and fills the other 47 correctly after one explicit confirmation.
+- A prepared invoice run can be demonstrated twice manually, then Shabang identifies the pattern, previews the 48 remaining rows, flags one intentional exception, and fills the other 47 correctly after one explicit confirmation.
 - The app visibly stops rather than guessing when a value cannot be verified or a row is low-confidence.
 - The exact demo path is covered by a single repeatable e2e/smoke test, and a recorded fallback video exists.
 - One screen or HUD shows a credible outcome: **47 invoices completed / actions saved / zero unconfirmed sends**.
@@ -46,7 +46,7 @@ Keep it under 20 seconds.
 This is the centerpiece. Use the existing `/invoices` and `/sheet` demos; do not introduce a new product surface.
 
 - Stabilize the implemented trace recorder, page-fact capture, repeat detector, preview and visible/background executor in one real loaded-extension run.
-- Script the canonical sequence: enter two invoices manually, return to the invoice list, and let Ghost offer **"I can complete the remaining 48"** (or the actual remaining count).
+- Script the canonical sequence: enter two invoices manually, return to the invoice list, and let Shabang offer **"I can complete the remaining 48"** (or the actual remaining count).
 - Show a preview grid before execution: source invoice, extracted fields, destination row, confidence, and any flagged exceptions.
 - Require one explicit batch confirmation. The executor must verify each write and stop clearly on the first mismatch.
 - Prefer a deterministic heuristic/synthetic program for the canonical demo over an unreliable LLM-only path. LLM enhancement is welcome only if it cannot make the demo fail.
@@ -62,7 +62,7 @@ Do not present safety as a disclaimer; make it a product moment.
 - Submit, Send, passwords, payment fields, and unknown destinations remain blocked.
 - Never claim autonomous real-world action; all effects in the demo remain fictional/local unless a fully verified integration is ready.
 
-**Done when:** the demo has a 5–10 second safety beat that makes Ghost feel more trustworthy, not slower.
+**Done when:** the demo has a 5–10 second safety beat that makes Shabang feel more trustworthy, not slower.
 
 ### 4. Polish the judging package
 

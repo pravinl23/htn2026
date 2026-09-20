@@ -4,6 +4,12 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// What the product is called, wherever a person can read it. The one place the brand is written down.
+/// NOT the bundle name: System Settings and Finder show CFBundleName, which -grantName reads at runtime.
+extern NSString *const GHProductName;
+/// What System Settings actually lists this app as, so a "grant it there" message can never be wrong.
+NSString *GHBundleDisplayName(void);
+
 /// printf-style. Thread safe. Also mirrored to stderr when GHOST_LOG_STDERR=1 or after GHLogSetMirrorToStderr(YES).
 void GHLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
 

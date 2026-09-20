@@ -124,7 +124,7 @@ static const NSTimeInterval kTimeout = 12.0;
     if (!self.screenRecordingAllowed) {
         if (!_loggedUnavailable) {
             _loggedUnavailable = YES;
-            GHLog(@"vision: unavailable (%@): Ghost stays blind to icon-only controls", GHVisionReasonScreenRecording);
+            GHLog(@"vision: unavailable (%@): no eyes for icon-only controls", GHVisionReasonScreenRecording);
         }
         answer(nil, nil, GHVisionReasonScreenRecording);
         return;

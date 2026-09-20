@@ -1,6 +1,6 @@
 # Redacted walk outcomes, Sentry, and replay evals
 
-Ghost has a controlled learning loop for the Tab walk — the path the extension and Ghost Desktop both drive
+Shabang has a controlled learning loop for the Tab walk — the path the extension and Shabang Desktop both drive
 through `POST /v1/predict/form`. It learns by turning reviewed failures into regression fixtures. It never
 changes prompts, thresholds, code, or model behavior in production.
 
@@ -58,7 +58,7 @@ Only three things put a walk in the review queue, so the corpus stays small and 
    `lockedAccepted: 0` whatever else it checks.
 2. **A calibration failure** — a *calibrated* provider proposed something with high confidence and the user
    rejected it. An uncalibrated rejection is not a failure: its confidence was never a promise.
-3. **An abandoned walk** — the user left mid-walk or switched Ghost off.
+3. **An abandoned walk** — the user left mid-walk or switched Shabang off.
 
 ## Configure Sentry
 
@@ -75,7 +75,7 @@ No Sentry auth token is required to send SDK events. Keep API/auth tokens out of
 the DSN activates the live sink without a code change. `GHOST_PROVIDER=heuristic` intentionally disables
 Sentry so deterministic e2e cannot make external calls even if the shell contains a DSN.
 
-If Ghost is installed as a LaunchAgent, add the same three variables to `~/.config/ghost/env` and restart it:
+If Shabang is installed as a LaunchAgent, add the same three variables to `~/.config/ghost/env` and restart it:
 
 ```bash
 launchctl kickstart -k gui/$(id -u)/dev.ghost.server
@@ -119,6 +119,6 @@ dependency.
 These outcome replays catch policy and control-flow regressions and cluster recurring failure signatures.
 They cannot reproduce semantic page interpretation, because labels and page text are intentionally absent.
 
-The next improvement is to feed the same pipeline from Ghost Desktop, which drives the identical
+The next improvement is to feed the same pipeline from Shabang Desktop, which drives the identical
 `/v1/predict/form` walk over the Accessibility tree. The envelope is already client-agnostic; the native
 client only needs to emit it.
