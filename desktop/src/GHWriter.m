@@ -13,6 +13,7 @@ NSString *const GHWriteMethodSelectedText = @"selected-text";
 NSString *const GHWriteMethodTyping = @"typing";
 NSString *const GHWriteMethodPress = @"press";
 NSString *const GHWriteMethodClick = @"click";
+NSString *const GHWriteMethodOpen = @"open";
 NSString *const GHWriteMethodOpenPanel = @"open-panel";
 NSString *const GHWriteMethodComboBox = @"combobox";
 NSString *const GHWriteMethodFocus = @"focus";
@@ -199,6 +200,13 @@ static BOOL GHRoleOpensAMenu(NSString *role) {
     return error == kAXErrorCannotComplete && GHRoleOpensAMenu(node.role);
 }
 
+- (BOOL)openNode:(id<GHAXNode>)node {
+    AXUIElementRef element = node.axElement;
+    // AXOpen is the app saying what "activate this row" means; it beats guessing with the mouse.
+    if (element && AXUIElementPerformAction(element, CFSTR("AXOpen")) == kAXErrorSuccess) return YES;
+    return [self clickNode:node clicks:2];
+}
+
 - (BOOL)nodeAcceptsPress:(id<GHAXNode>)node {
     AXUIElementRef element = node.axElement;
     if (!element) return NO;
@@ -210,6 +218,10 @@ static BOOL GHRoleOpensAMenu(NSString *role) {
 }
 
 - (BOOL)clickNode:(id<GHAXNode>)node {
+    return [self clickNode:node clicks:1];
+}
+
+- (BOOL)clickNode:(id<GHAXNode>)node clicks:(int64_t)clicks {
     if (GHRealKeyEventsForbidden()) return NO;   // the test runner never moves the real pointer
     CGRect frame = node.frame;
     if (!GHRectIsUsable(frame)) return NO;
@@ -226,11 +238,15 @@ static BOOL GHRoleOpensAMenu(NSString *role) {
 
     // A move first: many controls only arm themselves once the pointer is over them (hover state, tracking area).
     BOOL ok = YES;
-    const CGEventType steps[] = { kCGEventMouseMoved, kCGEventLeftMouseDown, kCGEventLeftMouseUp };
-    for (NSUInteger i = 0; i < sizeof(steps) / sizeof(steps[0]) && ok; i++) {
+    // A double click is the same down/up pair twice, with clickState counting up: that second value is what
+    // makes the system read it as a double click rather than two separate ones.
+    const CGEventType steps[] = { kCGEventMouseMoved, kCGEventLeftMouseDown, kCGEventLeftMouseUp,
+                                  kCGEventLeftMouseDown, kCGEventLeftMouseUp };
+    NSUInteger stepCount = clicks >= 2 ? 5 : 3;
+    for (NSUInteger i = 0; i < stepCount && ok; i++) {
         CGEventRef event = CGEventCreateMouseEvent(_mouseSource, steps[i], target, kCGMouseButtonLeft);
         if (!event) { ok = NO; break; }
-        if (steps[i] != kCGEventMouseMoved) CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
+        if (steps[i] != kCGEventMouseMoved) CGEventSetIntegerValueField(event, kCGMouseEventClickState, i >= 3 ? 2 : 1);
         CGEventSetIntegerValueField(event, kCGEventSourceUserData, GHSyntheticEventUserData);
         CGEventPost(kCGHIDEventTap, event);
         CFRelease(event);
@@ -270,6 +286,7 @@ static BOOL GHRoleOpensAMenu(NSString *role) {
 @implementation GHFakeAXActuator {
     NSMutableArray<id<GHAXNode>> *_pressed;
     NSMutableArray<id<GHAXNode>> *_clicked;
+    NSMutableArray<id<GHAXNode>> *_opened;
     NSMutableArray<id<GHAXNode>> *_focusRequests;
     __weak GHFakeAXNode *_selectedAll;
 }
@@ -281,10 +298,12 @@ static BOOL GHRoleOpensAMenu(NSString *role) {
         _pressWorks = YES;
         _publishesPress = YES;
         _clickWorks = YES;
+        _openWorks = YES;
         _focusWorks = YES;
         _scrollWorks = YES;
         _pressed = [NSMutableArray array];
         _clicked = [NSMutableArray array];
+        _opened = [NSMutableArray array];
         _focusRequests = [NSMutableArray array];
         _goneNodes = [NSMutableSet set];
     }
@@ -390,6 +409,15 @@ static BOOL GHRoleOpensAMenu(NSString *role) {
     // A real click reaches the app the same way a press would have, so the visible effect is the same.
     return [self pressNode:node];
 }
+
+- (BOOL)openNode:(id<GHAXNode>)node {
+    GHFakeAXNode *fake = [self fake:node];
+    if (!fake) return NO;
+    [_opened addObject:node];
+    return self.openWorks;
+}
+
+- (NSArray<id<GHAXNode>> *)openedNodes { return [_opened copy]; }
 
 - (NSArray<id<GHAXNode>> *)clickedNodes { return [_clicked copy]; }
 
@@ -618,7 +646,7 @@ static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
     }
     if (!fresh.enabled) { finish([GHWriteResult refusal:GHWriteReasonDisabled]); return; }
 
-    if (isClick) { [self press:fresh finish:finish]; return; }
+    if (isClick) { [self press:fresh item:[field.kind isEqualToString:GHKindItem] finish:finish]; return; }
     if ([ghost.action isEqualToString:GHGhostActionUpload]) { [self upload:ghost field:field button:fresh fileInput:optionNode finish:finish]; return; }
     if ([field.kind isEqualToString:GHKindFile]) { finish([GHWriteResult refusal:GHWriteReasonUnsupported]); return; }   // a path only goes through the panel
     if ([ghost.action isEqualToString:GHGhostActionCheck]) { [self tick:fresh ghost:ghost finish:finish]; return; }
@@ -639,8 +667,15 @@ static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
 /// The ONE press in this class. The element is read again by the caller before we get here; this asks the lock
 /// check one last time (a control whose name changed under us, a menu that turned into a confirmation) and then
 /// performs the app's own default action. Nothing is typed, nothing is filled, no key is posted.
-- (void)press:(id<GHAXNode>)node finish:(void (^)(GHWriteResult *))finish {
+- (void)press:(id<GHAXNode>)node item:(BOOL)item finish:(void (^)(GHWriteResult *))finish {
     if (!self.isNodeLocked || self.isNodeLocked(node)) { finish([GHWriteResult refusal:GHWriteReasonLocked]); return; }
+    // A row is not a button: activating one is an OPEN, and AXPress on it only selects (measured on Spotify,
+    // where pressing a playlist highlighted it and opened nothing).
+    if (item) {
+        if ([self.actuator openNode:node]) { finish([GHWriteResult okWithMethod:GHWriteMethodOpen]); return; }
+        finish([GHWriteResult failure:GHWriteReasonDidNotHold method:GHWriteMethodOpen]);
+        return;
+    }
     // A text box is never pressed: putting the cursor in it IS the action (a search box the user is about to
     // type in). Nothing is typed and nothing is filled either way -- the click ghost carries no value.
     BOOL typeable = [node.role isEqualToString:kRoleTextField] || [node.role isEqualToString:kRoleTextArea] ||

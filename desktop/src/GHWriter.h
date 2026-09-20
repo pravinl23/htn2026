@@ -41,6 +41,7 @@ extern NSString *const GHWriteMethodSelectedText;  // AXSelectedText over the wh
 extern NSString *const GHWriteMethodTyping;        // synthetic key events
 extern NSString *const GHWriteMethodPress;         // AXPress
 extern NSString *const GHWriteMethodClick;         // a real left click, for controls that do not implement AXPress
+extern NSString *const GHWriteMethodOpen;          // AXOpen, or a double click: what activating a list entry means
 extern NSString *const GHWriteMethodOpenPanel;     // GHOpenPanelDriver
 extern NSString *const GHWriteMethodComboBox;      // GHComboBoxDriver
 extern NSString *const GHWriteMethodFocus;         // the cursor was put in a text box; nothing was pressed
@@ -100,6 +101,14 @@ extern NSString *const GHWriteReasonComboBoxPrefix;   // "combobox-"
 /// back where the user left it afterwards. NO when the element has no usable box on screen, or the system
 /// refused the events. Never called for a locked control: the caller checks that first.
 - (BOOL)clickNode:(id<GHAXNode>)node;
+/**
+ * Open a list entry: AXOpen if the element publishes it, else a real DOUBLE click.
+ *
+ * A row is not a button. AXPress on one SELECTS it -- measured on Spotify, where pressing a playlist
+ * highlighted it and opened nothing -- because selecting is what a single click on a row does. Opening it is
+ * a double click, or the AXOpen action the app publishes for exactly this.
+ */
+- (BOOL)openNode:(id<GHAXNode>)node;
 /// A popup Ghost opened but cannot operate: close its menu again with one tagged Escape, and only while that menu is
 /// really open (an AXMenu under the popup, or focus on a menu item inside it), the same app is in front and
 /// `stillWanted` (the user has not pressed a key meanwhile) says yes. YES when the Escape was posted. Forgets the
@@ -124,6 +133,7 @@ extern NSString *const GHWriteReasonComboBoxPrefix;   // "combobox-"
 @property (nonatomic) BOOL pressWorks;           // AXPress toggles checkboxes/radios and picks menu items (YES)
 @property (nonatomic) BOOL publishesPress;       // the element lists AXPress among its actions at all (YES)
 @property (nonatomic) BOOL clickWorks;           // a real click reaches the app (YES)
+@property (nonatomic) BOOL openWorks;            // AXOpen / a double click opens a list entry (YES)
 @property (nonatomic) BOOL focusWorks;           // AXFocused is honoured (YES)
 @property (nonatomic) BOOL popupValueSettable;   // AXValue on a popup button works (NO)
 @property (nonatomic) BOOL scrollWorks;          // AXScrollToVisible is accepted (YES); what it moves is up to onScroll
@@ -141,6 +151,8 @@ extern NSString *const GHWriteReasonComboBoxPrefix;   // "combobox-"
 @property (nonatomic, readonly, copy) NSArray<id<GHAXNode>> *pressedNodes;
 /// Every node -clickNode: was asked to click, in order (whether it worked or not).
 @property (nonatomic, readonly, copy) NSArray<id<GHAXNode>> *clickedNodes;
+/// Every node -openNode: was asked to open: a list entry is opened, never pressed.
+@property (nonatomic, readonly, copy) NSArray<id<GHAXNode>> *openedNodes;
 /// Every node -focusNode: was asked to focus, in order (whether it worked or not).
 @property (nonatomic, readonly, copy) NSArray<id<GHAXNode>> *focusRequests;
 /// Nodes removed from the "app": refreshedNode: returns nil for them.

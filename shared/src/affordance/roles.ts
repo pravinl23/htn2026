@@ -182,6 +182,9 @@ const PATH_PATTERNS: readonly { role: AffordanceRole; re: RegExp }[] = [
 ];
 
 const SEARCH_NAME = /\bsearch\b|\bquery\b|^q$/;
+/** How much a list that is not the main region's is worth: less, never nothing. */
+const OFF_MAIN_LIST = 0.8;
+
 /** What a native tree or ARIA calls one entry of a list, a table, an outline or a listbox. */
 const LIST_ENTRY_ROLE = /^(listitem|row|cell|treeitem|option|gridcell)$/;
 const MAX_CONFIDENCE = 0.95;
@@ -230,8 +233,22 @@ export function isGlyphOnly(label: string | undefined): boolean {
 }
 
 /** Unknown main list: every repeated list counts. Known: only that one. Null: none does. */
-function inMainList(listSignature: string, context: AffordanceContext): boolean {
-  return context.mainListSignature === undefined || context.mainListSignature === listSignature;
+/**
+ * How much this candidate's list membership is worth: 1 for the main region's list, less for another, 0 for
+ * a window the client says has no main list at all.
+ *
+ * Being outside the main list used to be worth NOTHING, which is right when the detector picks the right
+ * list and catastrophic when it does not. Measured on a real video site: forty video links on screen, every
+ * one classified `unknown` because the detector had settled on the navigation rail, so the only thing left
+ * to propose was the search box. Ranking a side list second is a far better failure than silencing it.
+ *
+ * `null` still silences, because that is the client stating a fact rather than the detector guessing wrong.
+ */
+function listStanding(candidate: AffordanceCandidate, context: AffordanceContext): number {
+  if (candidate.list === undefined) return 1;            // a native row that says so in its own role
+  if (context.mainListSignature === null) return 0;      // "this window has no main list"
+  if (context.mainListSignature === undefined) return 1; // unknown: take the list at its word
+  return context.mainListSignature === candidate.list.listSignature ? 1 : OFF_MAIN_LIST;
 }
 
 /**
@@ -323,9 +340,10 @@ export function classifyAffordance(candidate: AffordanceCandidate, context: Affo
   // A native row says so itself, too: the list detector needs repeated SHAPES and does not always fire on an
   // AXOutline whose rows differ, so a Messages conversation would otherwise score as nothing at all.
   const listEntry = LIST_ENTRY_ROLE.test((candidate.ariaRole ?? "").trim().toLowerCase());
-  const inList = candidate.list !== undefined && inMainList(candidate.list.listSignature, context);
+  const inList = candidate.list !== undefined;
   if (itemLike && (inList || listEntry)) {
-    scores.add("primary-item", listItemWeight(candidate.list?.index ?? 0), "list-item");
+    const standing = listStanding(candidate, context);
+    if (standing > 0) scores.add("primary-item", listItemWeight(candidate.list?.index ?? 0) * standing, "list-item");
   }
   // Somebody is waiting for an answer. Strongest item evidence there is: it says which row, not merely that
   // rows exist, and it is the one thing on a messaging screen Ghost can follow all the way through.

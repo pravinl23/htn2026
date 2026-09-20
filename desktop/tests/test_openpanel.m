@@ -957,12 +957,13 @@ GH_TEST(openpanel_page_check_reads_web_content_never_tab_titles) {
 
 @implementation GHOPSnapshot {
     NSString *_role, *_subrole, *_roleDescription, *_title, *_axDescription, *_placeholder, *_help, *_value, *_identifier;
-    BOOL _enabled, _required, _isFocused;
+    BOOL _enabled, _required, _isFocused, _valueIsSettable, _pressable;
     CGRect _frame;
     NSArray<id<GHAXNode>> *_children;
     id<GHAXNode> _parent;
     BOOL _parentRead;
 }
+@synthesize valueIsSettable = _valueIsSettable, pressable = _pressable;
 + (instancetype)of:(GHFakeAXNode *)target {
     if (!target) return nil;
     GHOPSnapshot *node = [[self alloc] init];

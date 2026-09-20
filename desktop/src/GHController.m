@@ -106,7 +106,9 @@ static const NSUInteger kUploadVerifyTries = 8;
     BOOL _visionAsked;                                            // one attempt per page view, over and above GHVision's own rule
     NSString *_stickySignature;    // the proposal currently on screen: it wins near-ties so the ghost stops moving
     NSString *_cooldownSignature;  // just taken or just turned down: not offered again until _cooldownUntil
+    NSString *_cooldownList;       // ...and neither is the rest of ITS list: a walk down a list is not a prediction
     CFAbsoluteTime _cooldownUntil;
+    NSString *_lastAcceptedList;   // the list the last accepted proposal belonged to, for the learning rule below
     BOOL _rescanDeferred;
     NSString *_walkBundleId;   // the app whose window the walk belongs to (live captures only)
     NSString *_waitingDraft;
@@ -454,6 +456,8 @@ static const NSUInteger kUploadVerifyTries = 8;
     }
     _stickySignature = nil;
     _cooldownSignature = nil;
+    _cooldownList = nil;
+    _lastAcceptedList = nil;
     _hudStatus = nil;
     _epoch++;   // an answer still in flight belongs to the page we left
     [self endDraftWait:NO];
@@ -690,11 +694,19 @@ static const NSUInteger kUploadVerifyTries = 8;
  *     rescans several times a second. That is the ghost "making many guesses and keeping moving".
  */
 - (GHNextProposal *)steadyProposalFrom:(NSArray<GHNextProposal *> *)ranked top:(GHNextProposal *)top {
-    if (CFAbsoluteTimeGetCurrent() >= _cooldownUntil) _cooldownSignature = nil;
+    if (CFAbsoluteTimeGetCurrent() >= _cooldownUntil) { _cooldownSignature = nil; _cooldownList = nil; }
     NSString *cooling = _cooldownSignature ?: @"";
-    GHNextProposal *best = [top.signature isEqualToString:cooling] ? nil : top;
+    NSString *coolingList = _cooldownList ?: @"";
+    BOOL (^cool)(GHNextProposal *) = ^BOOL(GHNextProposal *row) {
+        if ([row.signature isEqualToString:cooling]) return YES;
+        // And the rest of its list with it: after taking one row, the answer is what that row opened, not
+        // the row under it. Branching is the whole point of a next-action guess.
+        NSString *list = self->_fields[row.signature].listSignature;
+        return coolingList.length > 0 && list.length > 0 && [list isEqualToString:coolingList];
+    };
+    GHNextProposal *best = (top && cool(top)) ? nil : top;
     for (GHNextProposal *row in ranked) {
-        if ([row.signature isEqualToString:cooling]) continue;
+        if (cool(row)) continue;
         if (!best) best = row;
         // The ghost already on screen wins any near-tie, however the rows happen to be ordered this time.
         if ([row.signature isEqualToString:_stickySignature ?: @""] && row.confidence + kProposalStickyMargin >= best.confidence) {
@@ -731,8 +743,25 @@ static const NSUInteger kUploadVerifyTries = 8;
 - (void)recordProposalOutcome:(NSString *)outcome forSignature:(NSString *)signature {
     GHNextProposal *proposal = _proposal;
     if (!proposal || ![proposal.signature isEqualToString:signature ?: @""]) return;
-    [_nextAction recordOutcome:outcome forProposal:proposal];
-    if ([outcome isEqualToString:GHRoleOutcomeAccepted]) {
+    BOOL accepted = [outcome isEqualToString:GHRoleOutcomeAccepted];
+    NSString *list = _fields[proposal.signature].listSignature;
+    /*
+     * Taking the next row of the list you are already in teaches NOTHING about what follows what.
+     *
+     * Role memory is keyed (pageKind, previousRole, role), which cannot tell "I opened a video, then opened
+     * another video" from "I walked down a list because Ghost kept offering me the next row". Measured on
+     * this machine: `feed | primary-item -> primary-item` reached 16 accepts, which pins it at 0.88 -- above
+     * every prior -- purely from walking lists. Ghost then knew, with certainty, that after an item comes an
+     * item, so pressing the key again went to the next filter, and the next, instead of branching into what
+     * the first one opened. The accept loop had taught itself.
+     *
+     * So a step within one list is not written down. A refusal still is: turning something down says
+     * something about it whether or not it has neighbours.
+     */
+    BOOL sameList = accepted && list.length > 0 && [list isEqualToString:_lastAcceptedList ?: @""];
+    if (!sameList) [_nextAction recordOutcome:outcome forProposal:proposal];
+    if (accepted) {
+        _lastAcceptedList = [list copy];
         _previousRole = proposal.role;
         _previousRoleBundleId = [_walkBundleId copy];
     }
@@ -740,6 +769,7 @@ static const NSUInteger kUploadVerifyTries = 8;
     // second, and nothing anywhere excluded the row that was just dealt with, so the same ghost came
     // immediately back -- and, because role memory is keyed by role, pulled its neighbours up with it.
     _cooldownSignature = [proposal.signature copy];
+    _cooldownList = [_fields[proposal.signature].listSignature copy];
     _cooldownUntil = CFAbsoluteTimeGetCurrent() + kProposalCooldownSeconds;
     _stickySignature = nil;
     _proposal = nil;
@@ -1346,7 +1376,13 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
         GHField *field = _fields[ghost.signature];
         if (!field) continue;
         if (ghost == current) currentIndex = (NSInteger)entries.count;
-        [entries addObject:[GHOverlayEntry entryWithField:field ghost:[ghost dictionary]]];
+        // Tab is form-only, so it is the right label ONLY for a value ghost on the field that has focus.
+        // Everywhere else the Ghost key is what works, and a keycap that names the wrong key is worse than
+        // none: the user presses it, nothing happens, and Ghost looks broken.
+        BOOL tabWorksHere = ![ghost.action isEqualToString:GHGhostActionClick] &&
+                            [_walk.focusSignature isEqualToString:ghost.signature ?: @""];
+        NSString *keyName = tabWorksHere ? @"Tab" : GHGhostKeyDisplayName(self.eventTap.ghostKey);
+        [entries addObject:[GHOverlayEntry entryWithField:field ghost:[ghost dictionary] keyName:keyName]];
     }
     input.entries = entries;
     input.currentIndex = currentIndex;

@@ -270,12 +270,18 @@ describe("what real pages taught it", () => {
     expect(lockedForRole(signIn, classifyAffordance(signIn).role)).toBe(true);
   });
 
-  it("only counts the main region's list as items when the client says which one it is", () => {
+  it("ranks a side list below the main one, and silences it only when told there is no main list", () => {
     const navLink = candidate("x", "Grocery", { kind: "link", list: { listSignature: "UL.nav>LI", index: 4 } });
     expect(roleOf(navLink)).toBe("primary-item");
-    expect(roleOf(navLink, { mainListSignature: "DIV.results>DIV.item" })).toBe("unknown");
-    expect(roleOf(navLink, { mainListSignature: null })).toBe("unknown");
     expect(roleOf(navLink, { mainListSignature: "UL.nav>LI" })).toBe("primary-item");
+    // A DIFFERENT main list means this one ranks lower, not that it disappears. Measured on a real video
+    // site: silencing it left forty video links classified `unknown` and a search box as the only offer.
+    expect(roleOf(navLink, { mainListSignature: "DIV.results>DIV.item" })).toBe("primary-item");
+    const main = classifyAffordance(navLink, { mainListSignature: "UL.nav>LI" }).confidence;
+    const aside = classifyAffordance(navLink, { mainListSignature: "DIV.results>DIV.item" }).confidence;
+    expect(aside).toBeLessThan(main);
+    // `null` is the client stating a fact -- this window has no main list -- and that still silences.
+    expect(roleOf(navLink, { mainListSignature: null })).toBe("unknown");
   });
 
   it("reads a real cart link that carries its count in its own name", () => {

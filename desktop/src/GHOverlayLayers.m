@@ -205,14 +205,17 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
 @implementation GHKeycapLayer {
     CALayer *_cap;
     CGFloat _scale;
+    NSString *_label;
 }
 
 - (void)applyItem:(GHDrawItem *)item glide:(BOOL)glide reduceMotion:(BOOL)reduceMotion {
     GHSetLayerFrame(self, item.frame, NO);
-    if (_cap && _scale == item.scale && CGSizeEqualToSize(_cap.bounds.size, item.frame.size)) return;
+    NSString *label = item.text.length ? item.text : @"Tab";
+    if (_cap && _scale == item.scale && [_label isEqualToString:label] && CGSizeEqualToSize(_cap.bounds.size, item.frame.size)) return;
     [_cap removeFromSuperlayer];
-    _cap = GHMakeKeycap(@"Tab", item.frame.size, item.scale);
+    _cap = GHMakeKeycap(label, item.frame.size, item.scale);
     _scale = item.scale;
+    _label = [label copy];
     [self addSublayer:_cap];
 }
 

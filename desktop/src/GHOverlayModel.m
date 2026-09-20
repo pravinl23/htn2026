@@ -45,7 +45,7 @@ CGFloat GHGhostTextPadding(CGFloat fieldHeight) {
     return entry;
 }
 
-+ (instancetype)entryWithField:(GHField *)field ghost:(NSDictionary<NSString *, id> *)ghost {
++ (instancetype)entryWithField:(GHField *)field ghost:(NSDictionary<NSString *, id> *)ghost keyName:(NSString *)keyName {
     id text = ghost[@"displayText"], locked = ghost[@"locked"], pending = ghost[@"pending"];
     GHOverlayEntry *entry = [self entryWithSignature:field.signature
                                                 kind:field.kind
@@ -53,6 +53,7 @@ CGFloat GHGhostTextPadding(CGFloat fieldHeight) {
                                               axRect:field.rect
                                               locked:[locked isKindOfClass:NSNumber.class] ? [locked boolValue] : field.locked];
     entry.streaming = [pending isKindOfClass:NSNumber.class] && [pending boolValue];
+    entry.keyName = keyName;
     id guess = ghost[@"guess"];
     entry.guess = [guess isKindOfClass:NSNumber.class] && [guess boolValue];
     return entry;
@@ -283,15 +284,17 @@ static GHDrawItem *GHCursorItem(GHMeasured m, CGPoint tip, GHScreenLayout *layou
     return item;
 }
 
-static GHDrawItem *GHKeycapItem(GHMeasured m, GHOverlayMode mode, GHScreenLayout *layout) {
+static GHDrawItem *GHKeycapItem(GHOverlayEntry *entry, GHMeasured m, GHOverlayMode mode, GHScreenLayout *layout) {
     if (mode != GHOverlayModeText && mode != GHOverlayModeMultiline) return nil;
     if (m.box.size.width < kKeycapMinField) return nil;
     CGFloat x = CGRectGetMaxX(m.box) - kKeycapGap - kKeycapWidth;
     CGFloat y = mode == GHOverlayModeMultiline ? m.box.origin.y + 8 : CGRectGetMidY(m.box) - kKeycapHeight / 2;
     CGRect cap = CGRectMake(x, y, kKeycapWidth, kKeycapHeight);
     if (!CGRectContainsRect(CGRectInset(m.seen, -1, -1), cap)) return nil;  // the right edge is cut off
-    return [GHDrawItem itemWithKind:GHDrawKindKeycap key:@"keycap" screen:m.screen
-                              frame:[layout localRectFromAXRect:cap screen:m.screen]];
+    GHDrawItem *item = [GHDrawItem itemWithKind:GHDrawKindKeycap key:@"keycap" screen:m.screen
+                                          frame:[layout localRectFromAXRect:cap screen:m.screen]];
+    item.text = entry.keyName ?: @"Tab";
+    return item;
 }
 
 /// Bottom-right of the main display, above the Dock. The frame is the room; the layer hugs its content inside it.
@@ -368,7 +371,7 @@ static NSArray<GHDrawItem *> *GHHudItems(GHOverlayInput *input, GHScreenLayout *
 
         BOOL hasText = entry.displayText.length > 0 && !entry.locked;
         // Decided first: ghost text only gives up room on its right when a keycap is really drawn there.
-        GHDrawItem *keycap = current && hasText ? GHKeycapItem(m, mode, layout) : nil;
+        GHDrawItem *keycap = current && hasText ? GHKeycapItem(entry, m, mode, layout) : nil;
         GHDrawItem *body = nil;
         if (hasText) {
             if (mode == GHOverlayModeText || mode == GHOverlayModeMultiline) body = GHTextItem(entry, m, current, keycap != nil, mode, layout);

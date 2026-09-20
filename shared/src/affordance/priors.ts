@@ -53,8 +53,24 @@ export function priorsFor(kind: PageKind, state: PriorState = {}): RolePrior[] {
   const priors = merge(merge(merge(build(kind, state), after(state.previousRole)), focusedField(state)), unread(state));
   return priors
     .filter((p) => p.weight > 0)
-    .map((p) => ({ role: p.role, weight: Math.min(PRIOR_MAX, Math.max(PRIOR_MIN, p.weight)) }))
+    .map((p) => ({ role: p.role, weight: capped(p) }))
     .sort((a, b) => b.weight - a.weight);
+}
+
+/**
+ * `search` can never be a confident offer, in any kind of place.
+ *
+ * Putting a cursor in a search box is only worth a keystroke if Ghost knows what goes in it, and it does
+ * not: there is no honest way to guess what somebody is about to look for. It stays available -- role
+ * memory can still lift it for a person who really does always search here -- but as a prior it sits at the
+ * floor, under the gate, so it is drawn as a guess and never as the answer.
+ *
+ * This is what "it always picks the search box" really was. A search box is the one control that exists on
+ * every page, so any prior that ranks it well makes it the answer everywhere.
+ */
+function capped(prior: RolePrior): number {
+  const ceiling = prior.role === "search" ? PRIOR_MIN : PRIOR_MAX;
+  return Math.min(ceiling, Math.max(PRIOR_MIN, prior.weight));
 }
 
 /**
@@ -177,10 +193,12 @@ function commerce(state: PriorState): RolePrior[] {
       { role: "primary-item", weight: 0.55 },
     ];
   }
-  // An empty cart: the shopper is still looking, and the thing they reach for is the search box.
+  // An empty cart: the shopper is still looking, so the thing in front of them is a product. This used to
+  // lead with the search box, which is what "it always goes to search on shopping sites" actually was --
+  // and a search box is no use to Ghost, because it cannot know what anyone is about to look for.
   return [
-    { role: "search", weight: 0.7 },
-    { role: "primary-item", weight: 0.62 },
+    { role: "primary-item", weight: 0.7 },
+    { role: "search", weight: 0.6 },
     { role: "cart", weight: 0.55 },
   ];
 }

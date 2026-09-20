@@ -378,7 +378,7 @@ GH_TEST(overlay_model_places_items_on_the_display_that_shows_the_field) {
 GH_TEST(overlay_model_entry_from_field_and_core_ghost) {
     GHField *field = [GHField fieldWithSignature:@"AXTextField|email|0" label:@"Email" kind:GHKindEmail];
     field.rect = CGRectMake(10, 20, 300, 40);
-    GHOverlayEntry *entry = [GHOverlayEntry entryWithField:field ghost:@{ @"signature" : field.signature, @"displayText" : @"alex.chen@example.com", @"locked" : @NO, @"pending" : @YES }];
+    GHOverlayEntry *entry = [GHOverlayEntry entryWithField:field ghost:@{ @"signature" : field.signature, @"displayText" : @"alex.chen@example.com", @"locked" : @NO, @"pending" : @YES } keyName:@"Tab"];
     GH_ASSERT_EQUAL_OBJECTS(entry.signature, @"AXTextField|email|0");
     GH_ASSERT_EQUAL_OBJECTS(entry.kind, @"email");
     GH_ASSERT_EQUAL_OBJECTS(entry.displayText, @"alex.chen@example.com");
@@ -386,7 +386,7 @@ GH_TEST(overlay_model_entry_from_field_and_core_ghost) {
     GH_ASSERT_FALSE(entry.locked);
     GH_ASSERT_RECT(entry.axRect, 10, 20, 300, 40);
     field.locked = YES;
-    GHOverlayEntry *bare = [GHOverlayEntry entryWithField:field ghost:@{ @"displayText" : NSNull.null }];
+    GHOverlayEntry *bare = [GHOverlayEntry entryWithField:field ghost:@{ @"displayText" : NSNull.null } keyName:nil];
     GH_ASSERT(bare.locked);  // falls back to the field's own flag
     GH_ASSERT_EQUAL_OBJECTS(bare.displayText, @"");
 }

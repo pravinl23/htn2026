@@ -29,6 +29,12 @@ export interface PageSignals {
   appBundleId?: string;
 }
 
+/**
+ * How much of a page has to be fields before it is a form. A real application form is mostly fields; a page
+ * that merely owns a search box and a couple of inputs is not, however many controls it has in total.
+ */
+const FORM_FIELD_SHARE = 0.25;
+
 export interface PageKindGuess {
   kind: PageKind;
   confidence: number;
@@ -129,9 +135,15 @@ export function inferPageKind(signals: PageSignals): PageKindGuess {
   if (has("primary-item") >= 3) scores.add("feed", 0.2, "item-roles");
   if (has("search") > 0 && repeats >= 4) scores.add("feed", 0.1, "search-affordance");
 
-  if (fields >= 3) scores.add("form", 0.45, "field-count");
-  if (fields >= 6) scores.add("form", 0.1, "field-count");
-  if (fields >= 3 && has("submit") > 0) scores.add("form", 0.25, "submit-role");
+  // A form is a page whose fields are the POINT, not a page that happens to contain three of them. Counting
+  // them alone made YouTube a form -- 140 candidates, a handful of boxes, evidence "field-count, submit-role"
+  // -- and `form` leads with `field 0.70`, which is why Ghost reached for the search box on every page with
+  // a search box. Measured: a job application is two thirds fields; a video site is a few per cent.
+  const fieldShare = fields + controls > 0 ? fields / (fields + controls) : 0;
+  const looksLikeAForm = fields >= 3 && fieldShare >= FORM_FIELD_SHARE;
+  if (looksLikeAForm) scores.add("form", 0.45, "field-count");
+  if (looksLikeAForm && fields >= 6) scores.add("form", 0.1, "field-count");
+  if (looksLikeAForm && has("submit") > 0) scores.add("form", 0.25, "submit-role");
 
   if (density >= 0.6) scores.add("reader", 0.5, "text-density");
   if (density >= 0.6 && controls <= 8) scores.add("reader", 0.2, "few-controls");

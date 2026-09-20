@@ -158,9 +158,11 @@ describe("predictByRole on a page it has never seen", () => {
     expect(rows.findIndex((r) => r.id === "link:div.grid:0")).toBeLessThan(rows.findIndex((r) => r.id === "link:div.grid:4"));
   });
 
-  it("reaches for the search box on a shop with an empty cart", () => {
+  it("reaches for a product, not the search box, on a shop with an empty cart", () => {
+    // This used to answer the search box, and "it always goes to search on shopping sites" was the result.
     const rows = rank(productPage(), { pageKind: "commerce" });
-    expect(top(rows).id).toBe("field:search");
+    expect(top(rows).role).not.toBe("search");
+    expect(top(rows).id).not.toBe("field:search");
   });
 
   it("waits on the cart once the cart has something in it", () => {
@@ -256,11 +258,13 @@ describe("memory beats priors once there is real history", () => {
     memory.record(key, "dismissed");
     memory.record(key, "dismissed");
     const rows = rank(gridFeed(), { pageKind: "feed" }, memory);
-    expect(top(rows).id).toBe("field:search");
     const item = row(rows, "link:div.grid:0");
     expect(item.confidence).toBeCloseTo(0.4);
     expect(item.reason).toBe("you passed on this before");
+    // Sunk below the roles the place still believes in -- including search, which sits at the floor but is
+    // no longer beaten by a role the user has turned down twice.
     expect(rows.indexOf(item)).toBeGreaterThan(rows.indexOf(row(rows, "btn:more")));
+    expect(rows.indexOf(item)).toBeGreaterThan(rows.indexOf(row(rows, "field:search")));
   });
 
   it("recovers a dismissed role once the user starts accepting it again", () => {

@@ -325,11 +325,14 @@ GH_TEST(anywhere_shop_with_a_full_cart_offers_the_cart_and_locks_checkout) {
     GH_ASSERT_EQUAL_INT(GHDecideTab(snapshot, GHKeyModifierNone, NO, NULL), GHKeyDecisionPark);
 }
 
-GH_TEST(anywhere_empty_cart_sends_the_shopper_to_the_search_box) {
+/// An empty cart used to send the shopper to the search box, and "it always goes to search on shopping
+/// sites" was the result. A shopper still looking wants to look at a product; Ghost cannot know what anyone
+/// is about to type, so a search box is the one thing it can never usefully offer.
+GH_TEST(anywhere_empty_cart_offers_a_product_not_the_search_box) {
     GHNextAction *engine = Engine(TempMemory());
     GHNextProposal *top = ProposalFor(engine, ShopWindow(0), nil);
     GH_ASSERT(top != nil);
-    GH_ASSERT_EQUAL_OBJECTS(top.role, @"search");
+    GH_ASSERT_FALSE([top.role isEqualToString:@"search"]);
 }
 
 GH_TEST(anywhere_a_window_ghost_cannot_place_still_proposes_as_a_guess) {
@@ -339,16 +342,15 @@ GH_TEST(anywhere_a_window_ghost_cannot_place_still_proposes_as_a_guess) {
     GHNextProposal *top = ProposalFor(engine, PlainWindow(), nil);
     GH_ASSERT_MSG(top != nil, @"docs/always-propose.md: a place Ghost cannot name still gets a proposal");
     GH_ASSERT_EQUAL_OBJECTS(engine.pageKind, @"app");
-    GH_ASSERT_EQUAL_OBJECTS(top.role, @"search");
-    GH_ASSERT(top.confidence > 0.6 && top.confidence < 0.7);
+    GH_ASSERT(top.confidence < 0.7);
     GH_ASSERT_MSG(top.guess, @"under the gate it is a guess");
 
-    // The same row, with the user's gate lowered, is an ordinary ghost rather than a guess.
+    // The same row, with the user's gate lowered under it, is an ordinary ghost rather than a guess.
     GHNextAction *eager = Engine(TempMemory());
-    eager.threshold = 0.6;
+    eager.threshold = 0.5;
     GHNextProposal *confident = ProposalFor(eager, PlainWindow(), nil);
     GH_ASSERT(confident != nil);
-    GH_ASSERT_EQUAL_OBJECTS(confident.role, @"search");
+    GH_ASSERT_EQUAL_OBJECTS(confident.role, top.role);
     GH_ASSERT_FALSE(confident.guess);
 }
 
@@ -647,6 +649,7 @@ GH_TEST(anywhere_vision_cache_key_changes_when_a_control_moves) {
 @interface GHPressOnlyActuator : NSObject <GHAXActuating>
 @property (nonatomic) NSUInteger presses;
 @property (nonatomic) NSUInteger clicks;
+@property (nonatomic) NSUInteger opens;
 /// NO makes this element one of the many that publish no AXPress at all, so the writer must click it.
 @property (nonatomic) BOOL publishesPress;
 @end
@@ -662,6 +665,7 @@ GH_TEST(anywhere_vision_cache_key_changes_when_a_control_moves) {
 - (BOOL)pressNode:(id<GHAXNode>)node { self.presses++; return YES; }
 - (BOOL)nodeAcceptsPress:(id<GHAXNode>)node { return self.publishesPress; }
 - (BOOL)clickNode:(id<GHAXNode>)node { self.clicks++; return YES; }
+- (BOOL)openNode:(id<GHAXNode>)node { self.opens++; return YES; }
 - (BOOL)dismissMenuOfPopup:(id<GHAXNode>)popup stillWanted:(BOOL (^)(void))stillWanted { return NO; }
 - (BOOL)scrollToVisible:(id<GHAXNode>)node { return NO; }
 @end
@@ -798,8 +802,8 @@ GH_TEST(anywhere_a_box_with_the_answers_under_it_is_not_the_proposal) {
 /// custom-drawn. Before this, `press` was the only actuation Ghost had, and on all of those the accept did
 /// nothing at all -- and still reported ok, because kAXErrorCannotComplete was being counted as success.
 GH_TEST(anywhere_a_control_that_does_not_implement_press_is_really_clicked) {
-    GHFakeAXNode *node = Node(@"AXRow", nil, CGRectMake(0, 120, 300, 64));
-    GHField *field = [GHField fieldWithSignature:@"AXRow|tahseen|0" label:@"Tahseen Rayhan" kind:GHKindItem];
+    GHFakeAXNode *node = Node(@"AXButton", @"Full screen", CGRectMake(0, 120, 300, 64));
+    GHField *field = [GHField fieldWithSignature:@"AXButton|fullscreen|0" label:@"Full screen" kind:GHKindButton];
     field.rect = node.frame;
     GHGhost *ghost = [[GHGhost alloc] init];
     ghost.signature = field.signature;
@@ -820,10 +824,40 @@ GH_TEST(anywhere_a_control_that_does_not_implement_press_is_really_clicked) {
     GH_ASSERT_EQUAL_INT(actuator.clicks, 1);
     GH_ASSERT_EQUAL_INT(actuator.presses, 0);   // never pressed something that cannot be pressed
 
-    // And a locked row is still never touched, by either route.
+    // And a locked control is still never touched, by either route.
     field.locked = YES;
     GH_ASSERT_EQUAL_OBJECTS(WriteClick(writer, ghost, field, node).reason, GHWriteReasonLocked);
     GH_ASSERT_EQUAL_INT(actuator.clicks, 1);
+}
+
+/// A row is not a button. AXPress on one SELECTS it: measured on Spotify, where pressing a playlist
+/// highlighted it and opened nothing at all. Activating a row is an OPEN -- AXOpen, or a double click.
+GH_TEST(anywhere_a_list_entry_is_opened_and_never_merely_pressed) {
+    GHFakeAXNode *node = Node(@"AXRow", nil, CGRectMake(0, 120, 300, 64));
+    GHField *field = [GHField fieldWithSignature:@"ax|AXRow|playlist|0" label:@"pre grrr" kind:GHKindItem];
+    field.rect = node.frame;
+    GHGhost *ghost = [[GHGhost alloc] init];
+    ghost.signature = field.signature;
+    ghost.action = GHGhostActionClick;
+    ghost.displayText = field.label;
+
+    GHPressOnlyActuator *actuator = [[GHPressOnlyActuator alloc] init];
+    GHWriter *writer = [[GHWriter alloc] initWithActuator:actuator];
+    writer.isNodeSensitive = ^BOOL(id<GHAXNode> n) { return NO; };
+    writer.isNodeLocked = ^BOOL(id<GHAXNode> n) { return NO; };
+    writer.after = ^(NSTimeInterval delay, dispatch_block_t block) { block(); };
+
+    GHWriteResult *opened = WriteClick(writer, ghost, field, node);
+    GH_ASSERT(opened.ok);
+    GH_ASSERT_EQUAL_OBJECTS(opened.method, GHWriteMethodOpen);
+    GH_ASSERT_EQUAL_INT(actuator.opens, 1);
+    GH_ASSERT_EQUAL_INT(actuator.presses, 0);
+    GH_ASSERT_EQUAL_INT(actuator.clicks, 0);
+
+    // A locked row is refused before any of that.
+    field.locked = YES;
+    GH_ASSERT_EQUAL_OBJECTS(WriteClick(writer, ghost, field, node).reason, GHWriteReasonLocked);
+    GH_ASSERT_EQUAL_INT(actuator.opens, 1);
 }
 
 /// The real click is the fallback, never the first choice: AXPress is the app's own default action, it needs

@@ -35,13 +35,16 @@ CGFloat GHGhostTextPadding(CGFloat fieldHeight);
 /// Ghost.guess: the answer engine guessed this (docs/answers.md). Drawn with a dotted underline and a "guess"
 /// chip so it is never mistaken for a fact; hold-Tab stops here.
 @property (nonatomic) BOOL guess;
+/// What the keycap says. Tab is form-only now, so a keycap reading "Tab" beside a ghost the Ghost key
+/// accepts is simply wrong. The controller passes whichever key is really bound.
+@property (nonatomic, copy, nullable) NSString *keyName;
 + (instancetype)entryWithSignature:(NSString *)signature
                               kind:(NSString *)kind
                        displayText:(NSString *)displayText
                             axRect:(CGRect)axRect
                             locked:(BOOL)locked;
 /// `ghost` is one element of GhostCore.ghostsFor (displayText, locked, pending). The rect is the field's.
-+ (instancetype)entryWithField:(GHField *)field ghost:(NSDictionary<NSString *, id> *)ghost;
++ (instancetype)entryWithField:(GHField *)field ghost:(NSDictionary<NSString *, id> *)ghost keyName:(nullable NSString *)keyName;
 @end
 
 @interface GHOverlayHUDInfo : NSObject <NSCopying>

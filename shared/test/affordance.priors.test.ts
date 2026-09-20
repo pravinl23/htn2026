@@ -30,8 +30,11 @@ describe("media priors follow the state of the player", () => {
 });
 
 describe("feed priors", () => {
-  it("proposes the first item, then search, then more", () => {
-    expect(roles("feed")).toEqual(["primary-item", "search", "scroll-more"]);
+  it("proposes the first item, and never leads with search", () => {
+    expect(roles("feed")[0]).toBe("primary-item");
+    // Search sits at the floor in every place: a cursor in a search box is only worth a keystroke if Ghost
+    // knows what goes in it, and there is no honest way to guess that.
+    expect(priorWeight(priorsFor("feed"), "search")).toBe(PRIOR_MIN);
   });
 
   it("raises loading more once the user is at the end", () => {
@@ -41,13 +44,17 @@ describe("feed priors", () => {
 });
 
 describe("commerce priors follow the cart", () => {
-  it("guesses the shopper is about to search when the cart is empty", () => {
-    expect(roles("commerce")).toEqual(["search", "primary-item", "cart"]);
-    expect(priorWeight(priorsFor("commerce"), "search")).toBe(PRIOR_MAX);
+  it("offers the first product, not the search box, when the cart is empty", () => {
+    // This used to lead with search, and "it always goes to search on shopping sites" was the result. A
+    // shopper looking at products wants a product; somebody who wants to search will type without being
+    // asked. Search stays on the list, under the gate, so memory can still lift it for a person who really
+    // does always search here.
+    expect(roles("commerce")[0]).toBe("primary-item");
+    expect(priorWeight(priorsFor("commerce"), "search")).toBe(PRIOR_MIN);
   });
 
   it("puts the cart first, then checkout, once there is something in it", () => {
-    expect(roles("commerce", { cartCount: 2 })).toEqual(["cart", "checkout", "search", "primary-item"]);
+    expect(roles("commerce", { cartCount: 2 }).slice(0, 2)).toEqual(["cart", "checkout"]);
   });
 
   it("treats an unknown cart as an empty one", () => {
@@ -126,9 +133,11 @@ describe("priors stay weak, everywhere", () => {
     }
   });
 
-  it("gives every recognized place exactly one proposal at the gate", () => {
+  it("gives every recognized place exactly one proposal at the gate, and it is never search", () => {
     for (const kind of ["feed", "media", "commerce", "reader", "mail", "form"] as const) {
-      expect(priorsFor(kind).filter((p) => p.weight >= PRIOR_MAX)).toHaveLength(1);
+      const atGate = priorsFor(kind).filter((p) => p.weight >= PRIOR_MAX);
+      expect(atGate).toHaveLength(1);
+      expect(atGate[0]?.role).not.toBe("search");
     }
   });
 
@@ -170,7 +179,8 @@ describe("the cart count a real shop actually shows", () => {
       candidate("f", "", { kind: "field", ariaRole: "searchbox", placeholder: "Search the store" }),
       candidate("c", "0 items in cart", { kind: "link", classTokens: ["nav-cart"] }),
     ];
-    expect(priorsFor("commerce", { cartCount: cartCountFrom(header) })[0]?.role).toBe("search");
+    // An empty cart no longer means "search": it means look at a product.
+    expect(priorsFor("commerce", { cartCount: cartCountFrom(header) })[0]?.role).toBe("primary-item");
     const full = [header[0]!, candidate("c", "2 items in cart", { kind: "link", classTokens: ["nav-cart"] })];
     expect(priorsFor("commerce", { cartCount: cartCountFrom(full) })[0]?.role).toBe("cart");
   });
