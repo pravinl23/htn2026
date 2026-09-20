@@ -1,8 +1,6 @@
 packages:
   - shared
-  - extension
   - server
   - demo
-  - e2e
 onlyBuiltDependencies:
   - esbuild

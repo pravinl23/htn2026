@@ -25,20 +25,35 @@ The single most important rule: **`main` must always contain a working, demoable
 
 Read `PLAN.md` (what to build, in order), `PROGRESS.md` (what previous runs did), and `MORNING.md` (what Pravin will read when he wakes up) before doing anything.
 
-**Current boundary (2026-09-19, supersedes `PLAN.md` and `ROUTINE_PROMPT.md`):** the invoice loop
-("do it twice, Ghost does the rest") is **no longer the product** and is not the top priority; do not
-build it. `PLAN.md` and `ROUTINE_PROMPT.md` still name it and are stale — trust this file over both.
-The direction is the outcome loop above: propose anywhere, Tab to accept, record every outcome to
-the local graph and to Sentry. The brain (`shared/src/knowledge`, `shared/src/affordance`,
-`shared/src/coldstart`) is built and benchmarked; the native macOS agent consumes it, the Chrome
-extension does not yet. `server/src/observability/walkSink.ts` is the Sentry sink for the rejection
-stream. Do not infer that anything else in the target architecture below already exists.
+**Current boundary (2026-09-20, supersedes `PLAN.md` and `ROUTINE_PROMPT.md`):**
+
+1. **Ghost is a native macOS app.** The Chrome extension is in `attic/` and is NOT the product. Do
+   not build browser features, do not revive it, do not add a second client. The native agent reads
+   the accessibility tree of whatever app is frontmost, so browsers are just one case it already
+   handles — and they are the only case an extension could ever have handled.
+2. **The invoice loop is dead.** "Do it twice, Ghost does the rest" is no longer the product.
+   `PLAN.md` and `ROUTINE_PROMPT.md` still name it and are stale; trust this file over both.
+3. The brain (`shared/src/knowledge`, `shared/src/affordance`, `shared/src/coldstart`) is built and
+   benchmarked, and `desktop/core/knowledge.ts` consumes it.
+   **Known gap: `server/src/providers/nextPredict.ts` does NOT use it** and answers `none` on real
+   pages (measured on YouTube and Amazon). Wiring the brain into that path is the top priority.
+4. `server/src/observability/walkSink.ts` is the Sentry sink for the rejection stream, and it is wired.
+
+Do not infer that anything else in the target architecture below already exists.
 
 ## The product
 
-Ghost predicts your next action anywhere in the browser (and later the OS) and shows it as a translucent "ghost": a ghost cursor gliding onto the button or field you are about to use, and gray ghost text inside the field you are about to fill. Pressing **Tab** accepts it. Example: open a job application, the ghost cursor is already sitting on the first field with your name ghosted in, and Tab, Tab, Tab fills the whole form.
+Ghost predicts your next action **anywhere on your Mac** — a web page, Discord, Slack, System
+Settings, Finder, a terminal — and shows it as a translucent "ghost": a ghost cursor gliding onto the
+button or field you are about to use, and gray ghost text inside the field you are about to fill.
+Pressing **Tab** accepts it. Example: open a job application, the ghost cursor is already sitting on
+the first field with your name ghosted in, and Tab, Tab, Tab fills the whole form.
 
-The headline feature: **"Do it twice, Ghost does the rest."** If the user repeats a multi-step task twice (copy an invoice total into a spreadsheet, reply "received"), Ghost detects the loop, previews every remaining iteration in a grid, and runs them all with one Tab.
+**Every outcome is recorded — taken or replaced.** Locally, so Ghost learns this person, and to
+Sentry, so the stream of rejected proposals can improve the model for everyone. A ghost the user
+turns down is a labelled training example, and it is the only thing the product learns from.
+
+This is why it is a desktop app and not a browser extension: an extension can never see Discord.
 
 Speed is the whole product. A ghost that takes 3 seconds to appear feels like a slow agent; one that appears instantly feels like Cursor. See "Latency strategy".
 
@@ -54,20 +69,34 @@ Speed is the whole product. A ghost that takes 3 seconds to appear feels like a 
 ## Architecture (pnpm monorepo)
 
 ```
-extension/   Chrome MV3 extension (TypeScript, Vite or esbuild build to extension/dist)
-  src/content/     capture, candidate extraction, overlay (shadow DOM), Tab handling, input execution
-  src/background/  service worker: action trace, cross-tab state, chrome.debugger fallback input, server client
-  src/options/     options page: profile editor, resume import, settings, metrics
+desktop/     THE PRODUCT. Objective-C macOS agent (own Makefile: `pnpm desktop`, `pnpm desktop:test`)
+  src/GHAccessibility  adopts the frontmost app and reads its accessibility tree. App-agnostic:
+                       the only hardcoded lists are a SAFETY PAUSE list (Terminal, Keychain,
+                       System Settings, password prompts) and a Chromium AX quirk
+  src/GHCapture        candidates + hints (roles, list signature, badge counts, media controls)
+  src/GHNextAction     next-action proposal; src/GHAffordance role classification
+  src/GHWriter         verified writes; GHOverlay* the ghost the user actually sees
+  src/GHColdStart      the local scan that seeds the graph from this Mac
+  core/knowledge.ts    the bridge to the shared brain (rankActions / recordOutcome)
+shared/      The brain, and the only place prediction logic lives
+  src/knowledge/   rankActions, recordOutcome, screenKind, habits, cold-start seeding
+  src/affordance/  roles, page kinds, priors, role memory
+  src/coldstart/   local scan extractors and the sensitivity filter
 server/      Node 22 + TypeScript (Hono) prediction service on http://localhost:8787
-  src/providers/   decision providers (TypeSafe Jev direct, Jev via Vercel AI Gateway, OpenAI fallback, heuristic)
-  src/routes/      /v1/health, /v1/predict/form, /v1/predict/next, /v1/ghost-text, /v1/profile/extract, /v1/loop/synthesize, /v1/metrics
-demo/        Local demo sites served on http://localhost:5173 (job application, mail, calendar, invoices, sheet)
-e2e/         Playwright tests that load the built extension into Chromium and drive the demo sites
-desktop/     Objective-C macOS form agent (separate Makefile/tests; no loop support yet)
-docs/        README assets, architecture diagram, recorded demo videos (docs/media)
+  src/providers/   decision providers (TypeSafe Jev direct, Jev via Gateway, Baseten, LLM, heuristic)
+  src/observability/  Sentry: tracing, logs, metrics, profiling, and walkSink (the rejection stream)
+  src/routes/      /v1/health, /v1/predict/form, /v1/predict/next, /v1/ghost-text, /v1/walk/outcomes, /v1/metrics
+demo/        Local demo sites on http://localhost:5173. Kept as the SAFE test surface: rule 5 below
+             says never drive a real site in an automated test, so the native agent rehearses here
+terminal/    zsh line-editor ghost (`source terminal/ghost.zsh`)
+docs/        architecture notes, docs/sentry-demo.md, recorded demo videos (docs/media)
+attic/       kept, not used. Never read it. See attic/README.md
 ```
 
-Why a local server: API keys stay off the extension, the Vercel AI SDK path to Jev needs Node 22, and caching plus latency logging live in one place.
+Run the server on **Node 22**, not 23: `@sentry/profiling-node` ships prebuilt binaries for LTS
+(even majors) only, so on 23 profiling silently reports off and you lose a Sentry product.
+
+Why a local server: API keys stay off the client, the Vercel AI SDK path to Jev needs Node 22, and caching plus latency logging live in one place.
 
 ## Decision providers (how prediction works)
 

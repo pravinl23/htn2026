@@ -31,6 +31,8 @@ That loop is the whole product. Anything that is not part of it lives here.
 | `server/src/routes/facts.ts` | 94 | `/v1/facts`, `/v1/facts/scan`. Zero clients. |
 | `e2e/tests/compareA.spec.ts`, `compareB.spec.ts` | ~850 | Provider bake-offs. Superseded by `scripts/bench-providers.mjs`. |
 | `e2e/tests/stage8-facts.spec.ts` | — | Covers the moved fact routes. |
+| **`extension/**`** | **~33,000** | **The Chrome MV3 extension.** Ghost is a native macOS app: an extension can never see Discord, Slack, Finder or System Settings, and the native agent already reads browsers through the same accessibility tree. It also never called the brain — `grep -rn "rankActions\|recordOutcome" extension/src` returned nothing — so it ran the old architecture to the end. |
+| **`e2e/**`** | ~4,100 | The Playwright suite existed to load the extension into Chromium. It went with it. The native agent is covered by `pnpm desktop:test` (426 tests). |
 
 **Not moved, deliberately:** `shared/src/facts/**` is a different module and is part of the
 brain (`shared/src/knowledge` and `shared/src/coldstart` both import it).
