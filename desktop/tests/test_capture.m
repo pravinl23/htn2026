@@ -442,14 +442,14 @@ GH_TEST(capture_never_offers_browser_chrome) {
 GH_TEST(capture_reads_the_rows_of_a_native_list) {
     SBFakeAXNode *window = Node(@"AXWindow", @"Messages", 0, 0, 900, 600);
     SBFakeAXNode *outline = [window addChild:Node(@"AXOutline", nil, 0, 52, 300, 548)];
-    NSArray<NSString *> *people = @[ @"Tahseen Rayhan", @"Mum", @"Standup" ];
+    NSArray<NSString *> *people = @[ @"Sam Okafor", @"Mum", @"Standup" ];
     for (NSUInteger i = 0; i < people.count; i++) {
         SBFakeAXNode *row = [outline addChild:Node(@"AXRow", nil, 0, (CGFloat)(60 + i * 64), 300, 64)];
         SBFakeAXNode *cell = [row addChild:Node(@"AXCell", nil, 0, (CGFloat)(60 + i * 64), 300, 64)];
         [cell addChild:Text(people[i], 8, (CGFloat)(66 + i * 64))];
     }
     SBCaptureResult *result = [Capture([[SBFakeSafety alloc] init]) captureWindow:window];
-    SBField *first = FieldLabelled(result, @"Tahseen Rayhan");
+    SBField *first = FieldLabelled(result, @"Sam Okafor");
     GH_ASSERT(first != nil);
     GH_ASSERT_EQUAL_OBJECTS(first.kind, SBKindItem);
     GH_ASSERT(FieldLabelled(result, @"Standup") != nil);

@@ -711,7 +711,7 @@ static BOOL SBPlaceholderSaysNothing(NSString *text) {
 /// popups report the selected item as their title, and a value must never become a label.
 - (SBNaming *)namingForEntry:(SBWalkEntry *)entry kind:(NSString *)kind {
     id<SBAXNode> node = entry.node;
-    // A list entry carries no AXTitle: what names it is the text inside it ("Tahseen Rayhan", a track name),
+    // A list entry carries no AXTitle: what names it is the text inside it ("Sam Okafor", a track name),
     // which is exactly how a button with only a glyph and a caption is named. It is read the same way.
     BOOL actionable = [kind isEqualToString:SBKindButton] || [kind isEqualToString:SBKindLink] || [kind isEqualToString:SBKindItem];
     NSString *value = SBSquash(node.value);

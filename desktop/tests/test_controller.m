@@ -760,7 +760,7 @@ GH_TEST(controller_a_thread_on_screen_drafts_a_reply_into_the_box_below_it) {
     SBRig *rig = [SBRig rigWithClient:StubClient([SBCore sharedCore], [[SBFormCache alloc] initWithPath:nil])];
     rig.window = [SBFakeAXNode nodeWithRole:@"AXWindow" title:@"Messages" frame:CGRectMake(0, 0, 1400, 800)];
     SBFakeAXNode *thread = [rig.window addChild:[SBFakeAXNode nodeWithRole:@"AXGroup" title:nil frame:CGRectMake(300, 40, 1100, 700)]];
-    NSArray<NSString *> *said = @[ @"Tahseen Rayhan, are you coming tonight, 7:04 PM", @"Alex Chen, yes, 7:05 PM" ];
+    NSArray<NSString *> *said = @[ @"Sam Okafor, are you coming tonight, 7:04 PM", @"Alex Chen, yes, 7:05 PM" ];
     for (NSUInteger i = 0; i < said.count; i++) {
         SBFakeAXNode *row = [thread addChild:[SBFakeAXNode nodeWithRole:@"AXGroup" title:nil
                                                                   frame:CGRectMake(320, (CGFloat)(60 + i * 40), 300, 33)]];

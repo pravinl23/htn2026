@@ -26,9 +26,9 @@ static void CVAddMessage(SBFakeAXNode *thread, NSString *described, CGFloat x, C
 static SBFakeAXNode *CVMessagesWindow(void) {
     SBFakeAXNode *window = CVNode(@"AXWindow", CGRectMake(0, 0, 1470, 806));
     SBFakeAXNode *thread = [window addChild:CVNode(@"AXGroup", CGRectMake(1, 33, 1470, 806))];
-    CVAddMessage(thread, @"Tahseen Rayhan, are you coming to the thing tonight, 7:04 PM", 356, 100, 300);
+    CVAddMessage(thread, @"Sam Okafor, are you coming to the thing tonight, 7:04 PM", 356, 100, 300);
     CVAddMessage(thread, @"Alex Chen, yes, 7:05 PM", 1300, 140, 144);
-    CVAddMessage(thread, @"Tahseen Rayhan, bring the adapter, and the cable, 7:06 PM", 356, 180, 340);
+    CVAddMessage(thread, @"Sam Okafor, bring the adapter, and the cable, 7:06 PM", 356, 180, 340);
     return window;
 }
 
@@ -40,14 +40,14 @@ static SBFakeAXNode *CVMessagesWindowWithSidebar(void) {
     SBFakeAXNode *window = CVNode(@"AXWindow", CGRectMake(0, 0, 1470, 806));
     SBFakeAXNode *sidebar = [window addChild:CVNode(@"AXGroup", CGRectMake(0, 33, 340, 806))];
     // The sidebar is shallower than the thread, so a breadth-first walk reaches it FIRST.
-    CVAddMessage(sidebar, @"Yasen Behiri, Flip, 2:16 AM", 8, 100, 320);
-    CVAddMessage(sidebar, @"Yuvraj Dwivedi, HOLY, 1:21 AM", 8, 140, 320);
-    CVAddMessage(sidebar, @"Krish Garg, How is tmp going, Yesterday", 8, 180, 320);
+    CVAddMessage(sidebar, @"Rowan Ellis, Flip, 2:16 AM", 8, 100, 320);
+    CVAddMessage(sidebar, @"Priya Raman, HOLY, 1:21 AM", 8, 140, 320);
+    CVAddMessage(sidebar, @"Noor Haddad, How is tmp going, Yesterday", 8, 180, 320);
     SBFakeAXNode *pane = [window addChild:CVNode(@"AXGroup", CGRectMake(356, 33, 1114, 806))];
     SBFakeAXNode *thread = [pane addChild:CVNode(@"AXGroup", CGRectMake(356, 33, 1114, 700))];
-    CVAddMessage(thread, @"Tahseen Rayhan, are you coming to the thing tonight, 7:04 PM", 356, 100, 300);
+    CVAddMessage(thread, @"Sam Okafor, are you coming to the thing tonight, 7:04 PM", 356, 100, 300);
     CVAddMessage(thread, @"Alex Chen, yes, 7:05 PM", 1300, 140, 144);
-    CVAddMessage(thread, @"Tahseen Rayhan, bring the adapter, and the cable, 7:06 PM", 356, 180, 340);
+    CVAddMessage(thread, @"Sam Okafor, bring the adapter, and the cable, 7:06 PM", 356, 180, 340);
     return window;
 }
 
@@ -57,17 +57,17 @@ GH_TEST(conversation_ignores_the_sidebar_and_reads_only_the_open_thread) {
     SBConversation *conversation = [SBConversation conversationFromNode:CVMessagesWindowWithSidebar()
                                                                maxNodes:SBConversationMaxNodes column:compose];
     GH_ASSERT_EQUAL_INT(conversation.messages.count, 3);
-    GH_ASSERT_EQUAL_OBJECTS(conversation.messages[0].from, @"Tahseen Rayhan");
+    GH_ASSERT_EQUAL_OBJECTS(conversation.messages[0].from, @"Sam Okafor");
     GH_ASSERT_EQUAL_OBJECTS(conversation.messages[2].text, @"bring the adapter, and the cable");
     // Nobody from the sidebar reached the thread.
     for (SBMessage *message in conversation.messages) {
-        GH_ASSERT_MSG(![message.from isEqualToString:@"Yasen Behiri"], @"a sidebar row is another conversation");
-        GH_ASSERT_MSG(![message.from isEqualToString:@"Krish Garg"], @"a sidebar row is another conversation");
+        GH_ASSERT_MSG(![message.from isEqualToString:@"Rowan Ellis"], @"a sidebar row is another conversation");
+        GH_ASSERT_MSG(![message.from isEqualToString:@"Noor Haddad"], @"a sidebar row is another conversation");
     }
     // And the left/right test still works, because the thread box is now the thread and not the whole window.
     GH_ASSERT_FALSE(conversation.messages[0].fromMe);
     GH_ASSERT(conversation.messages[1].fromMe);
-    GH_ASSERT_EQUAL_OBJECTS(conversation.correspondent, @"Tahseen Rayhan");
+    GH_ASSERT_EQUAL_OBJECTS(conversation.correspondent, @"Sam Okafor");
 }
 
 GH_TEST(conversation_without_a_column_still_reads_the_whole_window) {
@@ -77,7 +77,7 @@ GH_TEST(conversation_without_a_column_still_reads_the_whole_window) {
     GH_ASSERT(conversation.messages.count > 3);
     BOOL sawSidebar = NO;
     for (SBMessage *message in conversation.messages) {
-        if ([message.from isEqualToString:@"Yasen Behiri"] || [message.from isEqualToString:@"Krish Garg"]) sawSidebar = YES;
+        if ([message.from isEqualToString:@"Rowan Ellis"] || [message.from isEqualToString:@"Sam Okafor"]) sawSidebar = YES;
     }
     GH_ASSERT_MSG(sawSidebar, @"without a column the sidebar is read as part of the thread");
 }
@@ -86,7 +86,7 @@ GH_TEST(conversation_reads_a_thread_and_knows_who_said_what) {
     SBConversation *conversation = [SBConversation conversationFromNode:CVMessagesWindow()];
     GH_ASSERT_EQUAL_INT(conversation.messages.count, 3);   // three, not six: the repeat is folded away
 
-    GH_ASSERT_EQUAL_OBJECTS(conversation.messages[0].from, @"Tahseen Rayhan");
+    GH_ASSERT_EQUAL_OBJECTS(conversation.messages[0].from, @"Sam Okafor");
     GH_ASSERT_EQUAL_OBJECTS(conversation.messages[0].text, @"are you coming to the thing tonight");
     GH_ASSERT_FALSE(conversation.messages[0].fromMe);
 
@@ -98,16 +98,16 @@ GH_TEST(conversation_reads_a_thread_and_knows_who_said_what) {
     GH_ASSERT_FALSE(conversation.messages[2].fromMe);
 
     // Whom a reply would be to: the most recent message that is not the user's own.
-    GH_ASSERT_EQUAL_OBJECTS(conversation.correspondent, @"Tahseen Rayhan");
+    GH_ASSERT_EQUAL_OBJECTS(conversation.correspondent, @"Sam Okafor");
 }
 
 GH_TEST(conversation_wire_shape_is_what_the_draft_route_takes) {
     NSDictionary *json = [[SBConversation conversationFromNode:CVMessagesWindow()] dictionary];
     GH_ASSERT(json != nil);
-    GH_ASSERT_EQUAL_OBJECTS(json[@"correspondent"], @"Tahseen Rayhan");
+    GH_ASSERT_EQUAL_OBJECTS(json[@"correspondent"], @"Sam Okafor");
     NSArray *messages = json[@"messages"];
     GH_ASSERT_EQUAL_INT(messages.count, 3);
-    GH_ASSERT_EQUAL_OBJECTS(messages[0][@"from"], @"Tahseen Rayhan");
+    GH_ASSERT_EQUAL_OBJECTS(messages[0][@"from"], @"Sam Okafor");
     GH_ASSERT_EQUAL_OBJECTS(messages[1][@"fromMe"], @YES);
     GH_ASSERT_EQUAL_OBJECTS(messages[2][@"fromMe"], @NO);
 }

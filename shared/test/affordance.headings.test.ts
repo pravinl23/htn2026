@@ -28,11 +28,11 @@ describe("a heading is not an item", () => {
     }
     // ...while the notes interleaved with them, at the same depth in the same list, stay openable.
     for (const note of [
-      "Sep 21 - HEALTH 105 Assignment 1 (7.5%) Sep 22 - L",
+      "Sep 21 - CHEM 210 Problem Set 4 (7.5%) Sep 22 - L",
       "Stuff Names 2026-04-20",
-      "Traba Scale AI - talk recruiter, do oa 4:35 AM",
-      "sarah.ruhe@scale.com No additional text Friday",
-      "Jb Shopify 2026-09-10",
+      "Northwind Robotics - call recruiter, do oa 4:35 AM",
+      "dana.olu@example.com No additional text Friday",
+      "Jb Meridian 2026-09-10",
     ]) {
       expect(roleOf(row(note, 1)), note).toBe("primary-item");
     }
@@ -54,18 +54,18 @@ describe("a heading is not an item", () => {
   it("leaves a conversation list alone, headings or not", () => {
     // The strongest flow in the product runs through these rows; none of them may become a heading.
     for (const conversation of [
-      "Yasen Behiri, Flip, 2:16 AM",
-      "Yuvraj Dwivedi, HOLY, 1:21 AM",
-      "Harini, And a backwards cap, 1",
-      "Tahseen Rayhan, Alr bet, Yeste",
-      "Frank & Johannes, Muted, Frank",
+      "Rowan Ellis, Flip, 2:16 AM",
+      "Priya Raman, HOLY, 1:21 AM",
+      "Mina, And a backwards cap, 1",
+      "Sam Okafor, Alr bet, Yeste",
+      "Ines & Theo, Muted, Ines",
     ]) {
       expect(roleOf(row(conversation)), conversation).toBe("primary-item");
     }
   });
 
   it("leaves a feed of links alone", () => {
-    for (const entry of ["Go to channel NBA", "Shorts", "Subscriptions"]) {
+    for (const entry of ["Go to channel Harbour FC", "Shorts", "Subscriptions"]) {
       expect(roleOf({ ...row(entry), kind: "link" }), entry).toBe("primary-item");
     }
   });
