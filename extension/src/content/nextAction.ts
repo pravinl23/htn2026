@@ -100,6 +100,9 @@ export function collectCandidates(doc: Document = document, max: number = NEXT_M
     if (!kind || !label || sensitiveText(label) || looksSensitiveValue(field.signature) || field.signature.length > TRACE_LIMITS.signature) return;
     const el = findElement(field.signature);
     if (!el || el.closest(GHOST_UI)) return;
+    // A non-empty text field is an action that already happened. Leaving it in the pool makes Ghost keep
+    // returning to the same search box instead of advancing to its button, suggestions or results.
+    if (["text", "textarea"].includes(field.kind) && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.value.trim() !== "") return;
     const distance = measured ? offscreenBy(field.rect, width, height) : 0;
     if (distance > height * NEAR_VIEWPORT) return;
     const candidate: NextCandidate = { id: field.signature, kind, label, locked: field.locked === true || submitsForm(el) };
@@ -135,6 +138,8 @@ export interface NextGhost {
   confidence: number;
   provider: string;
   locked: boolean;
+  /** Same-origin search text remembered locally by the worker. */
+  value?: string;
   /** Tab already focused this locked target: from now on only Enter or a click (the user's own) acts on it. */
   parked: boolean;
   /** Where the cursor glides in from (the user's last click). Used once, on the first paint. */
@@ -200,7 +205,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 export function parseNextReply(raw: unknown): Extract<NextPredictionReply, { ok: true }> | null {
   if (!isObject(raw) || raw.ok !== true || typeof raw.candidateId !== "string") return null;
   if (typeof raw.confidence !== "number" || !Number.isFinite(raw.confidence)) return null;
-  return {
+  const reply: Extract<NextPredictionReply, { ok: true }> = {
     ok: true,
     candidateId: raw.candidateId,
     confidence: raw.confidence,
@@ -208,6 +213,8 @@ export function parseNextReply(raw: unknown): Extract<NextPredictionReply, { ok:
     calibrated: raw.calibrated === true,
     latencyMs: typeof raw.latencyMs === "number" ? raw.latencyMs : null,
   };
+  if (typeof raw.value === "string" && raw.value.trim() && raw.value.length <= TRACE_LIMITS.value && !looksSensitiveValue(raw.value)) reply.value = raw.value;
+  return reply;
 }
 
 interface ClosedRootAccess {
@@ -414,7 +421,7 @@ class NextAction implements NextActionHandle {
     if (!candidate || !el || isElementSensitive(el)) return;
     this.current = {
       candidate, el, confidence: reply.confidence, provider: reply.provider,
-      locked: candidate.locked || lockedHere(el), parked: false, from: this.pointer,
+      locked: candidate.locked || lockedHere(el), parked: false, from: this.pointer, ...(reply.value ? { value: reply.value } : {}),
     };
     this.watchTimer ??= setInterval(this.render, WATCH_MS);
     this.render();
@@ -521,8 +528,8 @@ class NextAction implements NextActionHandle {
 
   /**
    * Rule 2: a locked target is never activated by Tab; it gets focus (and keeps its lock badge) so an explicit
-   * Enter or click can confirm. A field is focused, never filled (Jev picks, it does not write). Anything else is
-   * clicked through execute.ts, which re-checks the lock on the live DOM and marks the click as Ghost's own.
+   * Enter or click can confirm. A field with local same-origin history is filled; an unknown field is only
+   * focused. Anything else is clicked through execute.ts, which re-checks the live DOM lock.
    */
   private async accept(ghost: NextGhost): Promise<void> {
     this.epoch++;
@@ -534,7 +541,19 @@ class NextAction implements NextActionHandle {
       return;
     }
     this.clear();
-    if (candidate.kind === "field") return reveal(el);
+    if (candidate.kind === "field") {
+      if (!ghost.value) return reveal(el);
+      const fill: Ghost = { signature: candidate.id, action: "fill", value: ghost.value, displayText: ghost.value, confidence: ghost.confidence, locked: false, source: "cache" };
+      const result = await (this.deps.execute ?? executeGhost)(fill, el).catch(() => ({ ok: false, method: "none" } as ExecResult));
+      if (result.ok) {
+        // executeGhost focuses the input so real browser insertion works. The value is now committed and this
+        // Fast Lane owns the continuation, so release text-entry focus before asking for the following action.
+        if (hasFocus(this.doc, el)) el.blur();
+        this.lastActed = el;
+        this.schedule();
+      }
+      return;
+    }
     const click: Ghost = { signature: candidate.id, action: "click", displayText: candidate.label, confidence: ghost.confidence, locked: false, source: "server" };
     await (this.deps.execute ?? executeGhost)(click, el).catch(() => undefined);
     this.schedule(); // what the click did is the next state to predict from
@@ -693,7 +712,9 @@ class NextView {
     cursor.style.transform = translate(tip.x - CURSOR_TIP.x, tip.y - CURSOR_TIP.y);
     lock.style.transform = translate(tip.x + 14, tip.y + 22);
     key.style.transform = translate(tip.x + 18, tip.y + 20);
-    parts.keyText.textContent = ghost.candidate.kind === "field" ? "to focus" : "to click";
+    parts.keyText.textContent = ghost.candidate.kind === "field"
+      ? ghost.value ? `to fill “${shortValue(ghost.value)}”` : "to focus"
+      : "to click";
     const locked = String(ghost.locked);
     for (const el of [ring, cursor]) {
       setAttr(el, "data-visible", "true");
@@ -829,6 +850,11 @@ function px(n: number): string {
 
 function translate(x: number, y: number): string {
   return `translate(${px(x)},${px(y)})`;
+}
+
+function shortValue(value: string): string {
+  const clean = value.replace(/\s+/g, " ").trim();
+  return clean.length <= 36 ? clean : `${clean.slice(0, 35)}…`;
 }
 
 /** The content entry's one call. Runs in the top frame only; returns a handle whose stop() removes everything. */

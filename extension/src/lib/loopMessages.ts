@@ -109,7 +109,7 @@ export interface LoopStepOutcome {
 
 /** Reply to "ghost:next-candidates". */
 export type NextPredictionReply =
-  | { ok: true; candidateId: string; confidence: number; provider: string; calibrated: boolean; latencyMs: number | null }
+  | { ok: true; candidateId: string; confidence: number; provider: string; calibrated: boolean; latencyMs: number | null; /** Local-only remembered search text; never sent to the model/server. */ value?: string }
   | { ok: false; error: string };
 
 export type LoopMessage =

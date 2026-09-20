@@ -10,12 +10,11 @@
 //   3. a page that flips `data-ghost-tab="active"` at runtime: Ghost hands the key back within one rescan and
 //      takes it up again when the page gives it up.
 // Localhost only, headless, no keys.
-import type { Page, Route } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { DEMO_URL, E2E_SERVER_URL, HOST, expect, test } from "../fixtures";
 
 const NEXT_HOST = "#ghost-next-host";
-const WORKFLOW_PATH = "/workflow/index.html";
-const WORKFLOW_URL = `${DEMO_URL}${WORKFLOW_PATH}?server=${encodeURIComponent(E2E_SERVER_URL)}`;
+const WORKFLOW_URL = `${DEMO_URL}/workflow/index.html?server=${encodeURIComponent(E2E_SERVER_URL)}`;
 
 /** The counters a B-style page handler would keep: how much of Tab ever reaches the page world. */
 interface ProbeWindow {
@@ -24,20 +23,23 @@ interface ProbeWindow {
 }
 
 /**
- * Serves approach B's own page with the opt-out meta in its head, without editing the demo (that file belongs
- * to the workflow stream). This is exactly the one-line change docs/compare-approaches.md asks them for.
+ * Gives approach B's page the documented static HTML-attribute opt-out before any page script or content script
+ * runs. An init script avoids rewriting a compressed preview response, which can make the page's API fetch flaky.
  */
 async function serveWithOptOut(page: Page): Promise<void> {
-  await page.route(
-    (url) => url.pathname === WORKFLOW_PATH,
-    async (route: Route) => {
-      const response = await route.fetch();
-      const body = await response.text();
-      const patched = body.replace("<head>", `<head>\n    <meta name="ghost-tab" content="off">`);
-      if (patched === body) throw new Error("could not inject the opt-out meta into the workflow page");
-      await route.fulfill({ response, body: patched });
-    },
-  );
+  await page.addInitScript(() => {
+    const apply = (): boolean => {
+      if (!document.documentElement) return false;
+      document.documentElement.setAttribute("data-ghost-tab", "off");
+      return true;
+    };
+    if (!apply()) {
+      const observer = new MutationObserver(() => {
+        if (apply()) observer.disconnect();
+      });
+      observer.observe(document, { childList: true });
+    }
+  });
 }
 
 /** A page-world Tab handler with approach B's exact contract (demo/public/workflow/index.html:125). */
@@ -67,6 +69,11 @@ async function declareTabSurface(page: Page, value: string | null): Promise<void
   }, value);
 }
 
+async function showFirstGhost(page: Page): Promise<void> {
+  await page.locator("#apply-title").scrollIntoViewIfNeeded();
+  await expect(page.locator("#first-name")).toBeInViewport({ ratio: 1 });
+}
+
 test.describe("a page that declares it owns Tab", () => {
   test("approach B's page, served with the opt-out, keeps every Tab and Ghost never appears", async ({ page }) => {
     const errors: string[] = [];
@@ -79,7 +86,7 @@ test.describe("a page that declares it owns Tab", () => {
     await serveWithOptOut(page);
     await page.goto(WORKFLOW_URL);
     await expect(page.locator("#title")).toHaveText("Check calendar availability", { timeout: 20_000 });
-    expect(await page.evaluate(() => document.querySelector('meta[name="ghost-tab"]')?.getAttribute("content")), "the page really did opt out").toBe("off");
+    expect(await page.evaluate(() => document.documentElement.getAttribute("data-ghost-tab")), "the page really did opt out").toBe("off");
 
     // Ghost stood down entirely: no overlay host, no next-action host, no loop sheet.
     await expect(page.locator(HOST), "an opted-out page carries no Ghost overlay").toHaveCount(0);
@@ -105,6 +112,7 @@ test.describe("a page that declares it owns Tab", () => {
     await expect(host).toHaveAttribute("data-ghost-state", "ready", { timeout: 20_000 });
     expect(Number(await host.getAttribute("data-ghost-count"))).toBeGreaterThan(1);
 
+    await showFirstGhost(page);
     await page.keyboard.press("Tab");
     await expect(host).toHaveAttribute("data-ghost-accepted", "1");
     await expect(page.locator("#first-name")).toHaveValue("Alex");
@@ -130,6 +138,7 @@ test.describe("a page that declares it owns Tab", () => {
     // The page gives Tab back: the walk returns and swallows the key again.
     await declareTabSurface(page, null);
     await expect(host).toHaveAttribute("data-ghost-state", "ready");
+    await showFirstGhost(page);
     await page.keyboard.press("Tab");
     await expect(host).toHaveAttribute("data-ghost-accepted", "1");
     await expect(page.locator("#first-name")).toHaveValue("Alex");

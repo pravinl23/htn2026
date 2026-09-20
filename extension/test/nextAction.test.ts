@@ -24,7 +24,7 @@ const MAIL_VIEW = `
     <div data-ghost-ui><button type="button" id="ghost-own">Ghost own control</button></div>
   </section>`;
 
-type Reply = { ok: true; candidateId: string; confidence: number; provider: string; calibrated: boolean; latencyMs: number | null } | null;
+type Reply = { ok: true; candidateId: string; confidence: number; provider: string; calibrated: boolean; latencyMs: number | null; value?: string } | null;
 
 let handle: NextActionHandle | null = null;
 let sent: NextMessage[] = [];
@@ -47,8 +47,8 @@ function idOf(label: string): string {
   return candidate.id;
 }
 
-function answer(label: string, confidence = 0.75): void {
-  reply = { ok: true, candidateId: idOf(label), confidence, provider: "memory", calibrated: false, latencyMs: 3 };
+function answer(label: string, confidence = 0.75, value?: string): void {
+  reply = { ok: true, candidateId: idOf(label), confidence, provider: "memory", calibrated: false, latencyMs: 3, ...(value ? { value } : {}) };
 }
 
 function start(over: Partial<NextActionDeps> = {}): NextActionHandle {
@@ -68,7 +68,8 @@ function start(over: Partial<NextActionDeps> = {}): NextActionHandle {
     isVisible: () => true, // jsdom has no layout
     execute: async (ghost, el): Promise<ExecResult> => {
       executed.push({ ghost, el });
-      return { ok: true, method: "click" };
+      if (ghost.action === "fill" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) el.value = ghost.value ?? "";
+      return { ok: true, method: ghost.action === "fill" ? "native" : "click" };
     },
     topFrame: true,
     presencePingMs: 0,
@@ -127,6 +128,7 @@ describe("collectCandidates", () => {
   it("never carries a field's value", () => {
     $<HTMLTextAreaElement>("#reply").value = "Thursday 2:30 works for me";
     expect(JSON.stringify(collectCandidates(document))).not.toContain("2:30");
+    expect(collectCandidates(document).candidates.map((candidate) => candidate.label)).not.toContain("Reply");
   });
 
   it("covers app-style controls beyond native forms", () => {
@@ -383,6 +385,19 @@ describe("the click ghost", () => {
     expect(document.activeElement).toBe($("#reply"));
     expect($<HTMLTextAreaElement>("#reply").value).toBe("");
     expect(executed).toHaveLength(0);
+  });
+
+  it("fills a search field from local history, then advances instead of getting stuck on it", async () => {
+    document.body.innerHTML = `<form><input type="search" aria-label="Search videos" /><button type="button">Search</button></form>`;
+    answer("Search videos", 0.86, "lofi coding mix");
+    start();
+    await handle?.predictNow();
+    expect(key("Tab").defaultPrevented).toBe(true);
+    await Promise.resolve();
+    expect(executed[0]?.ghost).toMatchObject({ action: "fill", value: "lofi coding mix", source: "cache" });
+    expect($<HTMLInputElement>('input[type="search"]').value).toBe("lofi coding mix");
+    expect(collectCandidates(document).candidates.map((candidate) => candidate.label)).not.toContain("Search videos");
+    expect(collectCandidates(document).candidates.map((candidate) => candidate.label)).toContain("Search");
   });
 });
 
