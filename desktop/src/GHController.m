@@ -10,6 +10,7 @@
 #import "GHOverlayWindow.h"
 #import "GHPageContext.h"
 #import "GHProfileStore.h"
+#import "GHSeededWorkflow.h"
 #import "GHWriter.h"
 
 NSNotificationName const GHControllerStateDidChangeNotification = @"GHControllerStateDidChangeNotification";
@@ -579,6 +580,14 @@ static const NSUInteger kUploadVerifyTries = 8;
     withDrafts = [self ghostsByAddingReply:withDrafts result:result];
     // Most windows are not forms. With nothing to fill, Ghost offers the one thing this KIND of place is for.
     withDrafts = [self ghostsByAddingNextAction:withDrafts result:result settings:settings];
+    // A seeded workflow is an explicit, origin-scoped demo path. It owns the next milestone while one is visible,
+    // instead of competing with generic form answers or next-action guesses. Every milestone is rediscovered from
+    // the current accessibility tree, so navigation and layout changes cannot advance hidden state by accident.
+    GHGhost *seeded = [GHSeededWorkflow ghostForOrigin:_origin fields:_orderedFields];
+    if (seeded && [result nodeForSignature:seeded.signature]) {
+        withDrafts = @[ seeded ];
+        _proposal = nil;
+    }
     [self updateGateWithGhosts:withDrafts accepted:accepted];
     if ([_cacheState isEqualToString:@"offline"]) _latencyMs = @(MAX(0.0, (result.elapsed + (CFAbsoluteTimeGetCurrent() - started)) * 1000.0));
 

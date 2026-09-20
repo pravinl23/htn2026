@@ -179,6 +179,34 @@ GH_TEST(writer_refuses_locked_targets_and_never_presses_a_button) {
     GH_ASSERT_EQUAL_INT(actuator.pressedNodes.count, 0);
 }
 
+GH_TEST(writer_allows_only_an_exact_audited_locked_workflow_milestone) {
+    GHFakeAXActuator *actuator = [[GHFakeAXActuator alloc] init];
+    GHWriter *writer = Writer(actuator);
+    writer.isNodeLocked = ^BOOL(id<GHAXNode> node) { return YES; };
+    GHField *field = FieldFor(@"7:00 p.m. Reserve table at Waterloo Grill restaurant", GHKindButton);
+    field.locked = YES;
+    GHFakeAXNode *button = [GHFakeAXNode nodeWithRole:@"AXButton" title:field.label frame:CGRectMake(100, 400, 240, 32)];
+    GHGhost *ghost = GhostFor(field, GHGhostActionClick, nil);
+    ghost.source = @"workflow";
+    ghost.auditedLockedLabel = field.label;
+
+    GHWriteResult *result = Run(writer, ghost, field, button, nil);
+    GH_ASSERT(result.ok);
+    GH_ASSERT_EQUAL_OBJECTS(result.method, GHWriteMethodPress);
+    GH_ASSERT_EQUAL_INT(actuator.pressedNodes.count, 1);
+
+    // A terminal control replacing that exact intermediate milestone fails closed even with the local flag.
+    GHFakeAXNode *changed = [GHFakeAXNode nodeWithRole:@"AXButton" title:@"Complete reservation" frame:button.frame];
+    result = Run(writer, ghost, field, changed, nil);
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHWriteReasonLocked);
+    GH_ASSERT_EQUAL_INT(actuator.pressedNodes.count, 1);
+
+    // Prediction dictionaries cannot manufacture the exception.
+    NSMutableDictionary *wire = [[ghost dictionary] mutableCopy];
+    wire[@"auditedLockedLabel"] = field.label;
+    GH_ASSERT([GHGhost ghostWithDictionary:wire].auditedLockedLabel == nil);
+}
+
 GH_TEST(writer_rechecks_sensitivity_right_before_writing) {
     GHFakeAXActuator *actuator = [[GHFakeAXActuator alloc] init];
     GHWriter *writer = Writer(actuator);

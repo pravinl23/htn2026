@@ -1095,6 +1095,28 @@ GH_TEST(capture_react_select_is_one_lazy_select_with_a_visible_box) {
     GH_ASSERT([[heard toJSONObject][@"lazyOptions"] isEqual:@YES]);
 }
 
+GH_TEST(capture_combobox_wrapper_uses_its_one_real_text_editor) {
+    GHFakeAXNode *web = Node(@"AXWebArea", nil, 0, 0, 800, 600);
+    GHFakeAXNode *wrapper = [web addChild:Node(@"AXComboBox", nil, 10, 20, 320, 40)];
+    // Chromium currently reports this wrapper as settable even though focus always lands on the child editor;
+    // OpenTable's stable id is the explicit seed seam.
+    wrapper.valueIsSettable = YES;
+    wrapper.identifier = @"home-autocomplete-label";
+    wrapper.isFocused = YES;
+    GHFakeAXNode *editor = [wrapper addChild:Node(@"AXTextField", @"Please input a Location, Restaurant or Cuisine", 20, 25, 290, 30)];
+    editor.identifier = @"location-input";
+    editor.placeholder = @"Location, Restaurant, or Cuisine";
+
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:web];
+    GH_ASSERT_EQUAL_INT(result.fields.count, 1);
+    GHField *field = result.fields.firstObject;
+    GH_ASSERT_EQUAL_OBJECTS(field.kind, GHKindText);
+    GH_ASSERT_EQUAL_OBJECTS(field.identifier, @"location-input");
+    GH_ASSERT_EQUAL_OBJECTS(field.placeholder, @"Location, Restaurant, or Cuisine");
+    GH_ASSERT(field.focused);
+    GH_ASSERT([result nodeForSignature:field.signature] == editor);
+}
+
 GH_TEST(capture_toggle_after_an_unrelated_field_stays_a_button) {
     GHFakeAXNode *web = Node(@"AXWebArea", nil, 0, 0, 800, 800);
     GHFakeAXNode *combo = [web addChild:Node(@"AXComboBox", @"Team", 16, 10, 4, 21)];

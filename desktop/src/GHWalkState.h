@@ -32,6 +32,11 @@ extern NSString *const GHGhostActionUpload;
 @property (nonatomic) double confidence;
 @property (nonatomic) BOOL locked;
 @property (nonatomic, copy) NSString *source;            // offline | server | cache | llm | loop
+/// Local-only safety exception for an audited workflow milestone whose generic wording looks consequential even
+/// though the exact control is reversible (for example, a reservation time that only opens the details page).
+/// Never parsed from or serialized to prediction dictionaries. The writer requires an exact captured AND live
+/// label match; if the control changes underneath Ghost, the action is refused.
+@property (nonatomic, copy, nullable) NSString *auditedLockedLabel;
 @property (nonatomic) BOOL pending;                      // free text still streaming in
 /// A select answered before its options exist (react-select): `value` is the intended answer, matched against the
 /// real options when the ghost is accepted (GHComboBoxDriver).

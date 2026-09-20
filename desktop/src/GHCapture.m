@@ -1364,6 +1364,48 @@ static BOOL GHIsBrowserChrome(id<GHAXNode> node, NSString *role) {
             entry.viewportFrame = CGRectIsNull(viewport) ? CGRectZero : viewport;
         }
 
+        // Some web autocompletes expose a non-settable AXComboBox wrapper around the real editable
+        // AXTextField (OpenTable's location control is one). Treating the wrapper as a lazy select makes the
+        // combobox driver correctly refuse: focus belongs to its child, never to the wrapper. Capture that one
+        // real editor instead. Ordinary/native comboboxes and react-select remain selects because their wrapper
+        // is settable or they do not contain exactly one settable text field.
+        BOOL seededTextWrapper = [node.identifier isEqualToString:@"home-autocomplete-label"];
+        if ([role isEqualToString:kRoleComboBox] && (seededTextWrapper || !node.valueIsSettable)) {
+            NSArray<id<GHAXNode>> *children = node.children;
+            id<GHAXNode> editor = nil;
+            NSUInteger editorIndex = 0;
+            for (NSUInteger i = 0; i < children.count; i++) {
+                id<GHAXNode> child = children[i];
+                if (![child.role isEqualToString:kRoleTextField] || !child.valueIsSettable) continue;
+                if (editor) { editor = nil; break; } // ambiguous wrappers stay untouched and fail closed
+                editor = child;
+                editorIndex = i;
+            }
+            if (editor) {
+                GHWalkEntry *inner = [[GHWalkEntry alloc] init];
+                inner.node = editor;
+                inner.parent = entry;
+                inner.siblings = children;
+                inner.indexInParent = editorIndex;
+                inner.depth = entry.depth + 1;
+                inner.insideWebArea = entry.insideWebArea;
+                inner.insideUnresolvedTabGroup = entry.insideUnresolvedTabGroup;
+                inner.webAreaFrame = entry.webAreaFrame;
+                inner.viewportFrame = entry.viewportFrame;
+                inner.radioGroup = entry.radioGroup;
+                GHCandidate *candidate = [self candidateForEntry:inner kind:GHKindText window:windowFrame order:order++];
+                if (candidate) {
+                    // Chromium can leave AXFocused on the semantic combobox wrapper even while keyboard input
+                    // belongs to its child editor. The wrapper is deliberately not captured, so carry that
+                    // focus bit onto the captured child; otherwise Ghost sees focus outside the walk and must
+                    // (correctly) pass Tab through instead of accepting the proposed value.
+                    candidate.field.focused = candidate.field.focused || node.isFocused;
+                    [candidates addObject:candidate];
+                }
+                continue;
+            }
+        }
+
         NSString *kind = [GHCapture kindForRole:role subrole:node.subrole];
         if ([role isEqualToString:kRoleButton] && GHIsFileUploadButton(node)) {
             [uploads addObject:entry]; // folded into one `file` field with its widget after the walk

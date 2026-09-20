@@ -100,6 +100,7 @@ NSString *const GHGhostActionUpload = @"upload";
     copy.confidence = self.confidence;
     copy.locked = self.locked;
     copy.source = self.source;
+    copy.auditedLockedLabel = self.auditedLockedLabel;
     copy.pending = self.pending;
     copy.lazy = self.lazy;
     copy.declineAnswer = self.declineAnswer;
@@ -247,8 +248,12 @@ GHKeyDecision GHDecideEscape(GHWalkSnapshot snapshot, GHKeyModifiers modifiers, 
     return count - 1;   // only the lock is left, and it is last
 }
 
-/// A lone Submit ghost is only worth showing once this walk has filled something.
+/// A lone Submit ghost is only worth showing once this walk has filled something. The one exception is an
+/// explicit local workflow milestone: navigation commonly puts its final confirmation on a new page, where the
+/// walk's accepted count correctly starts over. It is still a lock, so Ghost can only point at and park on it.
 - (void)prune {
+    GHGhost *only = _ghosts.count == 1 ? _ghosts.firstObject : nil;
+    if (only.locked && [only.source isEqualToString:@"workflow"]) return;
     if (_ghosts.count > 0 && (_accepted > 0 || self.hasUnlocked)) return;
     [_ghosts removeAllObjects];
 }
@@ -257,7 +262,7 @@ GHKeyDecision GHDecideEscape(GHWalkSnapshot snapshot, GHKeyModifiers modifiers, 
 - (void)trackLock {
     GHGhost *lock = nil;
     for (GHGhost *ghost in _ghosts) if (ghost.locked) { lock = ghost; break; }
-    if (self.hasUnlocked) _lockSignature = [lock.signature copy];
+    if (self.hasUnlocked || [lock.source isEqualToString:@"workflow"]) _lockSignature = [lock.signature copy];
     else if (lock && ![lock.signature isEqualToString:_lockSignature ?: @""]) [_ghosts removeAllObjects];
 }
 

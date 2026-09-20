@@ -38,6 +38,17 @@ static NSString *const kRoleCheckBox = @"AXCheckBox";
 static NSString *const kRoleRadio = @"AXRadioButton";
 static NSString *const kRoleTextField = @"AXTextField";
 static NSString *const kRoleTextArea = @"AXTextArea";
+
+static NSString *GHAuditedLabel(NSString *label) {
+    NSArray<NSString *> *parts = [(label ?: @"").lowercaseString componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return [[parts filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSString *part, NSDictionary *bindings) {
+        return part.length > 0;
+    }]] componentsJoinedByString:@" "];
+}
+
+static BOOL GHAuditedLabelMatches(NSString *expected, NSString *actual) {
+    return expected.length > 0 && [GHAuditedLabel(expected) isEqualToString:GHAuditedLabel(actual)];
+}
 static NSString *const kRoleSearchField = @"AXSearchField";
 static const NSUInteger kMenuSearchDepth = 4;
 static const NSUInteger kMenuSearchNodes = 600;
@@ -595,9 +606,12 @@ static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
         completion(result);
     };
 
-    // Rule 2 of the safety list: locked targets are never pressed, whatever the ghost claims to be.
+    // Rule 2 of the safety list: locked targets are never pressed, whatever the ghost claims to be. The sole
+    // exception is a local, programmatically-built workflow milestone carrying the exact captured label. It is
+    // checked again against the refreshed live node below, so a renamed/replaced terminal control still fails shut.
     BOOL isClick = [ghost.action isEqualToString:GHGhostActionClick];
-    if (!ghost || ghost.locked || field.locked) { finish([GHWriteResult refusal:GHWriteReasonLocked]); return; }
+    BOOL auditedLockedField = isClick && GHAuditedLabelMatches(ghost.auditedLockedLabel, field.label);
+    if (!ghost || ghost.locked || (field.locked && !auditedLockedField)) { finish([GHWriteResult refusal:GHWriteReasonLocked]); return; }
     // An UNLOCKED click ghost is a next-action proposal (docs/anywhere.md): a plainly reversible control the
     // user asked for with Tab. It is pressed only when a caller gave this writer a live lock check, and only
     // after that check has looked at the element again -- with no check, nothing is ever pressed.
@@ -618,7 +632,15 @@ static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
     }
     if (!fresh.enabled) { finish([GHWriteResult refusal:GHWriteReasonDisabled]); return; }
 
-    if (isClick) { [self press:fresh finish:finish]; return; }
+    if (isClick) {
+        NSString *liveLabel = fresh.title.length ? fresh.title : fresh.axDescription;
+        if (auditedLockedField && !GHAuditedLabelMatches(ghost.auditedLockedLabel, liveLabel)) {
+            finish([GHWriteResult refusal:GHWriteReasonLocked]);
+            return;
+        }
+        [self press:fresh allowAuditedLock:auditedLockedField finish:finish];
+        return;
+    }
     if ([ghost.action isEqualToString:GHGhostActionUpload]) { [self upload:ghost field:field button:fresh fileInput:optionNode finish:finish]; return; }
     if ([field.kind isEqualToString:GHKindFile]) { finish([GHWriteResult refusal:GHWriteReasonUnsupported]); return; }   // a path only goes through the panel
     if ([ghost.action isEqualToString:GHGhostActionCheck]) { [self tick:fresh ghost:ghost finish:finish]; return; }
@@ -639,8 +661,8 @@ static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
 /// The ONE press in this class. The element is read again by the caller before we get here; this asks the lock
 /// check one last time (a control whose name changed under us, a menu that turned into a confirmation) and then
 /// performs the app's own default action. Nothing is typed, nothing is filled, no key is posted.
-- (void)press:(id<GHAXNode>)node finish:(void (^)(GHWriteResult *))finish {
-    if (!self.isNodeLocked || self.isNodeLocked(node)) { finish([GHWriteResult refusal:GHWriteReasonLocked]); return; }
+- (void)press:(id<GHAXNode>)node allowAuditedLock:(BOOL)allowAuditedLock finish:(void (^)(GHWriteResult *))finish {
+    if (!self.isNodeLocked || (!allowAuditedLock && self.isNodeLocked(node))) { finish([GHWriteResult refusal:GHWriteReasonLocked]); return; }
     // A text box is never pressed: putting the cursor in it IS the action (a search box the user is about to
     // type in). Nothing is typed and nothing is filled either way -- the click ghost carries no value.
     BOOL typeable = [node.role isEqualToString:kRoleTextField] || [node.role isEqualToString:kRoleTextArea] ||
