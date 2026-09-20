@@ -4,7 +4,7 @@ import { isSensitive, type PastAnswer } from "@ghost/shared";
 import type { LlmConfig, ServerConfig } from "../config";
 import { getMetrics } from "../lib/metrics";
 import { sseResponse } from "../lib/sse";
-import type { DraftInput } from "../lib/template";
+import type { DraftInput, DraftMessage } from "../lib/template";
 import { createLlmClient } from "../llm/client";
 import { createGhostTextService } from "../llm/ghostText";
 import { extractProfile } from "../llm/profileExtract";
@@ -17,7 +17,7 @@ export interface TextRouteDeps {
 
 const GHOST_TEXT = "/v1/ghost-text";
 const EXTRACT = "/v1/profile/extract";
-const LIMITS = { label: 300, signature: 500, name: 200, description: 2000, facts: 50, factKey: 64, factValue: 500, pastAnswers: 3, answer: 2000, resume: 20_000, minMaxChars: 20, maxMaxChars: 5000 };
+const LIMITS = { label: 300, signature: 500, name: 200, description: 2000, facts: 50, factKey: 64, factValue: 500, pastAnswers: 3, answer: 2000, resume: 20_000, minMaxChars: 20, maxMaxChars: 5000, messages: 20, messageText: 400 };
 
 class BadRequest extends Error {}
 
@@ -93,7 +93,29 @@ function parseGhostTextBody(body: unknown): DraftInput {
     pageContext: { company: optionalText(page.company, "pageContext.company", LIMITS.name), role: optionalText(page.role, "pageContext.role", LIMITS.name), description: optionalText(page.description, "pageContext.description", LIMITS.description) },
     facts: parseFacts(b.facts),
     pastAnswers: parsePastAnswers(b.pastAnswers),
+    conversation: parseConversation(b.conversation),
   };
+}
+
+/**
+ * The thread a reply answers. Absent for every job application, present only when the client found a
+ * conversation on screen. Same treatment as everything else read off a screen: capped, trimmed, and dropped
+ * entirely when a message looks sensitive, so a one-time code someone texted never reaches a model.
+ */
+function parseConversation(value: unknown): DraftInput["conversation"] {
+  if (value === undefined || value === null) return undefined;
+  const c = asRecord(value, "conversation");
+  if (!Array.isArray(c.messages)) throw new BadRequest("conversation.messages must be an array");
+  const messages: DraftMessage[] = [];
+  for (const item of c.messages.slice(-LIMITS.messages)) {
+    const m = asRecord(item, "conversation.messages[]");
+    const text = optionalText(m.text, "conversation.messages[].text", LIMITS.messageText);
+    if (!text) continue;
+    if (isSensitive({ label: text })) continue;
+    messages.push({ text, fromMe: m.fromMe === true, from: optionalText(m.from, "conversation.messages[].from", LIMITS.name) });
+  }
+  if (messages.length === 0) return undefined;
+  return { messages, correspondent: optionalText(c.correspondent, "conversation.correspondent", LIMITS.name) };
 }
 
 function parseExtractBody(body: unknown): string {

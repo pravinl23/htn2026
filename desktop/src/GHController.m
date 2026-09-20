@@ -1,4 +1,5 @@
 #import "GHController.h"
+#import "GHConversation.h"
 #import "GHCapture.h"
 #import "GHComboBoxDriver.h"
 #import "GHCore.h"
@@ -22,6 +23,7 @@ static NSString *const kDraftingText = @"Drafting...";
 static const NSUInteger kMaxFormsPerPage = 6;
 static const NSUInteger kMinFormFields = 2;
 static const NSUInteger kDraftMaxChars = 600;
+static const NSUInteger kReplyMaxChars = 200;   // a message is not an essay
 static const NSTimeInterval kSettleSeconds = 0.4;          // an upgrade may still replace a ghost nobody looked at yet
 static const NSTimeInterval kOwnWriteQuietSeconds = 0.4;   // value-changed notifications caused by our own write
 static const NSUInteger kChromiumMaxNodes = 4000;
@@ -94,6 +96,7 @@ static const NSUInteger kUploadVerifyTries = 8;
     BOOL _stepMayHandBack;   // the first step of a fresh, unqueued press: a Tab that was not Ghost's goes back to the app
     BOOL _stepDirect;        // the step in flight follows the user's press at once (no draft wait, no sequence)
     BOOL _stepFromGhostKey;  // the accept came from the Ghost key, which no app binds and nothing can take back
+    NSString *_previousRoleBundleId;   // which app the last accepted role was in; another app forgets it
     NSString *_stickySignature;    // the proposal currently on screen: it wins near-ties so the ghost stops moving
     NSString *_cooldownSignature;  // just taken or just turned down: not offered again until _cooldownUntil
     CFAbsoluteTime _cooldownUntil;
@@ -122,6 +125,8 @@ static const NSUInteger kUploadVerifyTries = 8;
     NSString *_jumpFailedSignature;            // AXScrollToVisible could not bring this ghost on screen
     NSDictionary<NSString *, NSString *> *_pageContext;   // company / role / description, once per page
     BOOL _pageContextRead;
+    NSDictionary<NSString *, id> *_conversation;   // the thread on screen, read once per page
+    BOOL _conversationRead;
     // docs/anywhere.md: what Ghost offers when the window is not a form. Built on first use, because most
     // windows never need it and the memory file should not be touched before it is.
     GHNextAction *_nextAction;
@@ -403,8 +408,14 @@ static const NSUInteger kUploadVerifyTries = 8;
     _jumpFailedSignature = nil;
     _pageContext = nil;
     _pageContextRead = NO;
+    _conversation = nil;
+    _conversationRead = NO;
     _proposal = nil;
-    _previousRole = nil;
+    // What the user did last SURVIVES the page it opened, as long as they are still in the same app: pressing
+    // New Message is the reason the compose window is there, and forgetting it the instant it appears is how
+    // Ghost ended up proposing the search box on a screen the user had just created to type a name into.
+    // A different app is a different train of thought, and forgets.
+    if (![_walkBundleId isEqualToString:_previousRoleBundleId ?: @""]) _previousRole = nil;
     _stickySignature = nil;
     _cooldownSignature = nil;
     _hudStatus = nil;
@@ -680,7 +691,10 @@ static const NSUInteger kUploadVerifyTries = 8;
     GHNextProposal *proposal = _proposal;
     if (!proposal || ![proposal.signature isEqualToString:signature ?: @""]) return;
     [_nextAction recordOutcome:outcome forProposal:proposal];
-    if ([outcome isEqualToString:GHRoleOutcomeAccepted]) _previousRole = proposal.role;
+    if ([outcome isEqualToString:GHRoleOutcomeAccepted]) {
+        _previousRole = proposal.role;
+        _previousRoleBundleId = [_walkBundleId copy];
+    }
     // Taken or turned down, this one is not offered again straight away. A window rescans several times a
     // second, and nothing anywhere excluded the row that was just dealt with, so the same ghost came
     // immediately back -- and, because role memory is keyed by role, pulled its neighbours up with it.
@@ -895,10 +909,27 @@ static BOOL GHIsValueKind(NSString *kind) {
         active++;
         NSDictionary *page = [GHController isLongQuestionField:field] ? [self pageContext] : nil;
         NSDictionary *context = [GHController draftContextForField:field page:page];
+        // A reply is drafted from the thread on screen, not from the applicant's profile.
+        NSDictionary *thread = [self conversationContext];
+        NSUInteger cap = thread ? kReplyMaxChars : kDraftMaxChars;
         draft.stream = [_client streamGhostTextForFieldLabel:field.label fieldSignature:field.signature pageContext:context
-                                                     profile:_store.profile maxChars:kDraftMaxChars delegate:self];
+                                               conversation:thread profile:_store.profile maxChars:cap delegate:self];
         // nil = refused locally (sensitive label, no server URL): the delegate hears the reason on the next turn.
     }
+}
+
+/// The thread on screen, read once per page. nil in every window that is not a conversation, which is almost
+/// all of them: the reader needs messages that carry a name and a time, and finds none anywhere else.
+- (NSDictionary<NSString *, id> *)conversationContext {
+    if (_conversationRead) return _conversation;
+    _conversationRead = YES;
+    id<GHAXNode> root = _result.windowNode;
+    if (!root) return nil;
+    GHConversation *conversation = [GHConversation conversationFromNode:root];
+    _conversation = [conversation dictionary];
+    if (_conversation) GHLog(@"controller: conversation of %lu messages (%lu nodes)",
+                             (unsigned long)conversation.messages.count, (unsigned long)conversation.visitedNodes);
+    return _conversation;
 }
 
 /// What the posting is about, read once per page from the web area (never an input's value).
@@ -1158,7 +1189,20 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
     if (current && _currentVisible && [_jumpFailedSignature isEqualToString:current.signature]) _jumpFailedSignature = nil;
     snapshot.canJump = current != nil && !_currentVisible && self.overlay != nil && [_result nodeForSignature:current.signature] != nil
                        && ![_jumpFailedSignature isEqualToString:current.signature];
+    // The two facts the Tab rule needs that the walk cannot see: whether the ghost is a proposal rather than a
+    // value, and whether focus is in something the user types into. Both need the capture's field kinds.
+    snapshot.currentIsProposal = current != nil && !current.locked && [current.action isEqualToString:GHGhostActionClick];
+    snapshot.focusOnTypeable = [self focusIsOnATypeableField];
     [self.eventTap publishSnapshot:snapshot];
+}
+
+/// Is the keyboard in a box somebody types into? A Tab from there is always the app's, whatever is on screen.
+/// A list row, a sidebar or the window itself is not: Tab there only moves focus around.
+- (BOOL)focusIsOnATypeableField {
+    NSString *signature = _walk.focusSignature;
+    if (signature.length == 0 || [signature isEqualToString:GHWalkFocusElsewhere]) return NO;
+    NSString *kind = _fields[signature].kind ?: @"";
+    return [kind isEqualToString:GHKindText] || [kind isEqualToString:GHKindTextArea] || [kind isEqualToString:GHKindSelect];
 }
 
 /// Re-reads the rect of one ghost's element. NO when the element is gone.
@@ -1390,6 +1434,11 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
     [_walk noteFocus:[self liveFocusSignature]];
     // The Ghost key has nothing to give back to the app, so where focus happens to be does not decide it.
     if (_stepFromGhostKey) return NO;
+    GHGhost *current = _walk.current;
+    // The same exception the Tab rule makes: a proposal is a place to go, and Tab's own meaning where focus is
+    // not in a text box is a weaker version of it. Kept in step with GHDecideTab deliberately -- the tap
+    // decided on a snapshot milliseconds old, and this is the re-check against live focus.
+    if (current && !current.locked && [current.action isEqualToString:GHGhostActionClick] && ![self focusIsOnATypeableField]) return NO;
     return ![_walk snapshotWithActive:YES currentVisible:YES busy:NO].focusInWalk;
 }
 

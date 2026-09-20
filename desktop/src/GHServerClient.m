@@ -9,6 +9,7 @@ const NSTimeInterval GHServerStreamTimeout = 30.0;
 const NSTimeInterval GHPresenceFreshSeconds = 90.0;
 
 static const NSUInteger kLabelMax = 300, kSignatureMax = 500, kNameMax = 200, kDescriptionMax = 2000;
+static const NSUInteger kMessageMax = 400;   // one message of a thread; the server caps the count
 static const NSUInteger kPastAnswersMax = 3, kQuestionMax = 300, kAnswerMax = 2000;
 static const NSUInteger kMinMaxChars = 20, kMaxMaxChars = 5000;
 
@@ -641,6 +642,7 @@ static NSString *GHWireSource(NSString *source) {
 #pragma mark streaming
 
 - (NSData *)ghostTextBodyForLabel:(NSString *)label signature:(NSString *)signature pageContext:(NSDictionary *)pageContext
+                     conversation:(NSDictionary *)conversation
                           profile:(NSDictionary *)profile maxChars:(NSUInteger)maxChars {
     NSMutableDictionary *body = [NSMutableDictionary dictionary];
     body[@"fieldLabel"] = label;
@@ -662,12 +664,42 @@ static NSString *GHWireSource(NSString *source) {
         if (question && answer) [answers addObject:@{ @"question": question, @"answer": answer }];
     }
     body[@"pastAnswers"] = answers;
+    // The thread this field replies to, when the client found one. The server caps and re-checks it; a
+    // message the core calls sensitive (a one-time code somebody texted) is dropped on both sides.
+    NSDictionary *thread = [self wireConversation:conversation];
+    if (thread) body[@"conversation"] = thread;
     if (maxChars >= kMinMaxChars) body[@"maxChars"] = @(MIN(maxChars, kMaxMaxChars));
     return [NSJSONSerialization dataWithJSONObject:body options:0 error:NULL];
 }
 
+/// `{ messages: [{ from, text, fromMe }], correspondent }` -> the same, clipped, with anything the core calls
+/// sensitive left out. nil when there is nothing usable left.
+- (NSDictionary *)wireConversation:(NSDictionary *)conversation {
+    NSArray *messages = [conversation[@"messages"] isKindOfClass:[NSArray class]] ? conversation[@"messages"] : nil;
+    if (messages.count == 0) return nil;
+    NSMutableArray *wire = [NSMutableArray array];
+    for (NSDictionary *message in messages) {
+        if (![message isKindOfClass:[NSDictionary class]]) continue;
+        NSString *text = GHClip(message[@"text"], kMessageMax);
+        if (!text || [_core isSensitive:@{ @"label": text }]) continue;
+        NSMutableDictionary *entry = [NSMutableDictionary dictionary];
+        entry[@"text"] = text;
+        entry[@"fromMe"] = @([message[@"fromMe"] boolValue]);
+        NSString *from = GHClip(message[@"from"], kNameMax);
+        if (from) entry[@"from"] = from;
+        [wire addObject:entry];
+    }
+    if (wire.count == 0) return nil;
+    NSMutableDictionary *json = [NSMutableDictionary dictionary];
+    json[@"messages"] = wire;
+    NSString *correspondent = GHClip(conversation[@"correspondent"], kNameMax);
+    if (correspondent) json[@"correspondent"] = correspondent;
+    return json;
+}
+
 - (GHGhostTextStream *)streamGhostTextForFieldLabel:(NSString *)fieldLabel fieldSignature:(NSString *)fieldSignature
                                         pageContext:(NSDictionary<NSString *, NSString *> *)pageContext
+                                       conversation:(NSDictionary<NSString *, id> *)conversation
                                             profile:(NSDictionary<NSString *, id> *)profile maxChars:(NSUInteger)maxChars
                                            delegate:(id<GHGhostTextStreamDelegate>)delegate {
     GHGhostTextStream *stream = [[GHGhostTextStream alloc] init];
@@ -678,7 +710,8 @@ static NSString *GHWireSource(NSString *source) {
     NSString *refusal = nil;
     if (!label || !signature) refusal = @"bad-request";
     else if ([_core isSensitive:@{ @"label": label }]) refusal = @"sensitive";
-    NSData *body = refusal ? nil : [self ghostTextBodyForLabel:label signature:signature pageContext:pageContext ?: @{} profile:profile ?: @{} maxChars:maxChars];
+    NSData *body = refusal ? nil : [self ghostTextBodyForLabel:label signature:signature pageContext:pageContext ?: @{}
+                                                  conversation:conversation profile:profile ?: @{} maxChars:maxChars];
     NSMutableURLRequest *request = body ? [self requestForPath:@"/v1/ghost-text" body:body accept:@"text/event-stream"] : nil;
     if (!refusal && !request) refusal = body ? @"no-server-url" : @"bad-request";
     if (refusal) {

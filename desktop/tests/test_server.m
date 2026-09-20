@@ -437,7 +437,7 @@ GH_TEST(server_ghost_text_streams_deltas_and_filters_facts) {
     GHStreamRecorder *recorder = [[GHStreamRecorder alloc] init];
     GHGhostTextStream *stream = [client streamGhostTextForFieldLabel:@"Why do you want to work here?" fieldSignature:@"area|why"
                                                          pageContext:@{ @"company": @"Acme", @"role": @" Engineer ", @"junk": @"dropped" }
-                                                             profile:ProfileWithAnswers() maxChars:600 delegate:recorder];
+                                                                conversation:nil profile:ProfileWithAnswers() maxChars:600 delegate:recorder];
     GH_ASSERT(stream != nil);
     GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return recorder.terminalCalls > 0; }));
     GH_ASSERT(recorder.failure == nil);
@@ -479,7 +479,7 @@ GH_TEST(server_ghost_text_refuses_sensitive_labels_locally) {
     [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) { return [GHStubReply sse:@[ @"data: {\"delta\":\"x\"}\n\n" ]]; }];
     GHServerClient *client = Client(nil);
     GHStreamRecorder *recorder = [[GHStreamRecorder alloc] init];
-    GHGhostTextStream *stream = [client streamGhostTextForFieldLabel:@"Security code" fieldSignature:@"txt|code" pageContext:nil profile:ProfileWithAnswers() maxChars:0 delegate:recorder];
+    GHGhostTextStream *stream = [client streamGhostTextForFieldLabel:@"Security code" fieldSignature:@"txt|code" pageContext:nil conversation:nil profile:ProfileWithAnswers() maxChars:0 delegate:recorder];
     GH_ASSERT(stream == nil);
     GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return recorder.terminalCalls > 0; }));
     GH_ASSERT_EQUAL_OBJECTS(recorder.failure, @"sensitive");
@@ -496,7 +496,7 @@ GH_TEST(server_ghost_text_failures) {
     for (NSArray *testCase in cases) {
         [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) { return testCase[0]; }];
         GHStreamRecorder *recorder = [[GHStreamRecorder alloc] init];
-        [client streamGhostTextForFieldLabel:@"Tell us about a project" fieldSignature:@"area|project" pageContext:nil profile:ProfileWithAnswers() maxChars:0 delegate:recorder];
+        [client streamGhostTextForFieldLabel:@"Tell us about a project" fieldSignature:@"area|project" pageContext:nil conversation:nil profile:ProfileWithAnswers() maxChars:0 delegate:recorder];
         GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return recorder.terminalCalls > 0; }));
         GH_ASSERT_EQUAL_OBJECTS(recorder.failure, testCase[1]);
         GH_ASSERT(recorder.finalText == nil);
@@ -510,7 +510,7 @@ GH_TEST(server_ghost_text_cancel_reports_aborted_once) {
     [GHStubURLProtocol resetWithHandler:^GHStubReply *(GHStubRequest *request) { return open; }];
     GHServerClient *client = Client(nil);
     GHStreamRecorder *recorder = [[GHStreamRecorder alloc] init];
-    GHGhostTextStream *stream = [client streamGhostTextForFieldLabel:@"Cover letter" fieldSignature:@"area|cover" pageContext:nil profile:ProfileWithAnswers() maxChars:0 delegate:recorder];
+    GHGhostTextStream *stream = [client streamGhostTextForFieldLabel:@"Cover letter" fieldSignature:@"area|cover" pageContext:nil conversation:nil profile:ProfileWithAnswers() maxChars:0 delegate:recorder];
     GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return recorder.deltas.count == 1; }));
     [stream cancel];
     [stream cancel];

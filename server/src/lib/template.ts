@@ -1,11 +1,23 @@
 import type { PastAnswer } from "@ghost/shared";
 
+/** One message already on screen. `fromMe` is the user's own side of the thread. */
+export interface DraftMessage {
+  from?: string;
+  text: string;
+  fromMe: boolean;
+}
+
 export interface DraftInput {
   fieldLabel: string;
   maxChars?: number;
   pageContext: { company?: string; role?: string; description?: string };
   facts: Record<string, string>;
   pastAnswers: PastAnswer[];
+  /**
+   * The last few messages of the thread this field replies to, oldest first. Present only when the client
+   * found a conversation on screen; a job application never has one, and a chat window never has a company.
+   */
+  conversation?: { messages: DraftMessage[]; correspondent?: string };
 }
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -16,9 +28,23 @@ const MAX_WORDS = 120;
 
 /** Deterministic no-key draft. Every concrete claim comes from the inputs; the rest is working-style phrasing. */
 export function templateDraft(input: DraftInput, now: Date = new Date()): string {
+  const reply = conversationDraft(input);
+  if (reply) return clipToSentences(reply, input.maxChars);
   const reused = reusablePastAnswer(input);
   const sentences = reused ? [reused] : PROJECT.test(input.fieldLabel) && !MOTIVATION.test(input.fieldLabel) ? projectDraft(input, now) : motivationDraft(input, now);
   return clipToSentences(trimToWordBudget(sentences).join(" "), input.maxChars);
+}
+
+/**
+ * With no key there is nothing that can write a real reply, so the template writes the one reply that is
+ * always true and never wrong: an acknowledgement. It is short on purpose. A wrong ghost is worse than no
+ * ghost, and a made-up answer to somebody's actual question is the worst kind of wrong.
+ */
+function conversationDraft(input: DraftInput): string | undefined {
+  const messages = input.conversation?.messages ?? [];
+  const last = [...messages].reverse().find((m) => !m.fromMe);
+  if (!last) return undefined;
+  return /\?\s*$/.test(last.text) ? "Let me check and get back to you." : "Sounds good, thanks for letting me know.";
 }
 
 /** "2028-04" -> "April 2028". Anything else is returned unchanged. */

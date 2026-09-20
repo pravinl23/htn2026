@@ -38,6 +38,9 @@ extern NSString *const GHUploadKindOther;        // "other": never answered
 @property (nonatomic, copy) NSString *label;
 /// One of the GHKind* strings. Defaults to GHKindText.
 @property (nonatomic, copy) NSString *kind;
+/// The keyboard is in this control right now. An app that opens a window and puts the cursor somewhere has
+/// said what happens next, which is the one sequence signal that needs no history.
+@property (nonatomic) BOOL focused;
 @property (nonatomic, copy, nullable) NSString *inputType;
 @property (nonatomic, copy, nullable) NSString *name;
 /// DOM identifier (AXDOMIdentifier) or AXIdentifier. Serialized as `id`.

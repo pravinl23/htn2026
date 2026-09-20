@@ -31,6 +31,7 @@ export type AffordanceEvidence =
   | "price-nearby"      // a price-shaped string is rendered beside it
   | "badge-count"       // a small count is drawn on the icon
   | "path-pattern"      // the URL path pattern agrees with the role
+  | "focused"           // the app itself has put the keyboard in this control
   | "kind";             // the candidate's own kind (a field is a field)
 
 export interface Affordance {
@@ -65,6 +66,11 @@ export interface AffordanceCandidate extends NextCandidate {
   nearbyPrice?: boolean;
   /** A small number drawn on the icon: a cart count, an unread count. */
   badgeCount?: number;
+  /**
+   * The keyboard is in this control right now. An app that opens a window and puts the cursor somewhere has
+   * already said what happens next, and it is the one sequence signal that needs no history at all.
+   */
+  focused?: boolean;
 }
 
 /** Page-level facts a role sometimes needs. Still nothing that identifies a site. */
@@ -334,6 +340,9 @@ export function classifyAffordance(candidate: AffordanceCandidate, context: Affo
 
   // A field whose label says nothing else is simply a field to fill; a "Quantity" select stays a quantity.
   if (candidate.kind === "field" && scores.max() < ACTION_FLOOR) scores.add("field", 0.55, "kind");
+  // The app put the cursor here. That outranks the generic "this is a field", and it is what separates the
+  // box somebody is about to type in from every other box on the screen.
+  if (candidate.kind === "field" && candidate.focused === true) scores.add("field", 0.75, "focused");
 
   const best = scores.best();
   if (!best || best.score < DECISION_FLOOR) return { role: "unknown", confidence: UNKNOWN_CONFIDENCE, evidence: glyph ? ["glyph-only"] : [] };

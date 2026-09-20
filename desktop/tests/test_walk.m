@@ -271,6 +271,34 @@ GH_TEST(tab_is_native_unless_every_condition_holds) {
     GH_ASSERT_EQUAL_INT(GHDecideTab(Ready(), GHKeyModifierNone, NO, NULL), GHKeyDecisionAccept);   // NULL hold is allowed
 }
 
+/// Measured on the running agent: Tab did nothing at all in Messages and Spotify while the Ghost key worked,
+/// because focus there sits on a list row or a sidebar and never on the ghost. Tab's own meaning in that spot
+/// is "move focus to some other control", which is a weaker version of what the proposal already offers.
+GH_TEST(tab_takes_a_proposal_when_focus_is_not_in_a_box_the_user_types_in) {
+    GHHoldState hold = { NO, NO };
+    GHWalkSnapshot s = Ready();
+    s.focusInWalk = NO;
+    s.currentIsProposal = YES;
+    GH_ASSERT_EQUAL_INT(GHDecideTab(s, GHKeyModifierNone, NO, &hold), GHKeyDecisionAccept);
+
+    // Focus in a text box is the user's, always: that Tab is theirs whatever is on screen.
+    hold = (GHHoldState){ NO, NO };
+    s.focusOnTypeable = YES;
+    GH_ASSERT_EQUAL_INT(GHDecideTab(s, GHKeyModifierNone, NO, &hold), GHKeyDecisionPass);
+
+    // A form walk is untouched: its ghosts are values to write, never proposals.
+    hold = (GHHoldState){ NO, NO };
+    s = Ready();
+    s.focusInWalk = NO;
+    GH_ASSERT_EQUAL_INT(GHDecideTab(s, GHKeyModifierNone, NO, &hold), GHKeyDecisionPass);
+
+    // And a locked proposal is still parked on, never taken.
+    hold = (GHHoldState){ NO, NO };
+    s.currentIsProposal = YES;
+    s.currentLocked = YES;
+    GH_ASSERT_EQUAL_INT(GHDecideTab(s, GHKeyModifierNone, NO, &hold), GHKeyDecisionPark);
+}
+
 GH_TEST(tab_hold_only_counts_when_ghost_took_the_first_press) {
     GHHoldState hold = { NO, NO };
     // A native hold (focus was elsewhere) that wanders onto a ghosted field never starts accepting.

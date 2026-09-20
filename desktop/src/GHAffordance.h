@@ -37,6 +37,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic) BOOL isFullscreen;
 /// The role of the action the user took last in this window ("" when this is the first proposal of the view).
 @property (nonatomic, copy, nullable) NSString *previousRole;
+/// The app itself has put the keyboard in an empty box somebody types in.
+///
+/// This is the sequence signal Ghost can always read, and it needs no history at all: an app that opens a
+/// compose window and drops the cursor in `To` has ALREADY said what happens next. Reaching for the search
+/// box in that moment is the guess that makes no sense to a person, and this is what stops it.
+@property (nonatomic) BOOL focusedEmptyField;
 /// A password (or any AXSecureTextField) is on screen in this window. Nothing may be screenshotted here:
 /// the vision fallback refuses the whole window, not just that control (docs/anywhere.md section 4).
 @property (nonatomic) BOOL sensitiveOnScreen;

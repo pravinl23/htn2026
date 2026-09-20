@@ -38,6 +38,8 @@ export interface NextActionSignals extends PriorState {
   appBundleId?: string;
   /** The role of the action the user took last in this window. */
   previousRole?: AffordanceRole;
+  /** The app itself has put the keyboard in an empty box somebody types in. */
+  focusedEmptyField?: boolean;
 }
 
 export interface NextActionOptions {
@@ -140,6 +142,7 @@ function asCandidate(raw: unknown): AffordanceCandidate | null {
   }
   if (raw.insideMediaControls === true) candidate.insideMediaControls = true;
   if (raw.nearbyPrice === true) candidate.nearbyPrice = true;
+  if (raw.focused === true) candidate.focused = true;
   const badge = count(raw.badgeCount);
   if (badge !== undefined && badge > 0) candidate.badgeCount = badge;
   if (isObject(raw.list)) {
@@ -185,7 +188,7 @@ function asSignals(json: string): NextActionSignals {
     const list = text(raw.mainListSignature, 120);
     if (list !== undefined) signals.mainListSignature = list;
   }
-  for (const key of ["hasMediaElement", "mediaPlaying", "isFullscreen", "atPageEnd", "hasQuery", "readingItem"] as const) {
+  for (const key of ["hasMediaElement", "mediaPlaying", "isFullscreen", "atPageEnd", "hasQuery", "readingItem", "focusedEmptyField"] as const) {
     const value = bool(raw[key]);
     if (value !== undefined) signals[key] = value;
   }
@@ -252,6 +255,8 @@ export function nextAction(candidatesJson: string, signalsJson: string, memoryJs
 
   // The cart count the client read wins; otherwise the only generic evidence there is (a badge, a count in a name).
   const cartCount = signals.cartCount ?? cartCountFrom(candidates, context);
+  // `previousRole` reaches the priors as well as the memory key: what you did last is evidence in its own
+  // right, and without this it changed nothing at all until role memory had learned something.
   const priorState: PriorState = { ...signals, cartCount, mediaPlaying: signals.mediaPlaying ?? playingFrom(page.kind, classified) };
   const priors = priorsFor(page.kind, priorState);
   const ranked = predictByRole(

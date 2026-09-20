@@ -63,6 +63,7 @@ NSString *const GHUploadKindOther = @"other";
     copy.signature = self.signature;
     copy.label = self.label;
     copy.kind = self.kind;
+    copy.focused = self.focused;
     copy.inputType = self.inputType;
     copy.name = self.name;
     copy.identifier = self.identifier;
@@ -150,6 +151,7 @@ static NSNumber *GHFiniteNumber(CGFloat value) {
     json[@"label"] = self.label ?: @"";
     json[@"locked"] = @(self.locked);
     if (item) json[@"ariaRole"] = @"listitem";
+    if (self.focused) json[@"focused"] = @YES;
     if (self.context.length) json[@"context"] = self.context;
     if (self.axDescription.length) json[@"description"] = self.axDescription;
     if (self.inputType.length) json[@"inputType"] = self.inputType;

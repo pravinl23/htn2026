@@ -155,7 +155,15 @@ GHKeyDecision GHDecideTab(GHWalkSnapshot snapshot, GHKeyModifiers modifiers, BOO
         // The walk ran out mid-hold: do not let focus race off natively. A fresh press is the app's.
         return isRepeat ? GHKeyDecisionSwallow : GHKeyDecisionPass;
     }
-    if (!isRepeat && !snapshot.focusInWalk) return GHKeyDecisionPass;
+    // Focus outside the walk normally means the Tab belonged to whatever the user was focused on.
+    //
+    // One exception, and it is the whole of "Tab does nothing in Spotify and Messages": when the ghost is a
+    // next-action PROPOSAL -- a place to go, nothing written -- and focus is not in anything the user types
+    // into, Tab's own meaning there is "move focus to some other control", which is a weaker version of what
+    // the ghost is already offering. Taking it costs the user nothing they wanted. Focus in a text box is
+    // still theirs, and a form walk is untouched: its ghosts are values, never proposals.
+    BOOL proposalTab = snapshot.currentIsProposal && !snapshot.focusOnTypeable;
+    if (!isRepeat && !snapshot.focusInWalk && !proposalTab) return GHKeyDecisionPass;
     hold->walking = YES;
     if (isRepeat && hold->halted) return GHKeyDecisionSwallow;
     if (snapshot.currentLocked) {

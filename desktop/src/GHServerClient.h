@@ -168,6 +168,7 @@ extern const NSTimeInterval GHPresenceFreshSeconds;      // 90 s
 - (nullable GHGhostTextStream *)streamGhostTextForFieldLabel:(NSString *)fieldLabel
                                               fieldSignature:(NSString *)fieldSignature
                                                  pageContext:(nullable NSDictionary<NSString *, NSString *> *)pageContext
+                                                conversation:(nullable NSDictionary<NSString *, id> *)conversation
                                                      profile:(NSDictionary<NSString *, id> *)profile
                                                     maxChars:(NSUInteger)maxChars
                                                     delegate:(id<GHGhostTextStreamDelegate>)delegate;

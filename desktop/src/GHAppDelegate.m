@@ -5,6 +5,7 @@
 #import "GHLog.h"
 #import "GHProfileStore.h"
 #import "GHServerClient.h"
+#import "GHTestPanel.h"
 #import <ApplicationServices/ApplicationServices.h>
 #import <Carbon/Carbon.h>
 
@@ -53,6 +54,7 @@ static OSStatus GHHotKeyHandler(EventHandlerCallRef next, EventRef event, void *
     NSMenuItem *_statusInfoItem;
     NSMenuItem *_serverInfoItem;
     NSMenuItem *_pipelineInfoItem;
+    GHTestPanel *_testPanel;
 }
 
 #pragma mark - launch
@@ -214,6 +216,17 @@ static OSStatus GHHotKeyHandler(EventHandlerCallRef next, EventRef event, void *
 }
 
 #pragma mark - enable, pause
+
+/// Two buttons that do the thing a second from now, so an accept that fails can be told apart from a key that
+/// never arrived (GHTestPanel). Off by default; nothing is installed until it is asked for.
+- (void)toggleTestPanel:(id)sender {
+    if (!_testPanel) {
+        // The pipeline is looked up at run time and is only a protocol here; the panel needs the real thing.
+        if (![(id)_pipeline isKindOfClass:[GHController class]]) return;
+        _testPanel = [[GHTestPanel alloc] initWithController:(GHController *)_pipeline];
+    }
+    [_testPanel toggle];
+}
 
 - (void)toggleEnabled:(id)sender {
     BOOL enabled = !self.ghostEnabled;
@@ -429,6 +442,9 @@ static OSStatus GHHotKeyHandler(EventHandlerCallRef next, EventRef event, void *
     [menu addItem:[self actionItem:@"Open settings.json" action:@selector(openSettings:)]];
     [menu addItem:[self actionItem:@"Open demo" action:@selector(openDemo:)]];
     [menu addItem:[self actionItem:@"Open log" action:@selector(openLog:)]];
+    NSMenuItem *test = [self actionItem:@"Test buttons" action:@selector(toggleTestPanel:)];
+    test.state = _testPanel.visible ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:test];
     [menu addItem:[NSMenuItem separatorItem]];
     NSMenuItem *quit = [[NSMenuItem alloc] initWithTitle:@"Quit Ghost" action:@selector(terminate:) keyEquivalent:@"q"];
     quit.target = NSApp;

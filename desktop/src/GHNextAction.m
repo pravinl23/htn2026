@@ -145,6 +145,9 @@ static const double kDefaultThreshold = 0.7;
         if (signals.isFullscreen) measured.isFullscreen = YES;
         if (signals.hasMediaElement) measured.hasMediaElement = YES;
     }
+    // The app's own cursor is the sequence signal: it says what comes next without Ghost having to have seen
+    // this app, this window or this user before.
+    measured.focusedEmptyField = [GHNextAction window:result hasAFocusedEmptyField:nil];
     _lastSignals = measured;
 
     NSArray<NSDictionary *> *candidates = [GHField candidateJSONObjectsForFields:result.fields];
@@ -176,6 +179,18 @@ static const double kDefaultThreshold = 0.7;
     return top;
 }
 
+/// An empty box somebody types in that the app has put the keyboard into. `outSignature` receives its
+/// signature when there is one.
++ (BOOL)window:(GHCaptureResult *)result hasAFocusedEmptyField:(NSString **)outSignature {
+    for (GHField *field in result.fields) {
+        if (!field.focused || field.value.length > 0) continue;
+        if (![field.kind isEqualToString:GHKindText] && ![field.kind isEqualToString:GHKindTextArea]) continue;
+        if (outSignature) *outSignature = field.signature;
+        return YES;
+    }
+    return NO;
+}
+
 /// One ranked row, refused unless it still names a live, visible control of this capture.
 - (GHNextProposal *)proposalFromRow:(id)row kind:(NSString *)kind previousRole:(NSString *)previousRole result:(GHCaptureResult *)result {
     if (![row isKindOfClass:[NSDictionary class]]) return nil;
@@ -187,12 +202,26 @@ static const double kDefaultThreshold = 0.7;
     for (GHField *field in result.fields) if ([field.signature isEqualToString:signature]) target = field;
     if (!target) return nil;
     NSString *role = [dictionary[@"role"] isKindOfClass:[NSString class]] ? dictionary[@"role"] : @"unknown";
-    // A proposal is a place to GO, not a value to write. A button or a link is pressed; the one value field
-    // worth offering is a search box, and offering it means putting the cursor in it (the writer focuses a
-    // typeable control instead of pressing it). Every other field belongs to the form walk, which fills it.
+    // A proposal is a place to GO, not a value to write. A button, a link or a list entry is pressed; a box
+    // you type in is offered by putting the cursor in it, which is what the writer does with a typeable
+    // control instead of pressing it. Nothing here ever writes a value: the form walk does that, and this
+    // whole path only runs when the form walk has nothing to offer at all.
+    //
+    // `field` is here as well as `search` because of what comes after an action: start a new message and the
+    // next thing is the empty box that just appeared. Refusing it left Ghost proposing the search box that
+    // was always there instead -- which is exactly the kind of guess that makes no sense to a person.
     BOOL clickable = [target.kind isEqualToString:GHKindButton] || [target.kind isEqualToString:GHKindLink] ||
                      [target.kind isEqualToString:GHKindItem];
-    if (!clickable && !([role isEqualToString:@"search"] && [target.kind isEqualToString:GHKindText])) return nil;
+    BOOL typeable = [target.kind isEqualToString:GHKindText] || [target.kind isEqualToString:GHKindTextArea];
+    NSString *source = [dictionary[@"source"] isKindOfClass:[NSString class]] ? dictionary[@"source"] : @"prior";
+    // "affordance" is the core's word for "nothing here ranks this role at all". A cursor dropped into a box
+    // that nothing ranks is the noise that made every guess look like a text box, so `field` is offered only
+    // where the place, or what the user just did, actually asks for one. `search` always ranks somewhere.
+    BOOL ranked = ![source isEqualToString:@"affordance"];
+    BOOL offerable = [role isEqualToString:@"search"] || ([role isEqualToString:@"field"] && ranked);
+    if (!clickable && !(typeable && offerable)) return nil;
+    // Never a box somebody has already written in: that is their text, and the cursor belongs where they left it.
+    if (typeable && target.value.length > 0) return nil;
 
     GHNextProposal *proposal = [[GHNextProposal alloc] init];
     proposal.signature = signature;
@@ -201,7 +230,7 @@ static const double kDefaultThreshold = 0.7;
     // Rule 2 is belt AND braces: the core locked it, or the capture did.
     proposal.locked = [dictionary[@"locked"] isKindOfClass:[NSNumber class]] && [dictionary[@"locked"] boolValue];
     if (target.locked) proposal.locked = YES;
-    proposal.source = [dictionary[@"source"] isKindOfClass:[NSString class]] ? dictionary[@"source"] : @"prior";
+    proposal.source = source;
     proposal.guess = [dictionary[@"guess"] isKindOfClass:[NSNumber class]] && [dictionary[@"guess"] boolValue];
     proposal.reason = [dictionary[@"reason"] isKindOfClass:[NSString class]] ? dictionary[@"reason"] : @"";
     proposal.pageKind = kind;

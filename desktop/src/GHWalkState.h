@@ -91,6 +91,10 @@ typedef struct {
     BOOL currentPending;  // a draft that is still streaming
     BOOL focusInWalk;     // focus is on the current ghost's element, on the field the walk just left, or on the window itself
     BOOL focusOnField;    // focus is on a captured value field (typing there overrides its ghost)
+    /// The current ghost is an unlocked next-action proposal: a place to GO, not a value to write.
+    BOOL currentIsProposal;
+    /// Focus is in something the user types into, so Tab there is theirs whatever else is on screen.
+    BOOL focusOnTypeable;
     BOOL busy;            // a write is in flight
     BOOL canJump;         // the current ghost is off screen and Ghost can scroll it into view (not tried in vain yet)
 } GHWalkSnapshot;

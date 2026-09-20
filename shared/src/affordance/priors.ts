@@ -24,6 +24,16 @@ export interface PriorState {
   hasQuery?: boolean;
   /** The main region shows ONE item (a message, a thread) rather than a list of them. */
   readingItem?: boolean;
+  /** The role of the thing the user took LAST. What follows it is a prior of its own -- see AFTER. */
+  previousRole?: AffordanceRole;
+  /**
+   * The app itself has put the keyboard in an empty box somebody types in.
+   *
+   * The strongest sequence signal there is, and the only one that needs no history: an app that opens a
+   * compose window and drops the cursor in `To` has already said what happens next. Without it Ghost reached
+   * for the search box in that moment, which is the guess that makes no sense to a person.
+   */
+  focusedEmptyField?: boolean;
 }
 
 export const PRIOR_MAX = 0.7;
@@ -38,11 +48,58 @@ export const PRIOR_MIN = 0.55;
  * and a video that is already playing fullscreen (nagging someone who is watching is the wrong product).
  */
 export function priorsFor(kind: PageKind, state: PriorState = {}): RolePrior[] {
-  const priors = build(kind, state);
+  const priors = merge(merge(build(kind, state), after(state.previousRole)), focusedField(state));
   return priors
     .filter((p) => p.weight > 0)
     .map((p) => ({ role: p.role, weight: Math.min(PRIOR_MAX, Math.max(PRIOR_MIN, p.weight)) }))
     .sort((a, b) => b.weight - a.weight);
+}
+
+/**
+ * What usually follows what.
+ *
+ * A place tells you what people do THERE; this tells you what people do NEXT, and without it "the last thing
+ * you did" changed nothing at all until role memory had learned something. Start a new message and the next
+ * thing is the empty field that just appeared, not the search box that was always there. Fill a field and the
+ * next thing is the one after it, then the thing that sends it. Open an item and the next thing is answering
+ * it.
+ *
+ * These are roles, not apps, labels or windows: every one of them is a sentence about behaviour that stays
+ * true wherever it happens. Nothing here knows what app it is in, and nothing here may ever name one.
+ *
+ * They are ordinary priors, so they are still weak (0.55 to 0.7) and one real accept in role memory outranks
+ * them. Where a place and a transition disagree, the stronger of the two wins.
+ */
+const AFTER: Partial<Record<AffordanceRole, RolePrior[]>> = {
+  // You made a new, empty thing. It is empty because you are about to say who or what it is for.
+  compose: [{ role: "field", weight: 0.7 }, { role: "search", weight: 0.56 }],
+  reply: [{ role: "field", weight: 0.7 }],
+  // One field leads to the next, and a filled-in thing leads to the control that sends it.
+  field: [{ role: "field", weight: 0.66 }, { role: "send", weight: 0.62 }, { role: "submit", weight: 0.6 }],
+  // You searched; now you open a result.
+  search: [{ role: "primary-item", weight: 0.7 }],
+  // You opened something. Now you act on it, or you go back for the next one.
+  "primary-item": [{ role: "reply", weight: 0.62 }, { role: "field", weight: 0.6 }, { role: "back", weight: 0.56 }],
+  play: [{ role: "fullscreen", weight: 0.7 }],
+  cart: [{ role: "checkout", weight: 0.62 }],
+  buy: [{ role: "cart", weight: 0.62 }],
+};
+
+function after(previousRole: AffordanceRole | undefined): RolePrior[] {
+  return previousRole ? (AFTER[previousRole] ?? []) : [];
+}
+
+/** Where the app has put the cursor, filling that box IS the next action, in every kind of place. */
+function focusedField(state: PriorState): RolePrior[] {
+  return state.focusedEmptyField === true ? [{ role: "field", weight: PRIOR_MAX }] : [];
+}
+
+/** The stronger weight per role wins; neither list silences the other. */
+function merge(place: RolePrior[], transitions: RolePrior[]): RolePrior[] {
+  if (transitions.length === 0) return place;
+  const best = new Map<AffordanceRole, number>();
+  for (const prior of [...place, ...transitions]) best.set(prior.role, Math.max(best.get(prior.role) ?? 0, prior.weight));
+  return [...best].map(([role, weight]) => ({ role, weight }));
 }
 
 function build(kind: PageKind, state: PriorState): RolePrior[] {

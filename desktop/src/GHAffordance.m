@@ -114,6 +114,7 @@ static uint32_t GHAffHash(NSString *text) {
     copy.pathPattern = self.pathPattern;
     copy.isFullscreen = self.isFullscreen;
     copy.previousRole = self.previousRole;
+    copy.focusedEmptyField = self.focusedEmptyField;
     copy.sensitiveOnScreen = self.sensitiveOnScreen;
     copy.visitedNodes = self.visitedNodes;
     copy.partial = self.partial;
@@ -131,6 +132,7 @@ static uint32_t GHAffHash(NSString *text) {
     if (self.pathPattern.length) json[@"pathPattern"] = self.pathPattern;
     if (self.isFullscreen) json[@"isFullscreen"] = @YES;
     if (self.previousRole.length) json[@"previousRole"] = self.previousRole;
+    if (self.focusedEmptyField) json[@"focusedEmptyField"] = @YES;
     return json;
 }
 

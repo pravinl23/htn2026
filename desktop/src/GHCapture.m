@@ -1120,6 +1120,7 @@ static NSString *GHUploadKindForText(NSString *text) {
     }
 
     GHField *field = [GHField fieldWithSignature:@"" label:label kind:kind];
+    field.focused = node.isFocused;
     field.identifier = node.identifier;
     field.rect = frame;
     field.axElement = node.axElement;
