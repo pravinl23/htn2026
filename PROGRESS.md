@@ -58,3 +58,9 @@ Format:
 - Verification: typecheck passes; 2,386 unit tests plus the replay eval; extension and demo builds; e2e 37 passed / 1 failed. The new loaded-extension walk-telemetry spec passes both paths (abandoned walk becomes a redacted fixture, healthy walk stays out of the queue). The one failure, `stage5-next.spec.ts:187` (extension presence heartbeat), reproduces identically on pristine `origin/main` in a clean worktree, so it is pre-existing and belongs to the presence stream.
 - Found two stale doc claims while auditing: desktop is 203 tests, not the documented 201, and PLAN.md's Stretch checkbox for the extension presence heartbeat was wrong until main landed it. Both corrected.
 - Next: add a `SENTRY_DSN` and confirm one live scrubbed event, then emit the same envelope from Ghost Desktop.
+
+## Run 6: 2026-09-20 01:05 (UTC) [IN PROGRESS]
+- Worked on: the last unchecked Stage 6 item, the loaded-extension invoice-loop e2e.
+- Gate on main 9d5a82e before touching anything: build pass, typecheck pass, 2,586 JS/TS unit tests pass (demo 74, extension 883, server 906, shared 723) plus the walk-replay eval. e2e baseline running.
+- Changed: `e2e/loop.ts` (shared loop driver: closed-shadow panel access, the by-hand routine, row exclusion) and `e2e/tests/stage6-loop.spec.ts` (the acceptance spec).
+- Next: run the new spec, record `docs/media/stage6-loop.webm`, check the Stage 6 box.
