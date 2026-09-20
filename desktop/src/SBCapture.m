@@ -613,6 +613,19 @@ static BOOL SBIsSecure(id<SBAXNode> node) {
 #pragma mark Labels
 
 /// Last static text inside `node` (a label wrapper). nil when the subtree holds a field: that text is someone else's.
+/**
+ * Text that is only a required marker or punctuation: "*", "(required)", ":", "-".
+ *
+ * A required label renders its star with a CSS ::after, and Chromium publishes generated content as its OWN
+ * static text node -- so a label group reads ["Location", "*"] and the nearest text before the field is the
+ * star, not the label. Cleaning it then leaves an empty string, and the field ends up with no name at all.
+ * Measured on a live application form, where this was the one field a whole walk skipped.
+ */
+static BOOL SBTextIsOnlyAMarker(NSString *text) {
+    NSString *clean = [SBCapture cleanLabel:text ?: @""];
+    return clean.length == 0;
+}
+
 static NSString *SBTrailingText(id<SBAXNode> node, NSUInteger depth, BOOL *blocked) {
     NSString *role = node.role;
     if ([role isEqualToString:kRoleStaticText]) return SBTextOfNode(node);
@@ -625,7 +638,9 @@ static NSString *SBTrailingText(id<SBAXNode> node, NSUInteger depth, BOOL *block
     for (id<SBAXNode> child in node.children) {
         NSString *text = SBTrailingText(child, depth - 1, blocked);
         if (*blocked) return nil;
-        if (text.length) found = text;
+        // The LAST text wins, because it is the one nearest the field -- but a bare marker is not a name, and
+        // must never displace the label it decorates.
+        if (text.length && !(found.length && SBTextIsOnlyAMarker(text))) found = text;
     }
     return found;
 }
@@ -669,6 +684,27 @@ static NSString *SBDescendantText(id<SBAXNode> node, NSUInteger depth) {
     return [parts componentsJoinedByString:@" "];
 }
 
+/**
+ * A placeholder that says nothing about the field it is in: a prompt to the typist, not a name.
+ * "Start typing...", "Type here...", "Select...", "Search...".
+ *
+ * These must not outrank a real label. Measured on a live application form: the Location field is a combobox
+ * that publishes NO accessible name at all -- no AXTitle, no aria-label, no aria-labelledby -- so naming fell
+ * through to its placeholder, "Start typing...", and that became its label. The real "Location" was sitting in
+ * the static text right before it and was found, but ranked BELOW the placeholder and never used. Nothing could
+ * map "Start typing..." to a fact, so it was the one field a whole walk skipped while every other field filled.
+ *
+ * Such a placeholder is still kept as a LAST resort, after the preceding text: a field named badly beats a
+ * field named not at all.
+ */
+static BOOL SBPlaceholderSaysNothing(NSString *text) {
+    static NSRegularExpression *regex; static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        regex = SBRegex(@"^(start typing|begin typing|type here|type to search|type a|type\\.\\.\\.|select|select one|choose|choose one|pick one|search|enter|e\\.g\\.|eg)\\b[\\s.\\u2026:-]*$");
+    });
+    return SBMatches(regex, SBSquash(text));
+}
+
 /// Label precedence: AXTitle, AXDescription, AXTitleUIElement, AXPlaceholderValue, AXHelp, nearest preceding
 /// static text. WebKit and Chromium put the computed accessible name (label, aria-label) into AXTitle, so it wins;
 /// the title element is what native forms use. A candidate equal to the current value is skipped: some native
@@ -683,7 +719,11 @@ static NSString *SBDescendantText(id<SBAXNode> node, NSUInteger depth) {
     id<SBAXNode> titleElement = [kind isEqualToString:SBKindLink] ? nil : node.titleUIElement;
     NSArray<NSString *> *explicitNames = @[ SBSquash(node.title), SBSquash(node.axDescription), titleElement ? SBTextOfNode(titleElement) : @"" ];
     NSMutableArray<NSString *> *candidates = [explicitNames mutableCopy];
-    [candidates addObject:actionable ? SBDescendantText(node, 2) : SBSquash(node.placeholder)];
+    NSString *placeholder = actionable ? SBDescendantText(node, 2) : SBSquash(node.placeholder);
+    // A content-free placeholder is demoted below the preceding text rather than dropped, so it still names a
+    // field that has nothing else at all.
+    NSString *weakPlaceholder = (!actionable && SBPlaceholderSaysNothing(placeholder)) ? placeholder : nil;
+    if (!weakPlaceholder) [candidates addObject:placeholder];
     [candidates addObject:SBSquash(node.help)];
 
     SBNaming *naming = [[SBNaming alloc] init];
@@ -705,6 +745,8 @@ static NSString *SBDescendantText(id<SBAXNode> node, NSUInteger depth) {
         if (loose.length == 0) loose = SBPrecedingText(entry, kLabelLevelsUp, nil);
         if (loose.length && !(value.length && [loose isEqualToString:value])) [naming.sources addObject:loose];
     }
+    // Last resort, after everything including the preceding text.
+    if (weakPlaceholder.length) [naming.sources addObject:weakPlaceholder];
     naming.rawLabel = naming.sources.firstObject ?: @"";
     naming.label = [SBCapture cleanLabel:naming.rawLabel];
     return naming;

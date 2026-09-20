@@ -209,6 +209,58 @@ GH_TEST(axnode_live_node_survives_a_process_without_permission) {
 
 #pragma mark - SBCapture: the job application
 
+/// The shape a real application form uses for its Location field, captured live from Ashby: a combobox that
+/// publishes NO accessible name at all -- no AXTitle, no aria-label, no aria-labelledby -- with the real label
+/// sitting in the static text just before it, and a placeholder that says nothing ("Start typing...").
+static SBFakeAXNode *ComboBoxNamedOnlyByWhatComesBefore(NSString *placeholder) {
+    SBFakeAXNode *window = Node(@"AXWindow", @"Apply", 0, 0, 900, 700);
+    SBFakeAXNode *web = [window addChild:Node(@"AXWebArea", @"Apply", 0, 0, 900, 700)];
+    SBFakeAXNode *labelGroup = [web addChild:Node(@"AXGroup", nil, 40, 100, 400, 20)];
+    [labelGroup addChild:Text(@"Location", 40, 100)];
+    SBFakeAXNode *fieldGroup = [web addChild:Node(@"AXGroup", nil, 40, 124, 400, 32)];
+    SBFakeAXNode *combo = [fieldGroup addChild:Node(@"AXComboBox", nil, 40, 124, 400, 32)];
+    combo.placeholder = placeholder;
+    return window;
+}
+
+GH_TEST(capture_a_placeholder_that_says_nothing_never_beats_the_real_label) {
+    SBFakeSafety *safety = [[SBFakeSafety alloc] init];
+    SBCaptureResult *result = [Capture(safety) captureWindow:ComboBoxNamedOnlyByWhatComesBefore(@"Start typing...")];
+    SBField *combo = nil;
+    for (SBField *field in result.fields) if ([field.kind isEqualToString:SBKindSelect]) combo = field;
+    GH_ASSERT(combo != nil);
+    // Before this rule the placeholder won on ordering alone and nothing could map the field to a fact.
+    GH_ASSERT_EQUAL_OBJECTS(combo.label, @"Location");
+}
+
+GH_TEST(capture_a_placeholder_that_says_something_still_names_a_field) {
+    // The demotion is only for content-free prompts: a placeholder that describes the field still names it
+    // when there is nothing else, and a field named badly beats a field named not at all.
+    SBFakeSafety *safety = [[SBFakeSafety alloc] init];
+    SBFakeAXNode *window = Node(@"AXWindow", @"Apply", 0, 0, 900, 700);
+    SBFakeAXNode *web = [window addChild:Node(@"AXWebArea", @"Apply", 0, 0, 900, 700)];
+    SBFakeAXNode *combo = [web addChild:Node(@"AXComboBox", nil, 40, 124, 400, 32)];
+    combo.placeholder = @"hello@example.com";
+    SBCaptureResult *result = [Capture(safety) captureWindow:window];
+    SBField *found = nil;
+    for (SBField *field in result.fields) if ([field.kind isEqualToString:SBKindSelect]) found = field;
+    GH_ASSERT(found != nil);
+    GH_ASSERT_EQUAL_OBJECTS(found.label, @"hello@example.com");
+}
+
+GH_TEST(capture_a_content_free_placeholder_is_kept_when_there_is_nothing_else) {
+    SBFakeSafety *safety = [[SBFakeSafety alloc] init];
+    SBFakeAXNode *window = Node(@"AXWindow", @"Apply", 0, 0, 900, 700);
+    SBFakeAXNode *web = [window addChild:Node(@"AXWebArea", @"Apply", 0, 0, 900, 700)];
+    SBFakeAXNode *combo = [web addChild:Node(@"AXComboBox", nil, 40, 124, 400, 32)];
+    combo.placeholder = @"Start typing...";
+    SBCaptureResult *result = [Capture(safety) captureWindow:window];
+    SBField *found = nil;
+    for (SBField *field in result.fields) if ([field.kind isEqualToString:SBKindSelect]) found = field;
+    GH_ASSERT_MSG(found != nil, @"a field with only a weak placeholder is still a field");
+    GH_ASSERT_EQUAL_OBJECTS(found.label, @"Start typing...");
+}
+
 GH_TEST(capture_job_application_labels_kinds_and_order) {
     SBFakeSafety *safety = [[SBFakeSafety alloc] init];
     SBCaptureResult *result = [Capture(safety) captureWindow:JobApplicationWindow(@"", NULL)];
