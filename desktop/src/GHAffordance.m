@@ -64,6 +64,22 @@ static NSRegularExpression *GHAffPattern(NSString *source) {
     return [NSRegularExpression regularExpressionWithPattern:source options:NSRegularExpressionCaseInsensitive error:NULL];
 }
 
+/**
+ * How long a piece of media lasts, written out: "50 minutes", "11 minutes, 2 seconds", "1 hour, 3 minutes".
+ *
+ * This is what a video or podcast list puts in its links' ACCESSIBLE names, where the scrubber form below never
+ * appears. Measured on a real channel page: thirty video links, every one of them ending in a spoken duration,
+ * and not one of them classified as anything -- so the best Ghost could offer was a per-video overflow menu.
+ *
+ * "ago" is excluded, because "5 minutes ago" is when a thing happened, not how long it runs.
+ */
+static NSRegularExpression *GHAffSpokenDurationPattern(void) {
+    static NSRegularExpression *pattern;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ pattern = GHAffPattern(@"\\b\\d{1,3} (hour|hours|minute|minutes|second|seconds)\\b(?!,? ago)"); });
+    return pattern;
+}
+
 /// "0:42", "12:03", "1:03:11": what a player draws beside its scrubber, in every language.
 static NSRegularExpression *GHAffDurationPattern(void) {
     static NSRegularExpression *pattern;
@@ -199,6 +215,11 @@ static uint32_t GHAffHash(NSString *text) {
 
 + (BOOL)looksLikeDuration:(NSString *)text {
     return GHAffMatches(GHAffDurationPattern(), GHAffSquash(text));
+}
+
++ (BOOL)namesADuration:(NSString *)text {
+    NSString *clean = GHAffSquash(text);
+    return GHAffMatches(GHAffDurationPattern(), clean) || GHAffMatches(GHAffSpokenDurationPattern(), clean);
 }
 
 + (BOOL)looksLikePrice:(NSString *)text {
@@ -495,6 +516,9 @@ static BOOL GHAffGroupIsAToolbar(NSArray<NSNumber *> *group, NSArray<GHAffEntry 
         [self lift:(NSUInteger)index by:kMediaControlLift entries:entries into:near];
         field.insideMediaControls = [self set:near meets:mediaContainers];
         field.nearbyPrice = [self isRect:field.rect nearAnyOf:priceRects];
+        // A thing that says how long it lasts is a thing you can play. The exact twin of the price rule above,
+        // and the reason a list of videos is a list of videos even where no repeated SHAPE was detected.
+        field.namesDuration = [GHAffordance namesADuration:field.label];
 
         NSUInteger ceiling = result.sawWebArea ? kListLiftInWebArea : kListLift;
         for (NSInteger up = index, lift = 0; up >= 0 && lift <= (NSInteger)ceiling; up = entries[(NSUInteger)up].parent, lift++) {

@@ -81,6 +81,8 @@ extern NSString *const GHUploadKindOther;        // "other": never answered
 @property (nonatomic) NSUInteger listIndex;
 /// A price-shaped string (any currency) is drawn beside the control. The boolean is kept, never the string.
 @property (nonatomic) BOOL nearbyPrice;
+/// The control's own name says how long it lasts ("50 minutes"): a piece of media, not a plain link.
+@property (nonatomic) BOOL namesDuration;
 /// A small count drawn on the control (a cart count, an unread count). 0 = none.
 @property (nonatomic) NSUInteger badgeCount;
 /// This entry is waiting to be read. macOS asks apps to say so in the accessible name, for VoiceOver.

@@ -163,6 +163,7 @@ static NSNumber *GHFiniteNumber(CGFloat value) {
     if (self.classTokens.count) json[@"classTokens"] = self.classTokens;
     if (self.insideMediaControls) json[@"insideMediaControls"] = @YES;
     if (self.nearbyPrice) json[@"nearbyPrice"] = @YES;
+    if (self.namesDuration) json[@"namesDuration"] = @YES;
     if (self.badgeCount > 0) json[@"badgeCount"] = @(self.badgeCount);
     if (self.listSignature.length) json[@"list"] = @{ @"listSignature": self.listSignature, @"index": @(self.listIndex) };
     return json;

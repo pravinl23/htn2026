@@ -30,6 +30,7 @@ export type AffordanceEvidence =
   | "search-input"      // type=search, role=search/searchbox, or a search-shaped placeholder/name
   | "list-item"         // the control is a member of a repeated list or grid
   | "price-nearby"      // a price-shaped string is rendered beside it
+  | "duration"          // the control says how long it lasts, so it is a piece of media
   | "badge-count"       // a small count is drawn on the icon
   | "unread"            // the entry is waiting to be read
   | "section-heading"   // the whole name is a group name or a run of column titles, so it heads rows rather than being one
@@ -69,6 +70,15 @@ export interface AffordanceCandidate extends NextCandidate {
   nearbyPrice?: boolean;
   /** A small number drawn on the icon: a cart count, an unread count. */
   badgeCount?: number;
+  /**
+   * The control's own name says how long it lasts: "50 minutes", "11 minutes, 2 seconds", "3:24".
+   *
+   * The exact twin of `nearbyPrice`. A price beside a link makes it a product; a duration IN a link makes it a
+   * piece of media you can open. It matters most where the list detector finds nothing: measured on a real
+   * channel page, thirty video links sat in no detected list at all, so every one classified `unknown` and the
+   * only thing left to offer was a per-video overflow menu.
+   */
+  namesDuration?: boolean;
   /**
    * The keyboard is in this control right now. An app that opens a window and puts the cursor somewhere has
    * already said what happens next, and it is the one sequence signal that needs no history at all.
@@ -404,6 +414,10 @@ export function classifyAffordance(candidate: AffordanceCandidate, context: Affo
   // A price beside a link is a product tile even where the list detector found no list (a single featured item).
   if (itemLike && candidate.nearbyPrice === true) {
     scores.add("primary-item", 0.45, "price-nearby");
+  }
+  // ...and a link that says how long it lasts is a video or an episode, for exactly the same reason.
+  if (itemLike && candidate.namesDuration === true) {
+    scores.add("primary-item", 0.45, "duration");
   }
   if (candidate.nearbyPrice === true) {
     for (const role of ["cart", "buy", "checkout"] as const) if (scores.of(role) > 0) scores.add(role, 0.1, "price-nearby");

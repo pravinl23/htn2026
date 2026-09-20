@@ -144,6 +144,7 @@ function asCandidate(raw: unknown): AffordanceCandidate | null {
   }
   if (raw.insideMediaControls === true) candidate.insideMediaControls = true;
   if (raw.nearbyPrice === true) candidate.nearbyPrice = true;
+  if (raw.namesDuration === true) candidate.namesDuration = true;
   if (raw.focused === true) candidate.focused = true;
   if (raw.unread === true) candidate.unread = true;
   const badge = count(raw.badgeCount);
@@ -170,7 +171,7 @@ function asCandidates(json: string): AffordanceCandidate[] {
 const ROLES: ReadonlySet<string> = new Set<AffordanceRole>([
   "primary-item", "search", "play", "pause", "fullscreen", "next", "previous", "skip", "mute", "captions", "speed",
   "cart", "checkout", "buy", "quantity", "wishlist", "compose", "reply", "send", "save", "download", "share",
-  "more", "menu", "settings", "close", "back", "forward", "scroll-more", "field", "submit", "unknown",
+  "more", "menu", "settings", "close", "back", "forward", "scroll-more", "section", "field", "submit", "unknown",
 ]);
 
 function asRole(value: unknown): AffordanceRole | undefined {

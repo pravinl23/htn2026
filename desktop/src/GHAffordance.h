@@ -71,6 +71,8 @@ NS_ASSUME_NONNULL_BEGIN
 // Pure helpers, exposed for tests.
 /// A duration ("0:42", "1:03:11"), which is what a player draws beside its scrubber.
 + (BOOL)looksLikeDuration:(nullable NSString *)text;
+/// The same, plus the written-out form a media list puts in its links: "50 minutes", "11 minutes, 2 seconds".
++ (BOOL)namesADuration:(NSString *)text;
 /// A price in any currency: a symbol beside digits, or digits beside a currency code.
 + (BOOL)looksLikePrice:(nullable NSString *)text;
 /// A small count drawn on an icon ("3", "12 items", "7 unread"). 0 when there is none.
