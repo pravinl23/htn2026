@@ -92,7 +92,6 @@ says what *not* to claim.
 - [`docs/baseten.md`](docs/baseten.md) — confidence without logprobs: a hedged vote, and why every word of text comes from here.
 - [`docs/openai.md`](docs/openai.md) — a useful negative result on calibration, and vision that rarely fires.
 - [`docs/rox.md`](docs/rox.md) — no SDK: the agent answered against the five judging criteria.
-- [`docs/warp.md`](docs/warp.md) — the terminal companion: real and tested, and honest that it does not render inside Warp.
 
 Raw evidence: [`docs/media/bench-providers.md`](docs/media/bench-providers.md).
 

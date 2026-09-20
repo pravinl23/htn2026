@@ -23,7 +23,6 @@ the measured numbers, and what went wrong. They name what **not** to claim, too.
 | [baseten.md](baseten.md) | confidence without logprobs: the hedged vote, and why text has to come from here |
 | [openai.md](openai.md) | a useful negative result on calibration, and vision that rarely fires |
 | [rox.md](rox.md) | no SDK — the agent answered against the five judging criteria |
-| [warp.md](warp.md) | the terminal companion — real, tested, and **not rendering inside Warp** |
 | [sentry-handoff.md](sentry-handoff.md) | paste-able brief for whoever records the Sentry demo: shot list, what to circle, what to skip |
 
 Raw evidence for all of them: [media/bench-providers.md](media/bench-providers.md) and

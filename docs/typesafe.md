@@ -27,7 +27,7 @@ about the user.** Open a job application, and Jev is what turns "First and Last 
 controller: form answer provider=typesafe cache=miss assignments=17 579 ms
 ```
 
-It also picks the next shell command for the terminal companion (see [warp.md](warp.md)).
+It also picks the next shell command for the optional zsh companion ([`terminal/README.md`](../terminal/README.md)).
 
 **One batched call per form, never one per field.** All questions in a request are answered in
 parallel and extra questions barely add latency, so a 12-field form is a single decision. That is
