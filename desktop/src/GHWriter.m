@@ -1,4 +1,6 @@
 #import "GHWriter.h"
+#import <AppKit/AppKit.h>
+#import "GHAccessibility.h"
 #import "GHComboBoxDriver.h"
 #import "GHEventTap.h"
 #import "GHKeyPoster.h"
@@ -217,6 +219,23 @@ static BOOL GHRoleOpensAMenu(NSString *role) {
     return found;
 }
 
+- (BOOL)pressIsTrustworthyForNode:(id<GHAXNode>)node {
+    pid_t pid = GHPidOfNode(node);
+    if (pid <= 0) return YES;
+    // Per pid, because the answer is a property of the app and a pid does not change apps under us.
+    static NSMutableDictionary<NSNumber *, NSNumber *> *cache;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ cache = [NSMutableDictionary dictionary]; });
+    @synchronized (cache) {
+        NSNumber *known = cache[@(pid)];
+        if (known) return known.boolValue;
+    }
+    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+    BOOL chromium = app && [GHAccessibility appNeedsEnhancedUserInterface:app.bundleIdentifier bundleURL:app.bundleURL];
+    @synchronized (cache) { cache[@(pid)] = @(!chromium); }
+    return !chromium;
+}
+
 - (BOOL)clickNode:(id<GHAXNode>)node {
     return [self clickNode:node clicks:1];
 }
@@ -297,6 +316,7 @@ static BOOL GHRoleOpensAMenu(NSString *role) {
         _typingSticks = YES;
         _pressWorks = YES;
         _publishesPress = YES;
+        _pressIsTrustworthy = YES;
         _clickWorks = YES;
         _openWorks = YES;
         _focusWorks = YES;
@@ -399,6 +419,10 @@ static BOOL GHRoleOpensAMenu(NSString *role) {
 
 - (BOOL)nodeAcceptsPress:(id<GHAXNode>)node {
     return [self fake:node] != nil && self.publishesPress;
+}
+
+- (BOOL)pressIsTrustworthyForNode:(id<GHAXNode>)node {
+    return self.pressIsTrustworthy;
 }
 
 - (BOOL)clickNode:(id<GHAXNode>)node {
@@ -672,6 +696,13 @@ static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
     // A row is not a button: activating one is an OPEN, and AXPress on it only selects (measured on Spotify,
     // where pressing a playlist highlighted it and opened nothing).
     if (item) {
+        // ...unless the row is a web element in a Chromium-hosted window, where a SINGLE click is what opens it
+        // and a double click either fires the thing twice or just selects the text under the pointer.
+        if (![self.actuator pressIsTrustworthyForNode:node]) {
+            if ([self.actuator clickNode:node]) { finish([GHWriteResult okWithMethod:GHWriteMethodClick]); return; }
+            finish([GHWriteResult failure:GHWriteReasonDidNotHold method:GHWriteMethodClick]);
+            return;
+        }
         if ([self.actuator openNode:node]) { finish([GHWriteResult okWithMethod:GHWriteMethodOpen]); return; }
         finish([GHWriteResult failure:GHWriteReasonDidNotHold method:GHWriteMethodOpen]);
         return;
@@ -688,7 +719,11 @@ static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
     // AXPress is the app's own default action and the polite way in, but most of the desktop does not implement
     // it: a Finder row, a Spotify tile, a Discord channel, anything custom-drawn. Ask whether the element
     // publishes the action at all, and click it for real when it does not, or when the press was refused.
-    if ([self.actuator nodeAcceptsPress:node] && [self.actuator pressNode:node]) {
+    //
+    // And in a Chromium-hosted window, do not ask at all. There the element publishes AXPress, answers SUCCESS,
+    // and nothing happens -- so a press is not a cheaper click, it is a silent no-op that also stops the real
+    // click from being tried. Clicking is the only thing that works, so it is the only thing worth doing.
+    if ([self.actuator pressIsTrustworthyForNode:node] && [self.actuator nodeAcceptsPress:node] && [self.actuator pressNode:node]) {
         finish([GHWriteResult okWithMethod:GHWriteMethodPress]);
         return;
     }

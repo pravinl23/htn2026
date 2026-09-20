@@ -214,6 +214,10 @@ const COLUMN_TITLE = new Set([
   "name", "title", "kind", "type", "size", "date", "dates", "time", "duration", "album", "artist", "track",
   "added", "modified", "created", "last", "opened", "status", "owner", "tag", "tags", "comment", "comments",
   "location", "path", "version", "year", "genre", "format", "author", "subject", "sender", "received", "sent",
+  // Measured live: a track list headed its columns "# Title Plays Duration", and "plays" was the one word that
+  // kept the whole row out of this set -- which is how a column row stayed proposable after the rule existed.
+  "plays", "count", "number", "rank", "position", "index", "order", "views", "uploaded", "published",
+  "description", "summary", "channel", "price", "quantity", "total", "amount",
 ]);
 const MIN_COLUMN_TITLES = 3;
 

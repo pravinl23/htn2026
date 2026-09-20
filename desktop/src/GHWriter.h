@@ -97,6 +97,19 @@ extern NSString *const GHWriteReasonComboBoxPrefix;   // "combobox-"
 /// tile, a Discord channel, most custom-drawn and canvas widgets. Asking first is what tells "pressing it did
 /// nothing" apart from "this is not a thing you press".
 - (BOOL)nodeAcceptsPress:(id<GHAXNode>)node;
+/**
+ * Whether this element's AXPress can be BELIEVED when it answers success.
+ *
+ * In a Chromium-hosted window -- Electron, CEF, a browser -- a web control publishes AXPress, returns
+ * kAXErrorSuccess for it, and does nothing whatsoever: Chromium answers the action on behalf of the element
+ * without dispatching the click the page is listening for. Measured on Spotify, where every tile and every
+ * player button reported ok and the app never moved. That is the worst possible failure, because the press
+ * reports success and the real click that WOULD have worked is never tried.
+ *
+ * So in those apps Ghost does not ask politely, it clicks. Everywhere else AXPress is honest and is still
+ * preferred: it is the app's own default action and it needs no pointer.
+ */
+- (BOOL)pressIsTrustworthyForNode:(id<GHAXNode>)node;
 /// A real left click at the centre of the element, for everything AXPress cannot reach. The pointer is put
 /// back where the user left it afterwards. NO when the element has no usable box on screen, or the system
 /// refused the events. Never called for a locked control: the caller checks that first.
@@ -132,6 +145,7 @@ extern NSString *const GHWriteReasonComboBoxPrefix;   // "combobox-"
 @property (nonatomic) BOOL typingSticks;         // typed text reaches the focused node (YES)
 @property (nonatomic) BOOL pressWorks;           // AXPress toggles checkboxes/radios and picks menu items (YES)
 @property (nonatomic) BOOL publishesPress;       // the element lists AXPress among its actions at all (YES)
+@property (nonatomic) BOOL pressIsTrustworthy;    // this app's AXPress means something when it says success (YES)
 @property (nonatomic) BOOL clickWorks;           // a real click reaches the app (YES)
 @property (nonatomic) BOOL openWorks;            // AXOpen / a double click opens a list entry (YES)
 @property (nonatomic) BOOL focusWorks;           // AXFocused is honoured (YES)

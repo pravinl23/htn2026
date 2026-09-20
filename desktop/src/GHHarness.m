@@ -19,6 +19,7 @@ NSString *const GHHarnessModeDump = @"dump";
 NSString *const GHHarnessModeDumpTree = @"dump-tree";
 NSString *const GHHarnessModeNext = @"next";
 NSString *const GHHarnessModeAutotab = @"autotab";
+NSString *const GHHarnessModeAccept = @"accept";
 NSString *const GHHarnessModeProbeComboBox = @"probe-combobox";
 NSString *const GHHarnessRequestNotification = @"dev.ghost.desktop.harness.request";
 
@@ -41,7 +42,7 @@ static const NSUInteger kStallLimit = 3;
 static NSDictionary<NSString *, NSString *> *GHHarnessModeFlags(void) {
     return @{ @"--trust": GHHarnessModeTrust, @"--dump": GHHarnessModeDump, @"--dump-tree": GHHarnessModeDumpTree,
               @"--autotab": GHHarnessModeAutotab, @"--probe-combobox": GHHarnessModeProbeComboBox,
-              @"--next": GHHarnessModeNext };
+              @"--next": GHHarnessModeNext, @"--accept": GHHarnessModeAccept };
 }
 
 /// Flags that take a value, and the dictionary key the value travels under.
@@ -218,6 +219,7 @@ static BOOL GHHarnessIdentifierIsSafe(NSString *identifier) {
     if ([self.mode isEqualToString:GHHarnessModeDumpTree]) total += kTreeTimeBudget + 5.0;
     if ([self.mode isEqualToString:GHHarnessModeProbeComboBox]) total += 20.0;
     if ([self.mode isEqualToString:GHHarnessModeNext]) total += kCaptureTimeBudget + 10.0;
+    if ([self.mode isEqualToString:GHHarnessModeAccept]) total += kCaptureTimeBudget + 12.0;
     return total;
 }
 
@@ -1007,7 +1009,45 @@ static BOOL (^gPauseCheck)(NSString *);
         }
         if (!target) { completion(GHHarnessErrorResponse(@"no-frontmost-app", nil)); return; }
         if ([request.mode isEqualToString:GHHarnessModeAutotab]) [self autotab:request controller:controller target:target completion:completion];
+        else if ([request.mode isEqualToString:GHHarnessModeAccept]) [self accept:request controller:controller target:target completion:completion];
         else [self look:request target:target completion:completion];
+    });
+}
+
+/**
+ * Take the ghost that is on screen, the same way the Ghost key does, and report what actually happened.
+ *
+ * This is the only harness mode that touches anything. It exists because a press and a real click are
+ * indistinguishable from the outside until one of them works: a Chromium-hosted app answers AXPress with
+ * success and does nothing, so "did the accept do something" can only be settled by taking one and looking.
+ * `before` and `after` are what the window proposed either side of it -- when they are identical, nothing moved.
+ */
++ (void)accept:(GHHarnessRequest *)request controller:(GHController *)controller target:(NSRunningApplication *)target
+    completion:(void (^)(NSDictionary<NSString *, id> *))completion {
+    if (!controller) { completion(GHHarnessErrorResponse(@"no-pipeline", @"Ghost is off, or its pipeline is not running")); return; }
+    NSDictionary<NSString *, id> *before = [controller harnessState];
+    NSDictionary<NSString *, id> *ghost = before[@"current"];
+    if (!ghost) { completion(GHHarnessErrorResponse(@"no-ghost", @"nothing is proposed in this window right now")); return; }
+    NSUInteger stepsBefore = controller.stepCount;
+    GHLog(@"harness: accept taking the current ghost in %@", target.bundleIdentifier ?: @"unknown");
+    [controller eventTapDidTapGhostKey:controller.eventTap];
+    // Long enough for the write to finish, the app to react and the next rescan to land.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSDictionary<NSString *, id> *after = [controller harnessState];
+        NSMutableDictionary<NSString *, id> *out = [NSMutableDictionary dictionary];
+        out[@"app"] = target.bundleIdentifier ?: @"unknown";
+        out[@"appName"] = target.localizedName ?: @"";
+        out[@"took"] = ghost;
+        out[@"step"] = controller.lastStep ?: @{};
+        out[@"stepped"] = @(controller.stepCount > stepsBefore);
+        out[@"before"] = before[@"statusLine"] ?: @"";
+        out[@"after"] = after[@"statusLine"] ?: @"";
+        out[@"nowProposes"] = after[@"current"] ?: [NSNull null];
+        // The one question this mode exists to answer: did the window move at all?
+        NSString *wasLabel = ghost[@"label"] ?: @"";
+        NSString *nowLabel = after[@"current"][@"label"] ?: @"";
+        out[@"windowChanged"] = @(![wasLabel isEqualToString:nowLabel] || ![(before[@"statusLine"] ?: @"") isEqualToString:(after[@"statusLine"] ?: @"")]);
+        completion(out);
     });
 }
 

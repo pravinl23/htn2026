@@ -5,6 +5,8 @@
 #   ghostctl dump      [options]           captured fields of the frontmost window (labels, never values)
 #   ghostctl dump-tree [options]           raw AX tree, values reduced to their length
 #   ghostctl next      [options]           what Ghost would PROPOSE here: page kind, ranked roles, the top row
+#   ghostctl accept    [options]           TAKE the ghost that is on screen, as the Ghost key does, and report
+#                                          what moved. The ONE command that actuates: it presses a real control.
 #   ghostctl autotab N [options]           N real Tab presses through Ghost, one record per press; stops at a lock
 #   ghostctl probe-combobox "How did" [options]   open ONE combo box, record what the AX tree shows, close it
 #   ghostctl run                           start the menu-bar agent (a second copy exits on its own)
@@ -45,7 +47,7 @@ LOG="$HOME/Library/Logs/Ghost/desktop.log"
 PROCESS_PATTERN="Ghost.app/Contents/MacOS/Ghost"
 
 usage() {
-    sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
 }
 
@@ -168,7 +170,7 @@ harness() {
 [ $# -ge 1 ] || usage
 command="$1"; shift
 case "$command" in
-    trust|dump|dump-tree|next|autotab|probe-combobox) harness "$command" "$@";;
+    trust|dump|dump-tree|next|accept|autotab|probe-combobox) harness "$command" "$@";;
     scan)
         # Deliberately NOT through LaunchServices: the scan must not borrow Ghost.app's Accessibility grant, and
         # it asks macOS for nothing (a protected source is reported as "needs permission: ...", never probed).
@@ -193,5 +195,5 @@ case "$command" in
         [ -n "$lib" ] || die "no libghost.dylib: run 'make -C desktop lib'"
         GHOST_LIB="$lib" exec "$APP/Contents/MacOS/Ghost" --selftest;;
     -h|--help|help) usage;;
-    *) die "unknown command '$command' (trust | dump | dump-tree | next | autotab N | probe-combobox LABEL | scan | graph | forget | run | quit | log | selftest)";;
+    *) die "unknown command '$command' (trust | dump | dump-tree | next | accept | autotab N | probe-combobox LABEL | scan | graph | forget | run | quit | log | selftest)";;
 esac

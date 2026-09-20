@@ -41,6 +41,9 @@ extern NSString *const GHHarnessModeDump;
 extern NSString *const GHHarnessModeDumpTree;
 extern NSString *const GHHarnessModeNext;
 extern NSString *const GHHarnessModeAutotab;
+/// Take the ghost that is on screen right now, exactly as the Ghost key does. The ONE harness mode that
+/// actuates: it presses a real control in a real app. Read-only everywhere else.
+extern NSString *const GHHarnessModeAccept;
 extern NSString *const GHHarnessModeProbeComboBox;
 
 extern const NSInteger GHHarnessMaxAutotabCount;        // 200

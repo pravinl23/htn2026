@@ -702,6 +702,7 @@ GH_TEST(anywhere_vision_cache_key_changes_when_a_control_moves) {
 - (BOOL)typeText:(NSString *)text intoNode:(id<GHAXNode>)node { return NO; }
 - (BOOL)pressNode:(id<GHAXNode>)node { self.presses++; return YES; }
 - (BOOL)nodeAcceptsPress:(id<GHAXNode>)node { return self.publishesPress; }
+- (BOOL)pressIsTrustworthyForNode:(id<GHAXNode>)node { return YES; }
 - (BOOL)clickNode:(id<GHAXNode>)node { self.clicks++; return YES; }
 - (BOOL)openNode:(id<GHAXNode>)node { self.opens++; return YES; }
 - (BOOL)dismissMenuOfPopup:(id<GHAXNode>)popup stillWanted:(BOOL (^)(void))stillWanted { return NO; }

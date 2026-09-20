@@ -185,7 +185,9 @@ static int GHRunHarness(GHHarnessRequest *request) {
     if (![GHHarness processIsTrusted]) return GHAnswer(GHHarnessNotTrustedResponse(), request, nil);
 
     GHHarnessChannel *channel = [GHHarnessChannel defaultChannel];
-    BOOL autotab = [request.mode isEqualToString:GHHarnessModeAutotab];
+    // Both of these need the LIVE pipeline: autotab presses Tab into a walk the running agent owns, and accept
+    // takes a ghost only that agent has on screen. A second pipeline beside a live one would double-handle both.
+    BOOL autotab = [request.mode isEqualToString:GHHarnessModeAutotab] || [request.mode isEqualToString:GHHarnessModeAccept];
     if ([channel agentIsRunning]) {
         int forwarded = GHForwardToAgent(channel, request);
         if (forwarded >= 0) return forwarded;

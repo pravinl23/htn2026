@@ -42,6 +42,8 @@ describe("a heading is not an item", () => {
     // A file list and a track list, both of which made their header row zero of the main list.
     expect(roleOf(row("Name Kind Date Last Opened"))).toBe("section");
     expect(roleOf(row("# Title 50 Album 50 Date added 50 Duration"))).toBe("section");
+    // Captured from the same app on a different page: one unknown column word used to let the whole row through.
+    expect(roleOf(row("# Title 50 Plays 50 Duration"))).toBe("section");
     // The rows under them are untouched.
     expect(roleOf(row("PNG image Sep 6, 2026 at 8:56 PM", 1))).toBe("primary-item");
     expect(roleOf(row("MP3 audio Jul 13, 2026 at 10:35 PM", 2))).toBe("primary-item");
