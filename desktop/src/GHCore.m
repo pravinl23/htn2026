@@ -5,7 +5,7 @@
 #import <dlfcn.h>
 #import "GHEventTap.h"
 
-NSString *const GHCoreErrorDomain = @"dev.ghost.desktop.core";
+NSString *const GHCoreErrorDomain = @"dev.shabang.desktop.core";
 
 /// Everything the native side calls. Loading fails when one is missing (a stale bundle must not half work).
 static NSArray<NSString *> *GHRequiredExports(void) {
@@ -48,7 +48,7 @@ static NSError *GHCoreMakeError(GHCoreError code, NSString *message) {
         NSString *path = [self defaultBundlePath];
         NSError *error;
         shared = path ? [[GHCore alloc] initWithBundlePath:path error:&error] : nil;
-        if (!shared) GHLog(@"core: not loaded (%@)", error.localizedDescription ?: @"ghost-core.js not found");
+        if (!shared) GHLog(@"core: not loaded (%@)", error.localizedDescription ?: @"shabang-core.js not found");
     });
     return shared;
 }
@@ -81,7 +81,7 @@ BOOL GHCoreBundleMatchesPin(NSString *path, NSString *pinned) {
     // The JavaScript is where the fact allowlist and the wire filters live: only the exact bundle this library was
     // built with is loaded (the test runner, which points DESKTOP_CORE_PATH at the fresh build, is the exception).
     if (path && !GHRealKeyEventsForbidden() && !GHCoreBundleMatchesPin(path, GHCorePinnedSHA256())) {
-        GHLog(@"core: %@ is not the ghost-core.js this library was built with; not loaded (make -C desktop core lib)", path.lastPathComponent);
+        GHLog(@"core: %@ is not the shabang-core.js this library was built with; not loaded (make -C desktop core lib)", path.lastPathComponent);
         return nil;
     }
     return path;
@@ -93,17 +93,17 @@ BOOL GHCoreBundleMatchesPin(NSString *path, NSString *pinned) {
     // must not swap the code that enforces what leaves the machine.
     NSString *env = GHRealKeyEventsForbidden() ? NSProcessInfo.processInfo.environment[@"DESKTOP_CORE_PATH"] : nil;
     if (env.length && [fm fileExistsAtPath:env]) return env;
-    // Beside the image this code was loaded from: libghost.dylib lives OUTSIDE Ghost.app, so that a new core
+    // Beside the image this code was loaded from: libshabang.dylib lives OUTSIDE Shabang.app, so that a new core
     // never changes the bundle's seal (docs/desktop-realworld.md section 1). The bundle is only a fallback.
     Dl_info image;
     if (dladdr((__bridge void *)[GHCore class], &image) && image.dli_fname) {
-        NSString *beside = [@(image.dli_fname).stringByDeletingLastPathComponent stringByAppendingPathComponent:@"ghost-core.js"];
+        NSString *beside = [@(image.dli_fname).stringByDeletingLastPathComponent stringByAppendingPathComponent:@"shabang-core.js"];
         if ([fm fileExistsAtPath:beside]) return beside;
     }
     NSString *resource = [NSBundle.mainBundle pathForResource:@"ghost-core" ofType:@"js"];
     if (resource) return resource;
     NSString *exeDir = NSBundle.mainBundle.executablePath.stringByDeletingLastPathComponent ?: @".";
-    for (NSString *relative in @[ @"ghost-core.js", @"build/ghost-core.js", @"../build/ghost-core.js", @"../Resources/ghost-core.js" ]) {
+    for (NSString *relative in @[ @"shabang-core.js", @"build/shabang-core.js", @"../build/shabang-core.js", @"../Resources/shabang-core.js" ]) {
         NSString *candidate = [exeDir stringByAppendingPathComponent:relative].stringByStandardizingPath;
         if ([fm fileExistsAtPath:candidate]) return candidate;
     }
@@ -135,14 +135,14 @@ BOOL GHCoreBundleMatchesPin(NSString *path, NSString *pinned) {
         [weakSelf recordException:exception];
     };
 
-    [_context evaluateScript:source withSourceURL:[NSURL URLWithString:@"ghost-core.js"]];
+    [_context evaluateScript:source withSourceURL:[NSURL URLWithString:@"shabang-core.js"]];
     if (self.lastError) {
-        if (error) *error = GHCoreMakeError(GHCoreErrorEvaluationFailed, [NSString stringWithFormat:@"ghost-core.js failed to evaluate: %@", self.lastError]);
+        if (error) *error = GHCoreMakeError(GHCoreErrorEvaluationFailed, [NSString stringWithFormat:@"shabang-core.js failed to evaluate: %@", self.lastError]);
         return nil;
     }
     _core = _context[@"GhostCore"];
     if (!_core.isObject) {
-        if (error) *error = GHCoreMakeError(GHCoreErrorEvaluationFailed, @"ghost-core.js does not define GhostCore");
+        if (error) *error = GHCoreMakeError(GHCoreErrorEvaluationFailed, @"shabang-core.js does not define GhostCore");
         return nil;
     }
     NSMutableArray<NSString *> *missing = [NSMutableArray array];
@@ -169,7 +169,7 @@ BOOL GHCoreBundleMatchesPin(NSString *path, NSString *pinned) {
     NSString *message = [exception[@"message"] isString] ? [exception[@"message"] toString] : @"";
     NSString *safeMessage = [message hasPrefix:@"GhostCore:"] ? message : @"(message withheld)";
     NSNumber *line = [exception[@"line"] isNumber] ? [exception[@"line"] toNumber] : @0;
-    NSString *where = _currentFunction ? [NSString stringWithFormat:@"GhostCore.%@", _currentFunction] : @"ghost-core.js";
+    NSString *where = _currentFunction ? [NSString stringWithFormat:@"GhostCore.%@", _currentFunction] : @"shabang-core.js";
     NSString *summary = [NSString stringWithFormat:@"%@ in %@ line %@ %@", name, where, line, safeMessage];
     self.lastError = summary;
     GHLog(@"core: JS exception: %@", summary);

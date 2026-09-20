@@ -249,7 +249,7 @@ export interface RankWindowResult {
 
 /**
  * Rank what this window offers, for this person, right now. `graphJson` is the text of the one small file
- * (~/Library/Application Support/Ghost/graph.json); an empty string is a first run and still produces a ranking,
+ * (~/Library/Application Support/Shabang/graph.json); an empty string is a first run and still produces a ranking,
  * because a shape is enough to propose something (docs/always-propose.md).
  */
 export function rankWindow(candidatesJson: string, signalsJson: string, graphJson?: string, optionsJson?: string): string {

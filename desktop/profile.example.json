@@ -1,6 +1,6 @@
 {
   "_readme": [
-    "Example ~/Library/Application Support/Ghost/profile.json for Ghost Desktop. Everything in it is the FICTIONAL demo profile (Alex Chen).",
+    "Example ~/Library/Application Support/Shabang/profile.json for Ghost Desktop. Everything in it is the FICTIONAL demo profile (Alex Chen).",
     "Copy it there (Ghost reloads within a second), or add only the resumePath line to the profile Ghost seeded.",
     "resumePath / coverLetterPath: an absolute path (a leading ~/ is expanded) to an existing, readable pdf, doc, docx, rtf, txt, odt or pages file under 25 MB.",
     "The path below points at the fictional resume in this repository (demo/fixtures/resume-alex-chen.pdf) for a checkout at ~/Projects/htn2026; change it if your checkout lives elsewhere.",

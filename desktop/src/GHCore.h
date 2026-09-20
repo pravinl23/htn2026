@@ -1,4 +1,4 @@
-// GHCore: JavaScriptCore bridge to build/ghost-core.js (global `GhostCore`, see desktop/core/entry.ts).
+// GHCore: JavaScriptCore bridge to build/shabang-core.js (global `GhostCore`, see desktop/core/entry.ts).
 // Strings in, strings out underneath; typed Objective-C wrappers on top.
 //
 // Threading: one JSContext guarded by a lock, so any thread may call in. Calls are synchronous and
@@ -18,7 +18,7 @@ typedef NS_ENUM(NSInteger, GHCoreError) {
     GHCoreErrorMissingExport = 4,
 };
 
-/// SHA-256 (lower-case hex) of the ghost-core.js this library was built with (`make lib` embeds it); "" when unpinned.
+/// SHA-256 (lower-case hex) of the shabang-core.js this library was built with (`make lib` embeds it); "" when unpinned.
 NSString *GHCorePinnedSHA256(void);
 /// SHA-256 of a file, lower-case hex; nil when it cannot be read.
 NSString *_Nullable GHCoreSHA256OfFile(NSString *_Nullable path);
@@ -31,9 +31,9 @@ BOOL GHCoreBundleMatchesPin(NSString *_Nullable path, NSString *_Nullable pinned
 /// Process-wide instance, loaded from `+defaultBundlePath`. nil (and logged once) when the bundle cannot be loaded.
 + (nullable instancetype)sharedCore;
 
-/// DESKTOP_CORE_PATH (the test runner only: ignored in Ghost itself), else ghost-core.js beside the image this code
-/// was loaded from (libghost.dylib), else Ghost.app/Contents/Resources/ghost-core.js, else ghost-core.js or
-/// build/ghost-core.js next to the executable. Outside the test runner the file must match GHCorePinnedSHA256, or
+/// DESKTOP_CORE_PATH (the test runner only: ignored in Ghost itself), else shabang-core.js beside the image this code
+/// was loaded from (libshabang.dylib), else Shabang.app/Contents/Resources/shabang-core.js, else shabang-core.js or
+/// build/shabang-core.js next to the executable. Outside the test runner the file must match GHCorePinnedSHA256, or
 /// nil is returned (a swapped core would bypass the fact allowlist and the wire filters).
 + (nullable NSString *)defaultBundlePath;
 

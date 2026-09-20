@@ -80,7 +80,7 @@ Rules:
 The store and all rules live in `shared/src/answers/**` (pure, unit-tested) so both clients behave identically:
 
 - **Extension**: `extension/src/content/learning.ts` records corrections (it already watches user edits); `extension/src/content/predict.ts` consults the store and the classifier before the offline heuristic and after the server's assignments. Persisted in `chrome.storage.local` under `ghost.answers`.
-- **Desktop**: `desktop/core/predict.ts` and `entry.ts` gain the same calls; `GHController`/`GHWriter` report corrections; persisted in `~/Library/Application Support/Ghost/answers.json` (0600).
+- **Desktop**: `desktop/core/predict.ts` and `entry.ts` gain the same calls; `GHController`/`GHWriter` report corrections; persisted in `~/Library/Application Support/Shabang/answers.json` (0600).
 
 ## 6. Telemetry and the learning loop
 

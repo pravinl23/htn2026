@@ -224,7 +224,7 @@ GH_TEST(harness_response_encoding) {
     GH_ASSERT_EQUAL_OBJECTS(GHHarnessErrorResponse(@"timeout", nil), (@{ @"error": @"timeout" }));
     GH_ASSERT_EQUAL_OBJECTS(GHHarnessErrorResponse(@"no-window", @"AXError -25204"), (@{ @"error": @"no-window", @"detail": @"AXError -25204" }));
     NSString *text = [[NSString alloc] initWithData:GHHarnessEncodeResponse(GHHarnessNotTrustedResponse()) encoding:NSUTF8StringEncoding];
-    // ghostctl decides its exit status on this exact shape: a top-level "error" key, two spaces in.
+    // shabangctl decides its exit status on this exact shape: a top-level "error" key, two spaces in.
     GH_ASSERT([text containsString:@"\n  \"error\" : \"not trusted\""]);
     GH_ASSERT([text hasSuffix:@"}\n"]);
     GH_ASSERT_EQUAL_OBJECTS([NSJSONSerialization JSONObjectWithData:[text dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL], GHHarnessNotTrustedResponse());

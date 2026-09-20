@@ -1,6 +1,6 @@
 // A REAL Greenhouse application (Viam, Software Engineering Intern Summer 2027) captured in Safari with
-// `ghostctl dump-tree` and sanitized (values are lengths only, browser chrome removed): replayed through
-// GHFakeAXNode -> GHCapture -> the real ghost-core.js, so the real page is a regression test.
+// `shabangctl dump-tree` and sanitized (values are lengths only, browser chrome removed): replayed through
+// GHFakeAXNode -> GHCapture -> the real shabang-core.js, so the real page is a regression test.
 // Plus the Desktop core rules it exercises: upload ghosts, lazy selects, and the shared answer engine's verdict
 // on the EEO questions and on another country's work authorization (docs/answers.md), under the shared gate
 // (docs/incremental.md). Everything uses the fictional Alex Chen profile and a fictional resume path.
@@ -94,7 +94,7 @@ static NSDictionary<NSString *, NSDictionary *> *GhostMap(NSArray<NSDictionary *
 
 GH_TEST(fixture_greenhouse_capture_yields_the_form_in_reading_order) {
     GHCaptureResult *result = CaptureGreenhouse();
-    GH_ASSERT_MSG(result != nil, @"fixture or ghost-core.js did not load (DESKTOP_CORE_PATH=%s)", getenv("DESKTOP_CORE_PATH") ?: "(unset)");
+    GH_ASSERT_MSG(result != nil, @"fixture or shabang-core.js did not load (DESKTOP_CORE_PATH=%s)", getenv("DESKTOP_CORE_PATH") ?: "(unset)");
     GH_ASSERT(result.sawWebArea);
     GH_ASSERT_FALSE(result.partial);
     GH_ASSERT(result.visitedNodes > 300); // the whole page, not the 17 nodes of the tab-group bug

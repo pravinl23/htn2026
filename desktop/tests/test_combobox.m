@@ -1050,7 +1050,7 @@ GH_TEST(combobox_one_run_at_a_time_and_cancel_is_silent) {
 
 #pragma mark - what the real Greenhouse page turned out to expose (Safari, 2026-09-19)
 
-/// Built from a live `ghostctl probe-combobox "How did you hear"` on
+/// Built from a live `shabangctl probe-combobox "How did you hear"` on
 /// https://job-boards.greenhouse.io/viamrobotics/jobs/6185046004 in Safari. Every detail here was measured, not
 /// assumed, and each one broke the driver before it was:
 ///   - the AXComboBox IS react-select's inner <input class="select__input">: 4 px wide, no children, AXPress;

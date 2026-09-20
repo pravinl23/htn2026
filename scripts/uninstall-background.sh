@@ -2,13 +2,13 @@
 # Undo scripts/install-background.sh: stop and remove the two LaunchAgents and the installed server bundle.
 # Docs: README.md "Run Ghost in the background (macOS)".
 #
-#   scripts/uninstall-background.sh               stop + remove dev.ghost.server and dev.ghost.desktop, remove the server bundle
+#   scripts/uninstall-background.sh               stop + remove dev.ghost.server and dev.shabang.desktop, remove the server bundle
 #   scripts/uninstall-background.sh --dry-run     print every action, change nothing
-#   scripts/uninstall-background.sh --remove-app  also remove ~/Applications/Ghost.app and the installed libghost.dylib
+#   scripts/uninstall-background.sh --remove-app  also remove ~/Applications/Shabang.app and the installed libshabang.dylib
 #   scripts/uninstall-background.sh --purge       --remove-app plus profile.json, settings.json, the form cache,
-#                                                 ~/.config/ghost/env and ~/Library/Logs/Ghost
+#                                                 ~/.config/ghost/env and ~/Library/Logs/Shabang
 #
-# Kept unless you ask: your profile and settings, your keys, the logs, and Ghost.app itself (the Accessibility grant is
+# Kept unless you ask: your profile and settings, your keys, the logs, and Shabang.app itself (the Accessibility grant is
 # tied to that exact copy; keeping it means a later install needs no new grant).
 # Never touches privacy permissions (no tccutil, no sudo): remove Ghost from System Settings -> Privacy & Security ->
 # Accessibility by hand if you want the entry gone.
@@ -16,7 +16,7 @@
 set -euo pipefail
 
 LABEL_SERVER="dev.ghost.server"
-LABEL_DESKTOP="dev.ghost.desktop"
+LABEL_DESKTOP="dev.shabang.desktop"
 
 DRY_RUN=0
 REMOVE_APP=0
@@ -44,13 +44,13 @@ done
 case "${HOME:-}" in /*) [ -d "$HOME" ] || die "HOME does not exist" ;; *) die "HOME is not set to an absolute path" ;; esac
 
 DOMAIN="gui/$(id -u)"
-SUPPORT_DIR="$HOME/Library/Application Support/Ghost"
+SUPPORT_DIR="$HOME/Library/Application Support/Shabang"
 SERVER_DIR="$SUPPORT_DIR/server"
-LOG_DIR="$HOME/Library/Logs/Ghost"
+LOG_DIR="$HOME/Library/Logs/Shabang"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
 ENV_DIR="$HOME/.config/ghost"
 ENV_FILE="$ENV_DIR/env"
-APP_PATH="$HOME/Applications/Ghost.app"
+APP_PATH="$HOME/Applications/Shabang.app"
 
 run() {
   if [ "$DRY_RUN" = 1 ]; then
@@ -101,10 +101,10 @@ stop_installed_app() {
   [ -n "$pids" ] || return 0
   for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; done
   for i in 1 2 3 4 5 6; do
-    pgrep -f "$pattern" >/dev/null 2>&1 || { say "stopped the installed Ghost.app"; return 0; }
+    pgrep -f "$pattern" >/dev/null 2>&1 || { say "stopped the installed Shabang.app"; return 0; }
     sleep 0.5
   done
-  warn "the installed Ghost.app is still running: quit it from its menu-bar icon."
+  warn "the installed Shabang.app is still running: quit it from its menu-bar icon."
 }
 
 step "Stop the agents$([ "$DRY_RUN" = 0 ] || printf ' (dry run)')"
@@ -120,15 +120,15 @@ step "Remove the server bundle"
 remove "$SERVER_DIR"
 
 if [ "$REMOVE_APP" = 1 ]; then
-  step "Remove Ghost.app and its library"
+  step "Remove Shabang.app and its library"
   remove "$APP_PATH"
-  remove "$SUPPORT_DIR/libghost.dylib"
+  remove "$SUPPORT_DIR/libshabang.dylib"
   remove "$SUPPORT_DIR/lib-path.txt"
   say "The Accessibility entry for Ghost stays in System Settings (this script never touches privacy permissions)."
   say "Remove it by hand with the - button if you want it gone. A newly built host needs a new grant."
 elif [ -e "$APP_PATH" ]; then
   step "Kept"
-  say "kept: $APP_PATH and libghost.dylib. The Accessibility grant belongs to that exact copy, so a later"
+  say "kept: $APP_PATH and libshabang.dylib. The Accessibility grant belongs to that exact copy, so a later"
   say "      install-background.sh needs no new grant. Ghost no longer starts at login. Delete with --remove-app."
 fi
 

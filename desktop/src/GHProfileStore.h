@@ -1,4 +1,4 @@
-// GHProfileStore: ~/Library/Application Support/Ghost/profile.json, settings.json and answers.json.
+// GHProfileStore: ~/Library/Application Support/Shabang/profile.json, settings.json and answers.json.
 // Same shapes as the extension (`Profile`, `GhostSettings`), seeded with the fictional demo profile from
 // the core, created with mode 0600 (directory 0700), and watched for edits made in any editor.
 //

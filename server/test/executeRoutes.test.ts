@@ -14,7 +14,7 @@ const EXTENSION_ID = "abcdefghijklmnopabcdefghijklmnop";
 const GHOST_ORIGIN = `chrome-extension://${EXTENSION_ID}`;
 const OTHER_EXTENSION = "chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba";
 const EXECUTE_TOKEN = "per-install-secret-0123456789";
-const BB_ENV = { BROWSERBASE_API_KEY: "bb-test-key", BROWSERBASE_PROJECT_ID: "proj-1", GHOST_PUBLIC_DEMO_URL: PUBLIC_DEMO };
+const BB_ENV = { BROWSERBASE_API_KEY: "bb-test-key", BROWSERBASE_PROJECT_ID: "proj-1", SHABANG_PUBLIC_DEMO_URL: PUBLIC_DEMO };
 const COMPOSIO_ENV = { COMPOSIO_API_KEY: "cmp-test-key", COMPOSIO_SPREADSHEET_ID: "sheet-123" };
 const PINNED = { GHOST_EXTENSION_ID: EXTENSION_ID };
 const noNetwork = (() => Promise.reject(new Error("the network must not be touched"))) as unknown as typeof fetch;
@@ -217,10 +217,10 @@ describe("POST /v1/loop/execute", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(/^\[ghost\] browserbase \/v1\/loop\/execute \d+ms mode=parallel items=3 failed=0 irreversible=1$/);
 
-    const { GHOST_PUBLIC_DEMO_URL: _unset, ...noPublicUrl } = BB_ENV;
+    const { SHABANG_PUBLIC_DEMO_URL: _unset, ...noPublicUrl } = BB_ENV;
     const refused = await call(appWith({ ...noPublicUrl, ...PINNED }, { connect: cloud.connect }), "POST", "/v1/loop/preview", jobBody(), { Origin: GHOST_ORIGIN });
     expect(refused.status).toBe(400);
-    expect(refused.json.error).toMatch(/GHOST_PUBLIC_DEMO_URL/);
+    expect(refused.json.error).toMatch(/SHABANG_PUBLIC_DEMO_URL/);
     expect(refused.json.confirmToken).toBeUndefined();
   });
 

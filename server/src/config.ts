@@ -54,7 +54,7 @@ export interface ServerConfig {
   browserbase?: { apiKey: string; projectId: string; concurrency?: number; contextId?: string };
   /** Stage 8 API executor. Set only when COMPOSIO_API_KEY is present. */
   composio?: { apiKey: string; userId: string; connectedAccounts: Record<string, string | undefined>; defaults: Record<string, string> };
-  /** GHOST_PUBLIC_DEMO_URL: where cloud browsers can reach the site that runs on localhost here. */
+  /** SHABANG_PUBLIC_DEMO_URL: where cloud browsers can reach the site that runs on localhost here. */
   publicDemoUrl?: string;
   /** GHOST_EXTENSION_ID: the only chrome-extension origin that may run real loop batches (see executors/access.ts). */
   extensionId?: string;
@@ -179,7 +179,7 @@ export function loadConfig(env: Env = process.env): ServerConfig {
     // Offline (e2e) never opens cloud browsers or calls external APIs: the simulated executors answer instead.
     browserbase: offline ? undefined : browserbaseFromEnv(env),
     composio: offline ? undefined : composioFromEnv(env),
-    publicDemoUrl: env.GHOST_PUBLIC_DEMO_URL || undefined,
+    publicDemoUrl: env.SHABANG_PUBLIC_DEMO_URL || undefined,
     extensionId: /^[a-p]{32}$/.test(env.GHOST_EXTENSION_ID ?? "") ? env.GHOST_EXTENSION_ID : undefined,
     // Short secrets are ignored rather than accepted: a guessable token is worse than none, because it looks like protection.
     executeToken: (env.GHOST_EXECUTE_TOKEN ?? "").length >= 16 ? env.GHOST_EXECUTE_TOKEN : undefined,

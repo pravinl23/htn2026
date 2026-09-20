@@ -1,26 +1,26 @@
 #!/bin/sh
-# ghostctl: drive Ghost Desktop without a mouse (docs/desktop-realworld.md section 2).
+# shabangctl: drive Shabang Desktop without a mouse (docs/desktop-realworld.md section 2).
 #
-#   ghostctl trust                         { "trusted": bool }
-#   ghostctl dump      [options]           captured fields of the frontmost window (labels, never values)
-#   ghostctl dump-tree [options]           raw AX tree, values reduced to their length
-#   ghostctl next      [options]           what Ghost would PROPOSE here: page kind, ranked roles, the top row
-#   ghostctl accept    [options]           TAKE the ghost that is on screen, as the Ghost key does, and report
+#   shabangctl trust                         { "trusted": bool }
+#   shabangctl dump      [options]           captured fields of the frontmost window (labels, never values)
+#   shabangctl dump-tree [options]           raw AX tree, values reduced to their length
+#   shabangctl next      [options]           what Shabang would PROPOSE here: page kind, ranked roles, the top row
+#   shabangctl accept    [options]           TAKE the ghost that is on screen, as the Shabang key does, and report
 #                                          what moved. The ONE command that actuates: it presses a real control.
-#   ghostctl autotab N [options]           N real Tab presses through Ghost, one record per press; stops at a lock
-#   ghostctl probe-combobox "How did" [options]   open ONE combo box, record what the AX tree shows, close it
-#   ghostctl run                           start the menu-bar agent (a second copy exits on its own)
-#   ghostctl quit                          stop every Ghost process
-#   ghostctl log [LINES]                   tail ~/Library/Logs/Ghost/desktop.log
-#   ghostctl selftest                      core + mapping self-test (needs no permission)
+#   shabangctl autotab N [options]           N real Tab presses through Shabang, one record per press; stops at a lock
+#   shabangctl probe-combobox "How did" [options]   open ONE combo box, record what the AX tree shows, close it
+#   shabangctl run                           start the menu-bar agent (a second copy exits on its own)
+#   shabangctl quit                          stop every Shabang process
+#   shabangctl log [LINES]                   tail ~/Library/Logs/Shabang/desktop.log
+#   shabangctl selftest                      core + mapping self-test (needs no permission)
 #
-#   ghostctl scan --dry-run [--out FILE]       cold start: the consent plan, counts only, opens nothing
-#   ghostctl scan --sources a,b [--out FILE]   run it; writes a VALUE-FREE report (no path, URL or value)
-#   ghostctl scan --safe [--out FILE]          run every source that can raise no permission dialog
-#   ghostctl scan --apply FILE                 apply the proposals that report marks accepted
-#   ghostctl graph                             what Ghost knows: counts per kind and per source, and the file size
-#   ghostctl forget --source KIND              remove exactly what one cold-start source produced
-#   ghostctl forget --all                      delete everything Ghost has learned, now
+#   shabangctl scan --dry-run [--out FILE]       cold start: the consent plan, counts only, opens nothing
+#   shabangctl scan --sources a,b [--out FILE]   run it; writes a VALUE-FREE report (no path, URL or value)
+#   shabangctl scan --safe [--out FILE]          run every source that can raise no permission dialog
+#   shabangctl scan --apply FILE                 apply the proposals that report marks accepted
+#   shabangctl graph                             what Shabang knows: counts per kind and per source, and the file size
+#   shabangctl forget --source KIND              remove exactly what one cold-start source produced
+#   shabangctl forget --all                      delete everything Shabang has learned, now
 #
 #   `--safe` is the Dock, login items, how recently applications were used, what is installed and Chromium-family
 #   history. Contacts, Safari, Mail and Calendar are reported as "needs permission: <what to click>", never touched.
@@ -33,7 +33,7 @@
 #   ("stopped": "expect-field-missing"). Use it for every live run on a real site.
 #
 # Everything is launched through LaunchServices (`open -n ... --args`), never as a child of this shell: macOS
-# judges a binary started from a terminal by the TERMINAL's Accessibility permission, not by Ghost's. Such a
+# judges a binary started from a terminal by the TERMINAL's Accessibility permission, not by Shabang's. Such a
 # launch has no stdout, so the answer travels through --out; this script waits for that file and prints it.
 # Exit status: 0 answer without an error, 1 answer with "error" (not trusted, locked out...), 2 no answer, 64 usage.
 # This script never sends a key itself, and the harness can only ever send Tab.
@@ -41,36 +41,36 @@ set -eu
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DESKTOP="$(cd "$HERE/.." && pwd)"
-APP="${GHOST_APP:-$DESKTOP/build/Ghost.app}"
-SUPPORT="$HOME/Library/Application Support/Ghost"
-LOG="$HOME/Library/Logs/Ghost/desktop.log"
-PROCESS_PATTERN="Ghost.app/Contents/MacOS/Ghost"
+APP="${SHABANG_APP:-$DESKTOP/build/Shabang.app}"
+SUPPORT="$HOME/Library/Application Support/Shabang"
+LOG="$HOME/Library/Logs/Shabang/desktop.log"
+PROCESS_PATTERN="Shabang.app/Contents/MacOS/Shabang"
 
 usage() {
     sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
 }
 
-# The cold-start tool: never through LaunchServices, so it cannot borrow Ghost.app's Accessibility grant, and it
+# The cold-start tool: never through LaunchServices, so it cannot borrow Shabang.app's Accessibility grant, and it
 # asks macOS for nothing at all.
 scan_tool() {
-    bin="$DESKTOP/build/ghost-scan"
-    [ -x "$bin" ] || die "no build/ghost-scan: run 'make -C desktop scan-tool' first"
+    bin="$DESKTOP/build/shabang-scan"
+    [ -x "$bin" ] || die "no build/shabang-scan: run 'make -C desktop scan-tool' first"
     echo "$bin"
 }
 
 die() {
-    echo "ghostctl: $*" >&2
+    echo "shabangctl: $*" >&2
     exit 64
 }
 
-# The library the host should load: $GHOST_LIB, else the fresh build, else whatever the host finds on its own
-# (~/Library/Application Support/Ghost/libghost.dylib after `make install-lib`).
+# The library the host should load: $SHABANG_LIB, else the fresh build, else whatever the host finds on its own
+# (~/Library/Application Support/Shabang/libshabang.dylib after `make install-lib`).
 library() {
-    if [ -n "${GHOST_LIB:-}" ]; then
-        echo "$GHOST_LIB"
-    elif [ -f "$DESKTOP/build/libghost.dylib" ]; then
-        echo "$DESKTOP/build/libghost.dylib"
+    if [ -n "${SHABANG_LIB:-}" ]; then
+        echo "$SHABANG_LIB"
+    elif [ -f "$DESKTOP/build/libshabang.dylib" ]; then
+        echo "$DESKTOP/build/libshabang.dylib"
     fi
 }
 
@@ -81,7 +81,7 @@ launch() {
     if [ -z "$lib" ]; then
         open -n -g "$APP" "$@"
     elif open -h 2>&1 | grep -q -- '--env'; then
-        open -n -g --env GHOST_LIB="$lib" --env GHOST_NO_PROMPT=1 "$APP" "$@"
+        open -n -g --env SHABANG_LIB="$lib" --env SHABANG_NO_PROMPT=1 "$APP" "$@"
     else
         # No `open --env` on this macOS: the host reads the path from lib-path.txt (its last lookup location).
         mkdir -p "$SUPPORT"
@@ -95,11 +95,11 @@ harness() {
     mode="$1"; shift
     count=""; probe=""
     if [ "$mode" = "autotab" ]; then
-        [ $# -ge 1 ] || die "autotab needs a count: ghostctl autotab 12"
+        [ $# -ge 1 ] || die "autotab needs a count: shabangctl autotab 12"
         count="$1"; shift
         case "$count" in ''|*[!0-9]*) die "autotab needs a whole number, got '$count'";; esac
     elif [ "$mode" = "probe-combobox" ]; then
-        [ $# -ge 1 ] || die "probe-combobox needs a label: ghostctl probe-combobox \"How did you hear\""
+        [ $# -ge 1 ] || die "probe-combobox needs a label: shabangctl probe-combobox \"How did you hear\""
         probe="$1"; shift
     fi
     out=""; delay=0; interval=450; timeout=""; guarded=0
@@ -125,10 +125,10 @@ harness() {
 
     printed=0
     if [ -z "$out" ]; then
-        # A private per-user directory: Ghost refuses to write an answer into a shared one (/tmp) or through a link.
+        # A private per-user directory: Shabang refuses to write an answer into a shared one (/tmp) or through a link.
         answers="${TMPDIR:-}"
         if [ -z "$answers" ]; then answers="$SUPPORT/harness"; mkdir -p "$answers"; chmod 700 "$answers"; fi
-        out="${answers%/}/ghostctl-$$-$mode.json"
+        out="${answers%/}/shabangctl-$$-$mode.json"
         printed=1
     fi
     rm -f "$out"
@@ -153,7 +153,7 @@ harness() {
         ticks=$(( ticks - 1 ))
     done
     if [ ! -s "$out" ]; then
-        echo "ghostctl: no answer in $out after ${timeout}s (see: ghostctl log)" >&2
+        echo "shabangctl: no answer in $out after ${timeout}s (see: shabangctl log)" >&2
         exit 2
     fi
     status=0
@@ -162,7 +162,7 @@ harness() {
         cat "$out"
         rm -f "$out"
     else
-        echo "ghostctl: wrote $out" >&2
+        echo "shabangctl: wrote $out" >&2
     fi
     exit "$status"
 }
@@ -172,9 +172,9 @@ command="$1"; shift
 case "$command" in
     trust|dump|dump-tree|next|accept|autotab|probe-combobox) harness "$command" "$@";;
     scan)
-        # Deliberately NOT through LaunchServices: the scan must not borrow Ghost.app's Accessibility grant, and
+        # Deliberately NOT through LaunchServices: the scan must not borrow Shabang.app's Accessibility grant, and
         # it asks macOS for nothing (a protected source is reported as "needs permission: ...", never probed).
-        # It refuses to start while another scan holds ~/Library/Application Support/Ghost/coldstart.lock.
+        # It refuses to start while another scan holds ~/Library/Application Support/Shabang/coldstart.lock.
         [ $# -ge 1 ] || die "scan needs --dry-run, --safe, --sources a,b or --apply FILE"
         exec "$(scan_tool)" "$@";;
     graph) exec "$(scan_tool)" --graph "$@";;
@@ -187,13 +187,13 @@ case "$command" in
                 exec "$(scan_tool)" --forget "$2";;
             *) die "forget takes --source KIND or --all, not '$1'";;
         esac;;
-    run) launch; echo "ghostctl: Ghost is starting (menu bar). 'ghostctl log' shows what it does." >&2;;
-    quit) pkill -f "$PROCESS_PATTERN" 2>/dev/null && echo "ghostctl: asked Ghost to quit" >&2 || echo "ghostctl: Ghost is not running" >&2;;
-    log) if [ -f "$LOG" ]; then tail -n "${1:-40}" "$LOG"; else echo "ghostctl: no log yet at $LOG" >&2; fi;;
+    run) launch; echo "shabangctl: Shabang is starting (menu bar). 'shabangctl log' shows what it does." >&2;;
+    quit) pkill -f "$PROCESS_PATTERN" 2>/dev/null && echo "shabangctl: asked Shabang to quit" >&2 || echo "shabangctl: Shabang is not running" >&2;;
+    log) if [ -f "$LOG" ]; then tail -n "${1:-40}" "$LOG"; else echo "shabangctl: no log yet at $LOG" >&2; fi;;
     selftest)
         lib="$(library)"
-        [ -n "$lib" ] || die "no libghost.dylib: run 'make -C desktop lib'"
-        GHOST_LIB="$lib" exec "$APP/Contents/MacOS/Ghost" --selftest;;
+        [ -n "$lib" ] || die "no libshabang.dylib: run 'make -C desktop lib'"
+        SHABANG_LIB="$lib" exec "$APP/Contents/MacOS/Shabang" --selftest;;
     -h|--help|help) usage;;
     *) die "unknown command '$command' (trust | dump | dump-tree | next | accept | autotab N | probe-combobox LABEL | scan | graph | forget | run | quit | log | selftest)";;
 esac

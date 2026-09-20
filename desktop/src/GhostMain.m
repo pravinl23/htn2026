@@ -1,4 +1,4 @@
-// GhostMain: the entry point of libghost.dylib. The host (desktop/host/main.m, the only code inside Ghost.app)
+// GhostMain: the entry point of libshabang.dylib. The host (desktop/host/main.m, the only code inside Shabang.app)
 // dlopen()s the library and calls this, so everything here can change without touching the host's code hash
 // and with it the Accessibility grant (docs/desktop-realworld.md section 1).
 //   Ghost                 menu-bar agent (accessory app, no Dock icon)
@@ -62,7 +62,7 @@ static int GHSelfTest(void) {
     GHPrint([NSString stringWithFormat:@"%@ Desktop self-test", GHProductName]);
     GHPrint(@"  core bundle: %@", path ?: @"(not found)");
     if (!core) {
-        GHPrint(@"FAIL: %@", error.localizedDescription ?: @"ghost-core.js not found; run `make core`");
+        GHPrint(@"FAIL: %@", error.localizedDescription ?: @"shabang-core.js not found; run `make core`");
         return 1;
     }
 
@@ -105,7 +105,7 @@ static int GHSelfTest(void) {
           @"server request has no field values, no profile values, no sensitive field");
 
     GHPrint(@"  map + ghosts took %.2f ms", ms);
-    GHPrint(@"  accessibility trusted: %@", AXIsProcessTrusted() ? @"yes" : @"no (grant it to Ghost.app to see ghosts)");
+    GHPrint(@"  accessibility trusted: %@", AXIsProcessTrusted() ? @"yes" : @"no (grant it to Shabang.app to see ghosts)");
     if (failures == 0) GHPrint(@"PASS"); else GHPrint(@"FAIL (%d)", failures);
     return failures == 0 ? 0 : 1;
 }
@@ -192,7 +192,7 @@ static int GHRunHarness(GHHarnessRequest *request) {
         int forwarded = GHForwardToAgent(channel, request);
         if (forwarded >= 0) return forwarded;
         // A second pipeline next to a live one would handle every Tab twice: only the looking modes fall back.
-        if (autotab) return GHAnswer(GHHarnessErrorResponse(@"agent-not-responding", @"quit Ghost (ghostctl quit) and run this again"), request, @"running");
+        if (autotab) return GHAnswer(GHHarnessErrorResponse(@"agent-not-responding", @"quit Ghost (shabangctl quit) and run this again"), request, @"running");
     }
     if (autotab) return GHRunAgent(channel, request);
 
@@ -247,7 +247,7 @@ int GhostMain(int argc, const char **argv) {
                     @"  --dump-tree    raw AX tree, values reduced to their length [--depth 60]\n"
                     @"  --autotab N    post N real Tab presses and record each step [--interval 450]; stops at a locked ghost\n"
                     @"  --frontmost \"App\"  --delay S  --out FILE\n"
-                    @"Launch through LaunchServices (tools/ghostctl): a binary started from a shell is judged by the terminal's permissions.",
+                    @"Launch through LaunchServices (tools/shabangctl): a binary started from a shell is judged by the terminal's permissions.",
                     [GHHarness libraryPath] ?: @"?");
             return 0;
         }
@@ -266,7 +266,7 @@ int GhostMain(int argc, const char **argv) {
         if (request) {
             GHLog(@"harness: refused %@ (this library was built without the harness)", request.mode);
             GHLogFlush();
-            GHHarnessWriteResponse(GHHarnessErrorResponse(@"harness-not-built", @"use the developer library (make -C desktop lib) with GHOST_LIB"), request.outPath);
+            GHHarnessWriteResponse(GHHarnessErrorResponse(@"harness-not-built", @"use the developer library (make -C desktop lib) with SHABANG_LIB"), request.outPath);
             return 64;
         }
 #else

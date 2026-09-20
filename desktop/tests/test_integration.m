@@ -1,7 +1,7 @@
 // The whole Tab walk over the REAL Greenhouse page (desktop/tests/fixtures/greenhouse-safari-viam.json), without a
 // keyboard, without AX and without a real open panel:
 //
-//   fixture -> GHCapture -> ghost-core.js -> GHController -> GHWriter -> GHOpenPanelDriver / GHComboBoxDriver
+//   fixture -> GHCapture -> shabang-core.js -> GHController -> GHWriter -> GHOpenPanelDriver / GHComboBoxDriver
 //
 // A fake "Safari" reacts to everything Ghost does: AXScrollToVisible scrolls the page, pressing Attach hangs the
 // macOS open panel (a sheet with a go-to sheet) below the window, typing into a react-select opens its option list,
@@ -585,7 +585,7 @@ static GHFakeAXNode *GWNode(NSString *role, NSString *title, CGRect frame) {
 
 #define GW_RIG(name) \
     GWRig *name = [GWRig rig]; \
-    GH_ASSERT_MSG(name != nil, @"fixture or ghost-core.js did not load (DESKTOP_CORE_PATH=%s)", getenv("DESKTOP_CORE_PATH") ?: "(unset)")
+    GH_ASSERT_MSG(name != nil, @"fixture or shabang-core.js did not load (DESKTOP_CORE_PATH=%s)", getenv("DESKTOP_CORE_PATH") ?: "(unset)")
 
 #pragma mark - the walk
 

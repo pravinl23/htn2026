@@ -8,7 +8,7 @@
 // overlay draws the ghost cursor on it, Tab accepts it, Escape dismisses it, typing or any other key cancels,
 // and anything irreversible keeps its lock and is never pressed (rules 1 and 2).
 //
-// Role memory lives in ~/Library/Application Support/Ghost/memory.json: counts per (page kind, previous role,
+// Role memory lives in ~/Library/Application Support/Shabang/memory.json: counts per (page kind, previous role,
 // role), nothing else. No label, no value, no app, no site, and it never leaves the machine.
 #import <Foundation/Foundation.h>
 #import "GHAffordance.h"
@@ -47,7 +47,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface GHRoleMemoryStore : NSObject
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithPath:(NSString *)path core:(nullable GHCore *)core NS_DESIGNATED_INITIALIZER;
-/// ~/Library/Application Support/Ghost/memory.json.
+/// ~/Library/Application Support/Shabang/memory.json.
 + (NSString *)defaultPath;
 @property (nonatomic, readonly, copy) NSString *path;
 /// The snapshot as the core reads it ("" when there is nothing).

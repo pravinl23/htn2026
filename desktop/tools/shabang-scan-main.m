@@ -1,16 +1,16 @@
-// ghost-scan: the command-line half of cold start (docs/cold-start.md), driven by tools/ghostctl.
+// shabang-scan: the command-line half of cold start (docs/cold-start.md), driven by tools/shabangctl.
 //
-//   ghost-scan --dry-run [--sources a,b] [--out FILE]   the consent plan: counts only, opens nothing
-//   ghost-scan --sources a,b [--out FILE]               runs the scan and writes a VALUE-FREE report
-//   ghost-scan --apply FILE                             applies the proposals the report marks accepted
+//   shabang-scan --dry-run [--sources a,b] [--out FILE]   the consent plan: counts only, opens nothing
+//   shabang-scan --sources a,b [--out FILE]               runs the scan and writes a VALUE-FREE report
+//   shabang-scan --apply FILE                             applies the proposals the report marks accepted
 //
 // Deliberately its own executable and deliberately started from the shell, NOT through LaunchServices: it must
-// not borrow Ghost.app's Accessibility grant, and it asks macOS for nothing. A protected source (Contacts,
+// not borrow Shabang.app's Accessibility grant, and it asks macOS for nothing. A protected source (Contacts,
 // Calendar, Safari history, Mail) is reported as "needs permission: <what to click>" and never touched, so
 // running this can raise no permission dialog.
 //
 // Everything stays on the machine. The report carries labels, categories, confidences, provenance KINDS and
-// counts; the values live only in ~/Library/Application Support/Ghost/coldstart-pending.json (mode 0600) until
+// counts; the values live only in ~/Library/Application Support/Shabang/coldstart-pending.json (mode 0600) until
 // the user accepts or discards them.
 #import <Foundation/Foundation.h>
 #import "GHColdStart.h"
@@ -34,11 +34,11 @@ static void GHErr(NSString *format, ...) {
     va_start(args, format);
     NSString *line = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
-    fprintf(stderr, "ghost-scan: %s\n", line.UTF8String);
+    fprintf(stderr, "shabang-scan: %s\n", line.UTF8String);
 }
 
 static NSString *GHUsage(void) {
-    return @"ghost-scan --dry-run [--sources a,b] [--out FILE]\n"
+    return @"shabang-scan --dry-run [--sources a,b] [--out FILE]\n"
            @"          --sources a,b [--out FILE] [--budget SECONDS] [--max-files N]\n"
            @"          --safe [--out FILE]   every source that can raise no permission dialog\n"
            @"          --apply FILE\n"
@@ -237,7 +237,7 @@ static NSSet<NSString *> *GHDialogFreeKinds(void) {
 static int GHGraph(void) {
     GHCore *core = GHLoadCore();
     if (!core) {
-        GHErr(@"ghost-core.js not found (run 'make -C desktop core')");
+        GHErr(@"shabang-core.js not found (run 'make -C desktop core')");
         return 1;
     }
     NSDictionary *summary = GHColdStartDescribeGraph(core, GHGraphPath());
@@ -252,7 +252,7 @@ static int GHGraph(void) {
 static int GHForget(NSString *kind) {
     GHCore *core = GHLoadCore();
     if (!core) {
-        GHErr(@"ghost-core.js not found (run 'make -C desktop core')");
+        GHErr(@"shabang-core.js not found (run 'make -C desktop core')");
         return 1;
     }
     NSDictionary *removed = nil;
@@ -343,7 +343,7 @@ int main(int argc, const char *argv[]) {
         GHCore *core = GHLoadCore();
         if (!core) {
             GHReleaseLock();
-            GHErr(@"ghost-core.js not found (run 'make -C desktop core')");
+            GHErr(@"shabang-core.js not found (run 'make -C desktop core')");
             return 1;
         }
 
@@ -402,7 +402,7 @@ int main(int argc, const char *argv[]) {
             }
             // Places and habits go into the graph now; FACTS still wait for --apply, because a fact is a value
             // about a person and a surface count is not (docs/cold-start.md section 1: proposals, never silent
-            // writes). `ghost-scan --graph` shows what landed, `--forget <source>` takes it back out.
+            // writes). `shabang-scan --graph` shows what landed, `--forget <source>` takes it back out.
             if (result.surfaceAggregate || result.historyAggregate || result.screenKinds.count > 0) {
                 NSDictionary *summary = nil;
                 NSMutableDictionary *habitsOnly = [pending mutableCopy];

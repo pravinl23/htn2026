@@ -145,7 +145,7 @@ BOOL GHAXNodeLooksHung(id<GHAXNode> _Nullable node);
 /// Position of `child` among the children (identity), NSNotFound when absent. Does not count as a children read.
 - (NSUInteger)indexOfChild:(id<GHAXNode>)child;
 
-/// Rebuilds a tree saved by `ghostctl dump-tree` (desktop/tests/fixtures), so real dumps become regression tests.
+/// Rebuilds a tree saved by `shabangctl dump-tree` (desktop/tests/fixtures), so real dumps become regression tests.
 /// Takes the whole answer (`{ "tree": ... }`) or one bare node. The dump never holds a value: static text keeps
 /// its `text`, any other node with `valueLength` N gets N filler characters ("x"), and a `sensitive` node gets
 /// none. `description` becomes axDescription, `classes` the DOM class list, `labelledBy` a detached AXStaticText

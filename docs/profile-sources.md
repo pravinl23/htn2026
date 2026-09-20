@@ -66,7 +66,7 @@ The LLM never decides what is sensitive and never writes a value into a form dir
 
 ## 4. Privacy rules (non-negotiable)
 
-- The graph lives only on the machine: `chrome.storage.local` for the extension, `~/Library/Application Support/Ghost/profile.json` for the native agent. It is never uploaded; `/v1/predict/form` keeps receiving fact **keys** only.
+- The graph lives only on the machine: `chrome.storage.local` for the extension, `~/Library/Application Support/Shabang/profile.json` for the native agent. It is never uploaded; `/v1/predict/form` keeps receiving fact **keys** only.
 - Connector reads happen through the user's own authorization, locally, and fetched text is discarded after extraction; only the extracted facts and a short evidence snippet are kept.
 - Anything classified sensitive (government IDs, payment details, health, credentials) is never extracted at all. If a source contains one, it is skipped and counted, never stored.
 - A one-click "forget this source" removes every fact whose provenance is that source.

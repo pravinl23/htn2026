@@ -301,7 +301,7 @@ static NSString *GHErrorCode(NSError *error) {
     _maxEntries = 200;
     _maxAge = 30 * 24 * 3600.0;
     _entries = [NSMutableDictionary dictionary];
-    _ioQueue = dispatch_queue_create("dev.ghost.desktop.form-cache", DISPATCH_QUEUE_SERIAL);
+    _ioQueue = dispatch_queue_create("dev.shabang.desktop.form-cache", DISPATCH_QUEUE_SERIAL);
     [self load];
     return self;
 }

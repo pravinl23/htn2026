@@ -109,7 +109,7 @@ static OSStatus GHHotKeyHandler(EventHandlerCallRef next, EventRef event, void *
 /// Nothing but this check (and the menu) happens while untrusted: every AX call would return -25211.
 - (void)checkTrustPrompting:(BOOL)prompt {
     BOOL trusted = AXIsProcessTrusted();
-    if (!trusted && prompt && !getenv("GHOST_NO_PROMPT")) {
+    if (!trusted && prompt && !getenv("SHABANG_NO_PROMPT")) {
         // Once per launch: shows the system dialog that leads to Privacy & Security -> Accessibility.
         NSDictionary *options = @{ (__bridge NSString *)kAXTrustedCheckOptionPrompt: @YES };
         trusted = AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);

@@ -56,7 +56,7 @@ export interface PredictDeps {
   keepLock?: boolean;
   /** The button the walk was heading for: with no value ghosts left, keepLock keeps this button or nothing. */
   lockSignature?: string;
-  /** Answers the user gave before (~/Library/Application Support/Ghost/answers.json). Never leaves the machine. */
+  /** Answers the user gave before (~/Library/Application Support/Shabang/answers.json). Never leaves the machine. */
   answers?: LearnedAnswerStore | null;
   /** Opt-outs of the answer policy; the desktop defaults `answerProtectedWithDecline` to on (docs/answers.md). */
   answerSettings?: AnswerSettings;

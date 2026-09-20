@@ -1,6 +1,6 @@
 // GHConversation: reading a thread off the screen, against a tree shaped like a real Messages window.
 //
-// The shape here is taken from a live `ghostctl dump-tree` of Messages: each message is an AXGroup whose
+// The shape here is taken from a live `shabangctl dump-tree` of Messages: each message is an AXGroup whose
 // AXDescription reads "<who>, <what they said>, <when>", repeated once more on the group inside it, with the
 // bubble itself carrying no text at all. The words below are invented; only the shape is real.
 #import "GHTest.h"

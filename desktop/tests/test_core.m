@@ -1,4 +1,4 @@
-// Core bridge tests: the real build/ghost-core.js running in JavaScriptCore (DESKTOP_CORE_PATH, set by `make test`).
+// Core bridge tests: the real build/shabang-core.js running in JavaScriptCore (DESKTOP_CORE_PATH, set by `make test`).
 // These pin the rules ported into desktop/core/predict.ts, so a drift from the extension shows up here.
 #import "GHTest.h"
 #import "GHCore.h"
@@ -72,7 +72,7 @@ static NSArray<NSDictionary *> *GhostsFor(NSArray<GHField *> *fields, NSDictiona
 #pragma mark - loading
 
 GH_TEST(core_loads_bundle_and_demo_profile) {
-    GH_ASSERT_MSG(Core() != nil, @"ghost-core.js did not load; DESKTOP_CORE_PATH=%s", getenv("DESKTOP_CORE_PATH") ?: "(unset)");
+    GH_ASSERT_MSG(Core() != nil, @"shabang-core.js did not load; DESKTOP_CORE_PATH=%s", getenv("DESKTOP_CORE_PATH") ?: "(unset)");
     NSDictionary *facts = [Core() demoProfile][@"facts"];
     GH_ASSERT_EQUAL_OBJECTS(facts[@"firstName"], @"Alex");
     GH_ASSERT_EQUAL_OBJECTS(facts[@"lastName"], @"Chen");
@@ -81,7 +81,7 @@ GH_TEST(core_loads_bundle_and_demo_profile) {
 
 GH_TEST(core_missing_bundle_reports_error) {
     NSError *error;
-    GHCore *core = [[GHCore alloc] initWithBundlePath:@"/nonexistent/ghost-core.js" error:&error];
+    GHCore *core = [[GHCore alloc] initWithBundlePath:@"/nonexistent/shabang-core.js" error:&error];
     GH_ASSERT(core == nil);
     GH_ASSERT_EQUAL_INT(error.code, GHCoreErrorBundleNotFound);
 }
@@ -94,7 +94,7 @@ GH_TEST(core_bundle_is_pinned_to_the_one_built_with_the_library) {
     GH_ASSERT_EQUAL_OBJECTS(GHCoreSHA256OfFile(built), pinned);
     GH_ASSERT(GHCoreBundleMatchesPin(built, pinned));
     // A swapped core (same exports, different rules) is refused; so is a missing one. Only an unpinned build skips it.
-    NSString *swapped = [GHTestTempDirectory() stringByAppendingPathComponent:@"ghost-core.js"];
+    NSString *swapped = [GHTestTempDirectory() stringByAppendingPathComponent:@"shabang-core.js"];
     NSString *source = [[NSString stringWithContentsOfFile:built encoding:NSUTF8StringEncoding error:NULL] stringByAppendingString:@"\n// changed\n"];
     GH_ASSERT([source writeToFile:swapped atomically:YES encoding:NSUTF8StringEncoding error:NULL]);
     GH_ASSERT_FALSE(GHCoreBundleMatchesPin(swapped, pinned));

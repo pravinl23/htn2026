@@ -69,7 +69,7 @@ describe("precedence", () => {
   });
 
   it("reads the optional settings", () => {
-    const config = loadConfig({ ...BB_ENV, BROWSERBASE_CONCURRENCY: "2", COMPOSIO_API_KEY: "k", COMPOSIO_SPREADSHEET_ID: "abc", GHOST_PUBLIC_DEMO_URL: PUBLIC_DEMO });
+    const config = loadConfig({ ...BB_ENV, BROWSERBASE_CONCURRENCY: "2", COMPOSIO_API_KEY: "k", COMPOSIO_SPREADSHEET_ID: "abc", SHABANG_PUBLIC_DEMO_URL: PUBLIC_DEMO });
     expect(config.browserbase).toEqual({ ...CREDS, concurrency: 2 });
     expect(config.composio).toMatchObject({ userId: "default", defaults: { sheetRange: "Sheet1", spreadsheetId: "abc" } });
     expect(config.publicDemoUrl).toBe(PUBLIC_DEMO);
@@ -110,11 +110,11 @@ describe("localhost refusal", () => {
   it("refuses a localhost baseUrl with a clear error and creates no session", async () => {
     const bb = fakeBrowserbase();
     const executor = createBrowserbaseExecutor({ credentials: CREDS, lookup: publicLookup, fetch: bb.fetch, connect: new FakeCloud().connect });
-    await expect(executor.run(invoiceJob(2))).rejects.toThrow(/Cloud browsers cannot reach http:\/\/localhost:5173\. Set GHOST_PUBLIC_DEMO_URL/);
+    await expect(executor.run(invoiceJob(2))).rejects.toThrow(/Cloud browsers cannot reach http:\/\/localhost:5173\. Set SHABANG_PUBLIC_DEMO_URL/);
     expect(bb.calls).toHaveLength(0);
   });
 
-  it("moves every URL onto GHOST_PUBLIC_DEMO_URL when it is set", async () => {
+  it("moves every URL onto SHABANG_PUBLIC_DEMO_URL when it is set", async () => {
     const cloud = new FakeCloud();
     const executor = createBrowserbaseExecutor({ credentials: CREDS, lookup: publicLookup, publicDemoUrl: `${PUBLIC_DEMO}/`, fetch: fakeBrowserbase().fetch, connect: cloud.connect, concurrency: 1 });
     await executor.run(invoiceJob(1));
@@ -122,7 +122,7 @@ describe("localhost refusal", () => {
     expect(cloud.visits).toEqual([`${PUBLIC_DEMO}/invoices/INV-1003`, `${PUBLIC_DEMO}/sheet`, `${PUBLIC_DEMO}/sheet`, `${PUBLIC_DEMO}/invoices/INV-1003`]);
   });
 
-  it("refuses a goto into a private network and a private GHOST_PUBLIC_DEMO_URL", () => {
+  it("refuses a goto into a private network and a private SHABANG_PUBLIC_DEMO_URL", () => {
     expect(() => createUrlRewriter("https://mail.example.com")("http://192.168.1.10/admin")).toThrow(ExecutorRefusal);
     expect(() => createUrlRewriter(DEMO, "http://127.0.0.1:9000")).toThrow(/reachable from the internet/);
     expect(() => createUrlRewriter("file:///etc/passwd")).toThrow(/http\(s\)/);

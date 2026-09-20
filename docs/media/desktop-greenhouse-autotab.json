@@ -207,5 +207,5 @@
   "trusted": true,
   "browser": "Safari",
   "url": "https://job-boards.greenhouse.io/viamrobotics/jobs/6185046004",
-  "note": "One ghostctl autotab run: real, untagged Tab presses through Ghost's own event tap. No value appears anywhere in this record - only labels, actions, outcomes and timings. 'refused' means Ghost left the field exactly as it found it."
+  "note": "One shabangctl autotab run: real, untagged Tab presses through Ghost's own event tap. No value appears anywhere in this record - only labels, actions, outcomes and timings. 'refused' means Ghost left the field exactly as it found it."
 }

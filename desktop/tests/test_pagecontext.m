@@ -4,7 +4,7 @@
 
 #pragma mark - fixture loader
 
-/// Same shape as `ghostctl dump-tree`: role, subrole, roleDescription, title, description, identifier, text
+/// Same shape as `shabangctl dump-tree`: role, subrole, roleDescription, title, description, identifier, text
 /// (AXStaticText), enabled, rect, children. Values of inputs are lengths only and are not needed here.
 static GHFakeAXNode *PCNodeFromFixture(NSDictionary *raw) {
     GHFakeAXNode *node = [GHFakeAXNode nodeWithRole:raw[@"role"] ?: @"AXUnknown"];

@@ -21,7 +21,7 @@ NSString *const GHHarnessModeNext = @"next";
 NSString *const GHHarnessModeAutotab = @"autotab";
 NSString *const GHHarnessModeAccept = @"accept";
 NSString *const GHHarnessModeProbeComboBox = @"probe-combobox";
-NSString *const GHHarnessRequestNotification = @"dev.ghost.desktop.harness.request";
+NSString *const GHHarnessRequestNotification = @"dev.shabang.desktop.harness.request";
 
 const NSInteger GHHarnessMaxAutotabCount = 200;
 const NSInteger GHHarnessDefaultIntervalMs = 450;
@@ -334,7 +334,7 @@ BOOL GHHarnessWriteResponse(NSDictionary<NSString *, id> *response, NSString *ou
 }
 
 + (instancetype)defaultChannel {
-    NSString *support = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Ghost/harness"];
+    NSString *support = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Shabang/harness"];
     return [[GHHarnessChannel alloc] initWithDirectory:support];
 }
 
@@ -845,7 +845,7 @@ static BOOL (^gTrustProbe)(void);
 static dispatch_queue_t GHHarnessQueue(void) {
     static dispatch_queue_t queue;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ queue = dispatch_queue_create("dev.ghost.desktop.harness", DISPATCH_QUEUE_SERIAL); });
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("dev.shabang.desktop.harness", DISPATCH_QUEUE_SERIAL); });
     return queue;
 }
 
@@ -1161,7 +1161,7 @@ static NSDictionary<NSString *, id> *GHHarnessNextActionReport(GHCore *core, GHC
     BOOL wantsNext = [request.mode isEqualToString:GHHarnessModeNext];
     NSUInteger depth = (NSUInteger)request.depth;
     GHCore *core = (wantsTree || wantsProbe) ? nil : [GHCore sharedCore];
-    if (!wantsTree && !wantsProbe && !core) { completion(GHHarnessErrorResponse(@"no-core", @"ghost-core.js is missing; run make core lib")); return; }
+    if (!wantsTree && !wantsProbe && !core) { completion(GHHarnessErrorResponse(@"no-core", @"shabang-core.js is missing; run make core lib")); return; }
 
     dispatch_async(GHHarnessQueue(), ^{
         CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();

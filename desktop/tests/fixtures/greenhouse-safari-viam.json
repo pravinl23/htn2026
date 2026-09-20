@@ -1,5 +1,5 @@
 {
- "source": "Safari, a public Greenhouse job application page (Viam, Software Engineering Intern), captured 2026-09-19 with ghostctl dump-tree; browser chrome, window and document titles removed; values are lengths only",
+ "source": "Safari, a public Greenhouse job application page (Viam, Software Engineering Intern), captured 2026-09-19 with shabangctl dump-tree; browser chrome, window and document titles removed; values are lengths only",
  "app": "com.apple.Safari",
  "tree": {
   "role": "AXWindow",

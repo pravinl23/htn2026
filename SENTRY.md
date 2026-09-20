@@ -206,8 +206,8 @@ PATH="/opt/homebrew/opt/node@22/bin:$PATH" pnpm --filter @ghost/server dev
 
 | Library | Who loads it | Built by |
 | --- | --- | --- |
-| `desktop/build/libghost.dylib` | `make run`, `tools/ghostctl` (sets `GHOST_LIB`) | `make lib` |
-| `~/Library/Application Support/Ghost/libghost.dylib` | **a plain `open Ghost.app`** | `make install-lib` |
+| `desktop/build/libshabang.dylib` | `make run`, `tools/shabangctl` (sets `SHABANG_LIB`) | `make lib` |
+| `~/Library/Application Support/Shabang/libshabang.dylib` | **a plain `open Shabang.app`** | `make install-lib` |
 
 `make lib` updates only the first. Change agent code, launch normally, and the agent looks perfectly
 healthy — menu bar On, ghosts appearing, Tab working — while **Sentry stays empty**, because the old
@@ -219,11 +219,11 @@ make -C desktop lib && make -C desktop install-lib
 
 ### If Accessibility keeps refusing
 
-Several builds at different paths all report as "Shabang" with bundle id `dev.ghost.desktop` and shadow
+Several builds at different paths all report as "Shabang" with bundle id `dev.shabang.desktop` and shadow
 each other in the Accessibility list, so granting the visible one does nothing. Reset and grant once:
 
 ```bash
-tccutil reset Accessibility dev.ghost.desktop
+tccutil reset Accessibility dev.shabang.desktop
 ```
 
 It printed "Successfully reset" three times here — three stale entries. The Makefile never rebuilds

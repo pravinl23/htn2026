@@ -49,7 +49,7 @@ Loop execution (Stage 8):
 | `BROWSERBASE_API_KEY` + `BROWSERBASE_PROJECT_ID` | Enable `parallel` mode. Both are required. |
 | `BROWSERBASE_CONCURRENCY` | Cloud browsers open at once, default 5, clamped to 10. The cap is process-wide, not per request. |
 | `BROWSERBASE_CONTEXT_ID` | A Browserbase context the user logged in to once. Loaded read-only (`persist: false`) so every cloud browser starts logged in. Without it they start logged out. |
-| `GHOST_PUBLIC_DEMO_URL` | Public URL serving the same site as a PRIVATE `baseUrl` (localhost demo behind a tunnel). Never applied to a public `baseUrl`. Use the final `https://` URL: a redirect to another origin fails the step. |
+| `SHABANG_PUBLIC_DEMO_URL` | Public URL serving the same site as a PRIVATE `baseUrl` (localhost demo behind a tunnel). Never applied to a public `baseUrl`. Use the final `https://` URL: a redirect to another origin fails the step. |
 | `COMPOSIO_API_KEY`, `COMPOSIO_USER_ID`, `COMPOSIO_GMAIL_ACCOUNT_ID`, `COMPOSIO_GOOGLESHEETS_ACCOUNT_ID`, `COMPOSIO_SPREADSHEET_ID`, `COMPOSIO_SHEET_RANGE` | Enable and configure `api` mode. |
 
 With `GHOST_PROVIDER=heuristic` (e2e) both server executors stay simulated even when their keys exist.
@@ -234,7 +234,7 @@ The UI shows `irreversible` (with counts) and `origins` (every site the run may 
 
 `parallel` mode (Browserbase, one cloud browser per item):
 - SSRF guard. A cloud browser is only ever sent to public addresses. Hosts are canonicalised by the URL parser (`2130706433`, `0x7f.1`, `127.1`) and IP literals are parsed numerically: loopback, RFC 1918, link-local incl. `169.254.169.254`, CGNAT `100.64/10`, `0/8`, multicast and reserved ranges, and for IPv6 `::`, `::1`, IPv4-mapped / compatible / NAT64 / 6to4 forms of those, `fc00::/7`, `fe80::/10`, `fec0::/10`, `ff00::/8`. Names: a trailing dot is ignored; single-label names, `.localhost`, `.local`, `.internal`, `.intranet`, `.lan`, `.home`, `.corp`, `.private`, `.home.arpa` and wildcard-DNS services (`nip.io`, `sslip.io`, `xip.io`, `localtest.me`, `lvh.me`, `vcap.me`) are private. Every remaining hostname is resolved once: a private address in the answer, or no answer, refuses the job. All item urls, `goto` urls and `at` pages are checked before the first session is created.
-- A private `baseUrl` is moved onto `GHOST_PUBLIC_DEMO_URL` or refused; a public `baseUrl` is never rewritten.
+- A private `baseUrl` is moved onto `SHABANG_PUBLIC_DEMO_URL` or refused; a public `baseUrl` is never rewritten.
 - After every navigation the landing page must have the target's origin AND path pattern ("landed on a different site" otherwise). Before every extract, fill and click the current page must be on one of the confirmed `origins`.
 - Durability check. The first item runs alone. Before its first irreversible step, the grid cells it wrote are read back from a SECOND cloud browser (3 attempts, 500 ms apart). If they are not there, the run stops with no irreversible step executed: the site keeps its state inside the browser (the bundled localStorage demo does), or the session is logged out. `durability` is `"verified"` then, `"unverified"` when the program writes no grid cell the server can read back.
 - Extracts apply the closed transform list exactly as it was verified at synthesis time; an unknown transform yields no value, never a guess.

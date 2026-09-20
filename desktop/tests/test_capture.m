@@ -492,7 +492,7 @@ GH_TEST(capture_in_a_browser_window_only_the_page_counts) {
 GH_TEST(capture_output_feeds_the_real_core) {
     // End to end without AX: fake Safari tree -> GHCapture (real shared safety rules) -> mapping -> ghosts.
     GHCore *core = [GHCore sharedCore];
-    GH_ASSERT_MSG(core != nil, @"ghost-core.js is not loadable (run make core; DESKTOP_CORE_PATH points at it in make test)");
+    GH_ASSERT_MSG(core != nil, @"shabang-core.js is not loadable (run make core; DESKTOP_CORE_PATH points at it in make test)");
     GHCaptureResult *result = [[[GHCapture alloc] initWithSafety:core] captureWindow:JobApplicationWindow(@"", NULL)];
     NSString *json = DumpJSON(result).lowercaseString;
     GH_ASSERT_FALSE([json containsString:@"password"]);
@@ -844,7 +844,7 @@ GH_TEST(accessibility_default_pause_list) {
     for (NSString *bundle in @[ @"com.1password.1password", @"com.1password.safari-helper", @"com.bitwarden.desktop", @"com.lastpass.LastPass",
                                 @"com.dashlane.Dashlane", @"org.keepassxc.keepassxc", @"com.apple.Terminal", @"com.googlecode.iterm2",
                                 @"com.apple.keychainaccess", @"com.apple.systempreferences", @"com.apple.Passwords", @"com.apple.loginwindow",
-                                @"dev.ghost.desktop", @"COM.APPLE.TERMINAL" ]) {
+                                @"dev.shabang.desktop", @"COM.APPLE.TERMINAL" ]) {
         GH_ASSERT_MSG([accessibility isBundleIdentifierPaused:bundle], @"%@ should be paused", bundle);
     }
     GH_ASSERT([accessibility isBundleIdentifierPaused:nil]);  // unknown app: stay out

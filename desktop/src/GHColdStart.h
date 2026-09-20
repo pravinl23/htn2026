@@ -2,7 +2,7 @@
 //
 // GHScanSources counts what is there; this runs the plan over the sources the user switched on, hands what it
 // reads to the pure rules in shared/src/coldstart (through GhostCore), and comes back with PROPOSALS. It never
-// writes into the profile: the graph changes only when the user accepts a proposal (`ghostctl scan --apply`).
+// writes into the profile: the graph changes only when the user accepts a proposal (`shabangctl scan --apply`).
 //
 // The promises, enforced here and not only documented:
 //   local        nothing read is uploaded, nothing is sent anywhere, no model is called. Only fact KEYS ever
@@ -26,7 +26,7 @@ typedef NS_ENUM(NSInteger, GHColdStartStop) {
     GHColdStartStopFinished = 0,
     GHColdStartStopBudget = 1,      // the wall clock or the file cap ran out; what was found is still returned
     GHColdStartStopCancelled = 2,
-    GHColdStartStopNoCore = 3,      // ghost-core.js is missing: nothing is read at all
+    GHColdStartStopNoCore = 3,      // shabang-core.js is missing: nothing is read at all
 };
 NSString *GHColdStartStopName(GHColdStartStop stop);
 

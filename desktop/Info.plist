@@ -5,15 +5,15 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>Ghost</string>
+	<string>Shabang</string>
 	<key>CFBundleIdentifier</key>
-	<string>dev.ghost.desktop</string>
+	<string>dev.shabang.desktop</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Ghost</string>
+	<string>Shabang</string>
 	<key>CFBundleDisplayName</key>
-	<string>Ghost</string>
+	<string>Shabang</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

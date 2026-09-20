@@ -3,7 +3,7 @@
 ## 2026-09-20 09:30 UTC — accepts that do something, and proposals that lead somewhere
 
 Pushed to `main` as `7df6bb8..HEAD`, nine commits. 454 desktop tests, 1,687 shared, 796 server, 0 failed.
-Everything below was measured on the live agent with `ghostctl`, not reasoned about.
+Everything below was measured on the live agent with `shabangctl`, not reasoned about.
 
 ### The one-line summary
 
@@ -26,7 +26,7 @@ double click that opens a native row. Everywhere else `AXPress` is honest and is
 writer: click kind=item label=4 Play Hellcats & Trackhawks... ok=1 method=click reason=- 15 ms
 ```
 
-**`ghostctl accept`** is new, and it is how any of this is checkable: it takes the ghost on screen exactly
+**`shabangctl accept`** is new, and it is how any of this is checkable: it takes the ghost on screen exactly
 as the Ghost key does and reports what moved. It is the only harness mode that actuates.
 
 ### 2. Every iMessage draft was the same because Ghost was reading the sidebar
@@ -196,7 +196,7 @@ privacy-reviewed schema, and that is your call):
 - **Role memory still re-poisons itself.** Walking a list with the accept key teaches "after an item comes an
   item"; it reached `accepted: 8` again during this session from my own measurement accepts. Cleared twice.
   It is healthy right now (one honest entry, `media/none/play`). Check
-  `~/Library/Application Support/Ghost/memory.json` first when guesses get strange.
+  `~/Library/Application Support/Shabang/memory.json` first when guesses get strange.
 - `GHVision` is still called from nowhere useful: `unnamedCount` is 0 or 1 on every app here.
 - `PLAN.md` and `ROUTINE_PROMPT.md` are still stale.
 - **Rotate the OpenAI key** (it was pasted into a chat).
@@ -208,10 +208,10 @@ Accessibility grant. To take over the agent without a permission prompt, run *yo
 *already-granted* host:
 
 ```
-GHOST_APP=<granted-worktree>/desktop/build/Ghost.app GHOST_LIB=<your-worktree>/desktop/build/libghost.dylib ./tools/ghostctl run
+SHABANG_APP=<granted-worktree>/desktop/build/Shabang.app SHABANG_LIB=<your-worktree>/desktop/build/libshabang.dylib ./tools/shabangctl run
 ```
 
-`make install-lib` puts your library where a plain `open Ghost.app` finds it, so do it every time.
+`make install-lib` puts your library where a plain `open Shabang.app` finds it, so do it every time.
 
 ---
 
@@ -225,7 +225,7 @@ Pushed to `main` as `848969d..836c912`, seven commits. 445 desktop tests, 1,677 
 
 ### What was wrong, measured rather than guessed
 
-`ghostctl next` on the live agent, before any of this:
+`shabangctl next` on the live agent, before any of this:
 
 | App | AX nodes walked | candidates found |
 | --- | --- | --- |
@@ -253,7 +253,7 @@ Ghost was a web form filler running on a desktop. Five separate causes:
 - **Clicks land.** `AXPress` first, a real `CGEvent` left click at the element's centre when the control does
   not publish `AXPress`, pointer put back where the user left it.
 - **Accepting works in native apps, and Tab is left alone.** Tab is form-only: where focus is not on the
-  ghost's own field it goes straight to the app (`ghostctl autotab --frontmost Spotify` → `consumed: false`).
+  ghost's own field it goes straight to the app (`shabangctl autotab --frontmost Spotify` → `consumed: false`).
   Everywhere else the accept key is the Ghost key, a LONE tap of a right-hand modifier — holding it still
   works normally because a chord is never a tap. `acceptKey` in `settings.json` picks between
   `right-command` (the default) and `right-option`; the status line names whichever is set.
@@ -309,7 +309,7 @@ _Last updated: 2026-09-20 01:50 UTC by Samir's agent after the invoice-loop e2e 
 - **Browser agent:** instant local ghosts are upgraded by the server with per-form caching; the extension also streams textarea drafts, imports resumes, learns opt-in facts, reports metrics, records safe traces/page facts, detects repeated loops, previews them and runs explicitly confirmed loops.
 - **Demo sites:** the existing application, invoice, sheet, mail and calendar surfaces remain. `/workflow/index.html` adds a polished atomic-workflow lab with meeting coordination, Slack → GitHub issue and local-fill stories.
 - **Server:** direct TypeSafe/Jev, Jev Gateway, Baseten, OpenAI-compatible and heuristic decision paths exist alongside text generation, profile extraction, metrics, presence, loop synthesis, Browserbase, the original Composio loop executor, and the new atomic Composio workflow engine.
-- **Native macOS agent:** the stable host, hot-swappable library, Accessibility capture, verified writer and `ghostctl` harness are implemented. The new `GHWorkflowCoordinator` is tested as a narrow workflow seam.
+- **Native macOS agent:** the stable host, hot-swappable library, Accessibility capture, verified writer and `shabangctl` harness are implemented. The new `GHWorkflowCoordinator` is tested as a narrow workflow seam.
 - **Live Jev proof:** a 12-field mapping completed in 490 ms, and the three-step meeting workflow returned calibrated TypeSafe/Jev choices at 100%, 95% and 88% confidence before simulated execution.
 - **Reviewed learning loop:** every Tab walk now produces a strict value-free outcome (the user's own accept / escape / type-over is the label), passes two sanitization boundaries, optionally reaches Sentry, and turns reviewable walks into versioned replay cases checked by `pnpm eval:walk-replays`. Labels, values, signatures and page identity never cross the wire. There is no Sentry DSN on this machine yet, so live delivery remains unverified.
 
@@ -326,7 +326,7 @@ Pull (`git pull --rebase origin main`) before you push; update this file when yo
 | OpenAI vision fallback (OpenAI API prize) | Pravin's agents | `server/src/routes/vision.ts`, `server/src/vision/**`, `docs/openai.md` | Done, mock-tested (63 tests): `/v1/vision/label` and `/v1/vision/locate`; locks and sensitivity re-derived in code. Needs an `OPENAI_API_KEY` to go live; no client calls it yet. |
 | Terminal ghost (zsh, Warp track) | Pravin's agents | `terminal/**`, `server/src/routes/command.ts`, `server/src/command/**` | Done: `source terminal/ghost.zsh`; Jev picks the next command (live: 491 ms, 0.89), Tab inserts, never runs; `pnpm test:terminal` 50 passed. Not in Warp (Warp replaces the line editor). |
 | Ghost anywhere: affordances, page kinds, priors, role memory | Pravin's agents | `shared/src/affordance/**` (roles, pageKind, priors, memory) | Done, 161 unit tests, no keys, no network. `classifyAffordance` / `inferPageKind` / `priorsFor` / `predictByRole` + `RoleMemory` are pure and exported from `@ghost/shared`. No site, host or brand is named anywhere in the module or its fixtures. Consumers: the extension DOM ranker (`extension/src/content/nextAction.ts`) and the native agent should classify candidates, infer the page kind, take `priorsFor(kind, state)` and rank with `predictByRole`; `server/src/vision/affordance.ts` already adapts vision labels through the same `classifyAffordance`. Clients should pass the generic hints: `insideMediaControls`, `list {listSignature,index}`, `nearbyPrice`, `badgeCount`, `classTokens`, and `context.mainListSignature` (the MAIN region's list, or null) - without that last one a site's navigation bar classifies as feed items. Proven live (read-only) on two real sites: a real video page playing -> fullscreen 0.70 top; a real shop header with an empty cart -> the search box 0.70; same header with 2 in the cart -> the cart 0.70; a real results grid -> the first result 0.70. |
-| Ghost anywhere on the NATIVE agent (macOS) | Pravin's agents | `desktop/core/anywhere.ts`, `desktop/src/GH{Affordance,NextAction,Vision}.*`, `GHCapture` (`capturesUnnamedControls`, `windowNode`), `GHField` (hints + `toCandidateJSONObject`), `GHCore.nextAction`, small hooks in `GHController`/`GHWriter`, `docs/desktop.md` | Done, 34 new desktop tests through the REAL ghost-core.js and fake AX trees. When the form walk has nothing to fill, Ghost proposes the one control the place is for: a playing video -> fullscreen, a paused one -> play, a grid -> the first item (not a nav entry), a shop with 2 in the cart -> the cart (checkout stays locked and can never be the proposal), an empty cart -> the search box (which is FOCUSED, never pressed). Capture now keeps icon-only controls (`unnamed`) and emits `insideMediaControls`, `list {signature,index}`, `nearbyPrice`, `badgeCount`, `hasMediaElement`, `mainListSignature`, `mainRegionRepeats`, `textDensity`, `isFullscreen`, `sensitiveOnScreen`. Role memory in `~/Library/Application Support/Ghost/memory.json` (0600, atomic, corrupt-tolerant): two accepts reorder a place's defaults. `GHVision` crops ONLY the unnamed controls into one strip for `/v1/vision/label` (one call per page view, cached, never from a window with a sensitive field); without Screen Recording it reports "needs Screen Recording" and everything else keeps working. Not yet rehearsed live on a real site. |
+| Ghost anywhere on the NATIVE agent (macOS) | Pravin's agents | `desktop/core/anywhere.ts`, `desktop/src/GH{Affordance,NextAction,Vision}.*`, `GHCapture` (`capturesUnnamedControls`, `windowNode`), `GHField` (hints + `toCandidateJSONObject`), `GHCore.nextAction`, small hooks in `GHController`/`GHWriter`, `docs/desktop.md` | Done, 34 new desktop tests through the REAL shabang-core.js and fake AX trees. When the form walk has nothing to fill, Ghost proposes the one control the place is for: a playing video -> fullscreen, a paused one -> play, a grid -> the first item (not a nav entry), a shop with 2 in the cart -> the cart (checkout stays locked and can never be the proposal), an empty cart -> the search box (which is FOCUSED, never pressed). Capture now keeps icon-only controls (`unnamed`) and emits `insideMediaControls`, `list {signature,index}`, `nearbyPrice`, `badgeCount`, `hasMediaElement`, `mainListSignature`, `mainRegionRepeats`, `textDensity`, `isFullscreen`, `sensitiveOnScreen`. Role memory in `~/Library/Application Support/Shabang/memory.json` (0600, atomic, corrupt-tolerant): two accepts reorder a place's defaults. `GHVision` crops ONLY the unnamed controls into one strip for `/v1/vision/label` (one call per page view, cached, never from a window with a sensitive field); without Screen Recording it reports "needs Screen Recording" and everything else keeps working. Not yet rehearsed live on a real site. |
 | Extension next-action ghosts + presence heartbeat | Pravin's agents | `extension/src/content/nextAction.ts`, `extension/src/background/{nextClient,presence}.ts` | Done: click ghosts from episodic memory + `/v1/predict/next`, form-submitting controls locked, 30 s `/v1/presence` beat; e2e 36 passed. |
 
 Measured on Pravin's machine with real keys: Jev direct 12-field form 649 ms (12/12, confidence 0.93 to 1.00); Baseten GLM-5.3-Flash with 3 samples + 1 hedge p50 1052 ms (12/12; ambiguous form 97.5% with zero wrong answers above the 0.7 gate); xAI adapter about 1.3 s with a flat 0.90 confidence; Browserbase session up in 0.5 s and invoice fields extracted from the public demo (https://whitespace-delta.vercel.app) in 3.7 s. Tables: `docs/media/bench-providers*.md`, `docs/baseten.md`.

@@ -108,7 +108,7 @@ GH_TEST(store_settings_are_validated_and_merged) {
 GH_TEST(store_pause_list) {
     GHProfileStore *store = FreshStore();
     for (NSString *bundleId in @[ @"com.apple.Terminal", @"com.googlecode.iterm2", @"com.apple.keychainaccess", @"com.apple.systempreferences",
-                                  @"com.1password.1password", @"com.1password.browser-helper", @"com.bitwarden.desktop", @"dev.ghost.desktop" ]) {
+                                  @"com.1password.1password", @"com.1password.browser-helper", @"com.bitwarden.desktop", @"dev.shabang.desktop" ]) {
         GH_ASSERT_MSG([store isPausedBundleId:bundleId], @"%@ must always be skipped", bundleId);
     }
     GH_ASSERT([store isPausedBundleId:nil]); // unknown app: stay out

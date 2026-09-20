@@ -8,16 +8,16 @@ Implemented and unit-tested (199 native tests):
 
 - macOS Accessibility trust handling and bounded AX-tree capture; sensitive/hidden/disabled exclusion; stable signatures;
 - offline form mapping plus server-upgraded `/v1/predict/form`; streamed `/v1/ghost-text` drafts; ghost overlays; Tab/Escape/hold-Tab state; locks; verified writes; local profile/settings/form cache; menu-bar app;
-- **stable host + hot-swappable `libghost.dylib`** (`desktop/host/main.m`, `make host`, `make lib`, `make install-lib`). The granted host is `~/Applications/Ghost.app`; rebuild only the library;
-- **harness**: `desktop/tools/ghostctl trust | dump | dump-tree | autotab N | run | quit | log | selftest` with `--frontmost`, `--delay`, `--out`;
+- **stable host + hot-swappable `libshabang.dylib`** (`desktop/host/main.m`, `make host`, `make lib`, `make install-lib`). The granted host is `~/Applications/Shabang.app`; rebuild only the library;
+- **harness**: `desktop/tools/shabangctl trust | dump | dump-tree | autotab N | run | quit | log | selftest` with `--frontmost`, `--delay`, `--out`;
 - a fictional resume PDF at `demo/fixtures/resume-alex-chen.pdf`;
 - a redacted real AX fixture: `desktop/tests/fixtures/greenhouse-safari-viam.json` (Safari, Viam Greenhouse posting).
 
-Verified LIVE: `ghostctl trust` and `ghostctl dump-tree` run trusted against the real Greenhouse page in Safari (433 nodes, about 0.5 s).
+Verified LIVE: `shabangctl trust` and `shabangctl dump-tree` run trusted against the real Greenhouse page in Safari (433 nodes, about 0.5 s).
 
 Not implemented yet:
 
-- real-page capture: `ghostctl dump` finds only 1 bogus field, because the tree walk skips `AXTabGroup` and Safari nests the web area inside it;
+- real-page capture: `shabangctl dump` finds only 1 bogus field, because the tree walk skips `AXTabGroup` and Safari nests the web area inside it;
 - resume/cover-letter file facts and native open-panel automation;
 - react-select comboboxes (options are not in the AX tree until opened);
 - a recorded end-to-end run in any browser.

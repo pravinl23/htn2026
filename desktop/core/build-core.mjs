@@ -1,5 +1,5 @@
 // Bundles core/entry.ts (which pulls in @ghost/shared and the extension's pure predict rules) into
-// build/ghost-core.js: one IIFE whose global is `GhostCore`, for JavaScriptCore.
+// build/shabang-core.js: one IIFE whose global is `GhostCore`, for JavaScriptCore.
 //
 // Then PROVES the bundle: it is run in a bare VM context (no DOM, no Node, no chrome), every export the
 // native side calls must be a function, and a smoke form must map. Any failure exits non-zero so
@@ -12,7 +12,7 @@ import vm from "node:vm";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../..");
-const outfile = resolve(here, "../build/ghost-core.js");
+const outfile = resolve(here, "../build/shabang-core.js");
 
 /** What GHCore.m calls. Keep in sync with docs/desktop.md "Core bridge". */
 const REQUIRED_EXPORTS = [
@@ -66,7 +66,7 @@ await esbuild.build({
 const source = readFileSync(outfile, "utf8");
 const sandbox = vm.createContext(Object.create(null));
 try {
-  vm.runInContext(source, sandbox, { filename: "ghost-core.js" });
+  vm.runInContext(source, sandbox, { filename: "shabang-core.js" });
 } catch (err) {
   fail(`the bundle throws when evaluated without a DOM: ${err.message}`);
 }

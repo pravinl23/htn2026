@@ -5,19 +5,19 @@
 #   scripts/install-background.sh                  build, install, start
 #   scripts/install-background.sh --dry-run        print every action, change nothing (no build, no copy, no launchctl)
 #   scripts/install-background.sh --server-only    only dev.ghost.server
-#   scripts/install-background.sh --desktop-only   only dev.ghost.desktop
-#   scripts/install-background.sh --launch-via-open   start Ghost.app with `open -W -n` instead of its binary (see the templates)
+#   scripts/install-background.sh --desktop-only   only dev.shabang.desktop
+#   scripts/install-background.sh --launch-via-open   start Shabang.app with `open -W -n` instead of its binary (see the templates)
 #   scripts/install-background.sh --render-to DIR  render the plists and the server wrapper into DIR, lint them, touch nothing else
 #
 # YOU run this, never an agent or CI: it adds login items. It never touches privacy permissions (no tccutil, no sudo):
-# Accessibility is granted by hand, once, to ~/Applications/Ghost.app.
+# Accessibility is granted by hand, once, to ~/Applications/Shabang.app.
 # /bin/bash on purpose (3.2 on every Mac): no associative arrays, no mapfile, no ${var,,}.
 set -euo pipefail
 
 LABEL_SERVER="dev.ghost.server"
-LABEL_DESKTOP="dev.ghost.desktop"
+LABEL_DESKTOP="dev.shabang.desktop"
 # The ONLY lines ever copied out of the repo's .env. Keep in step with README.md and .env.example.
-ENV_KEYS_RE='^(XAI_API_KEY|OPENAI_API_KEY|AI_GATEWAY_API_KEY|TYPESAFE_API_KEY|BASETEN_API_KEY|BASETEN_[A-Z_]+|BROWSERBASE_API_KEY|BROWSERBASE_PROJECT_ID|COMPOSIO_API_KEY|GHOST_PUBLIC_DEMO_URL)='
+ENV_KEYS_RE='^(XAI_API_KEY|OPENAI_API_KEY|AI_GATEWAY_API_KEY|TYPESAFE_API_KEY|BASETEN_API_KEY|BASETEN_[A-Z_]+|BROWSERBASE_API_KEY|BROWSERBASE_PROJECT_ID|COMPOSIO_API_KEY|SHABANG_PUBLIC_DEMO_URL)='
 SERVER_URL="http://127.0.0.1:8787"
 
 DRY_RUN=0
@@ -54,14 +54,14 @@ case "${HOME:-}" in /*) [ -d "$HOME" ] || die "HOME does not exist" ;; *) die "H
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TEMPLATES="$REPO/scripts/launchd"
 DOMAIN="gui/$(id -u)"
-SUPPORT_DIR="$HOME/Library/Application Support/Ghost"
+SUPPORT_DIR="$HOME/Library/Application Support/Shabang"
 SERVER_DIR="$SUPPORT_DIR/server"
-LOG_DIR="$HOME/Library/Logs/Ghost"
+LOG_DIR="$HOME/Library/Logs/Shabang"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
 ENV_DIR="$HOME/.config/ghost"
 ENV_FILE="$ENV_DIR/env"
-APP_SRC="$REPO/desktop/build/Ghost.app"
-APP_PATH="$HOME/Applications/Ghost.app"
+APP_SRC="$REPO/desktop/build/Shabang.app"
+APP_PATH="$HOME/Applications/Shabang.app"
 NODE_BIN=""
 
 # ---------- helpers ----------
@@ -122,7 +122,7 @@ env_file="${GHOST_ENV_FILE:-$HOME/.config/ghost/env}"
 node_bin="${1:-}"
 
 # launchd keeps these files open in append mode, so they are trimmed in place rather than renamed.
-for log in "$HOME/Library/Logs/Ghost/server.log" "$HOME/Library/Logs/Ghost/server.err.log"; do
+for log in "$HOME/Library/Logs/Shabang/server.log" "$HOME/Library/Logs/Shabang/server.err.log"; do
   if [ -f "$log" ] && [ "$(stat -f %z "$log" 2>/dev/null || echo 0)" -gt 5242880 ]; then
     cp -f "$log" "$log.1" 2>/dev/null || true
     : > "$log"
@@ -182,7 +182,7 @@ env_file_template() {
 #BROWSERBASE_API_KEY=
 #BROWSERBASE_PROJECT_ID=
 #COMPOSIO_API_KEY=
-#GHOST_PUBLIC_DEMO_URL=
+#SHABANG_PUBLIC_DEMO_URL=
 #SENTRY_DSN=
 #SENTRY_ENVIRONMENT=production
 #SENTRY_RELEASE=
@@ -241,7 +241,7 @@ build_all() {
   if [ "$WANT_DESKTOP" = 1 ]; then
     # Builds the host only when it does not exist yet (docs/desktop-realworld.md section 1), plus the core bundle and the library.
     run make -C "$REPO/desktop" app
-    [ "$DRY_RUN" = 1 ] || [ -d "$APP_SRC" ] || die "desktop/build/Ghost.app was not produced"
+    [ "$DRY_RUN" = 1 ] || [ -d "$APP_SRC" ] || die "desktop/build/Shabang.app was not produced"
   fi
 }
 
@@ -315,11 +315,11 @@ install_env_file() {
 }
 
 install_desktop_files() {
-  step "Ghost.app -> $APP_PATH"
+  step "Shabang.app -> $APP_PATH"
   run mkdir -p "$LOG_DIR" "$AGENTS_DIR"
   if [ -e "$APP_PATH" ]; then
     say "kept: $APP_PATH is already installed and is NEVER overwritten. macOS ties the Accessibility grant to the"
-    say "      host's code hash: a fresh copy would silently lose the grant. Updates arrive through libghost.dylib instead."
+    say "      host's code hash: a fresh copy would silently lose the grant. Updates arrive through libshabang.dylib instead."
     say "      To replace the host on purpose: scripts/uninstall-background.sh --remove-app, run this again, grant again."
   else
     run mkdir -p "$HOME/Applications"
@@ -378,7 +378,7 @@ next_steps() {
   fi
   [ "$WANT_SERVER" = 0 ] || say "2. Keys live in $ENV_FILE. After editing:   launchctl kickstart -k $DOMAIN/$LABEL_SERVER"
   say "3. Logs: $LOG_DIR/   Status: launchctl print $DOMAIN/$LABEL_SERVER | head -20"
-  say "4. Undo: scripts/uninstall-background.sh   (--remove-app also deletes Ghost.app; --purge also the profile, the keys and the logs)"
+  say "4. Undo: scripts/uninstall-background.sh   (--remove-app also deletes Shabang.app; --purge also the profile, the keys and the logs)"
   [ "$DRY_RUN" = 0 ] || say "(dry run: nothing was built, copied, written or loaded)"
 }
 

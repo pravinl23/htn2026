@@ -455,7 +455,7 @@ static void GHAXObserverCallback(AXObserverRef observer, AXUIElementRef element,
             @"com.apple.keychainaccess", @"com.apple.systempreferences", @"com.apple.Passwords", @"com.apple.loginwindow",
             @"com.apple.SecurityAgent", @"com.apple.LocalAuthentication.UIAgent",
             // Ghost itself.
-            @"dev.ghost.desktop",
+            @"dev.shabang.desktop",
         ]];
     });
     return identifiers;

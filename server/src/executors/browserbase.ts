@@ -122,16 +122,16 @@ function parseHttpUrl(raw: string, what: string): URL {
 
 /**
  * A cloud browser cannot reach this machine. URLs on a PRIVATE `baseUrl` are moved onto `publicDemoUrl`
- * (GHOST_PUBLIC_DEMO_URL: the same site, deployed or tunnelled); without one the job is refused.
+ * (SHABANG_PUBLIC_DEMO_URL: the same site, deployed or tunnelled); without one the job is refused.
  * A public baseUrl is never rewritten: a loop recorded on a real site must not be replayed against the demo host.
  */
 export function createUrlRewriter(baseUrl: string, publicDemoUrl?: string): (url: string) => string {
   const base = parseHttpUrl(baseUrl, "baseUrl");
   const basePrivate = isPrivateHost(base.hostname);
-  const replacement = basePrivate && publicDemoUrl ? parseHttpUrl(publicDemoUrl, "GHOST_PUBLIC_DEMO_URL") : undefined;
-  if (replacement && isPrivateHost(replacement.hostname)) throw new ExecutorRefusal("GHOST_PUBLIC_DEMO_URL must be reachable from the internet, not a local address");
+  const replacement = basePrivate && publicDemoUrl ? parseHttpUrl(publicDemoUrl, "SHABANG_PUBLIC_DEMO_URL") : undefined;
+  if (replacement && isPrivateHost(replacement.hostname)) throw new ExecutorRefusal("SHABANG_PUBLIC_DEMO_URL must be reachable from the internet, not a local address");
   const unreachable = (origin: string): ExecutorRefusal =>
-    new ExecutorRefusal(`Cloud browsers cannot reach ${origin}. Set GHOST_PUBLIC_DEMO_URL to a public URL serving the same site, or run this loop in visible or background mode.`);
+    new ExecutorRefusal(`Cloud browsers cannot reach ${origin}. Set SHABANG_PUBLIC_DEMO_URL to a public URL serving the same site, or run this loop in visible or background mode.`);
   if (basePrivate && !replacement) throw unreachable(base.origin);
 
   return (raw) => {

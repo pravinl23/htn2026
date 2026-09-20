@@ -35,7 +35,7 @@ The habit priors are what make the first Tab on YouTube or Amazon right instead 
 
 ## 4. How it runs
 
-- Native agent, because it is the part with file access. `ghostctl scan --dry-run` prints the consent panel's contents (counts per source, nothing read); `ghostctl scan --sources contacts,resume,history` performs it; the menu bar shows progress and a Review button. Extraction runs off the main thread with a wall-clock budget (default 60 s) and a hard cap on files opened per source.
+- Native agent, because it is the part with file access. `shabangctl scan --dry-run` prints the consent panel's contents (counts per source, nothing read); `shabangctl scan --sources contacts,resume,history` performs it; the menu bar shows progress and a Review button. Extraction runs off the main thread with a wall-clock budget (default 60 s) and a hard cap on files opened per source.
 - **Incremental after that:** a small watcher re-scans only what changed (Spotlight query by modification date, the browser history since the last high-water mark), at most once an hour, and adds proposals to the review list instead of applying them.
 - **Degrade honestly:** any source whose permission is missing is listed as "needs permission: <what to click>", never silently skipped. The scan works with zero permissions granted using only what is already accessible, and says how much better it would be with each one.
 

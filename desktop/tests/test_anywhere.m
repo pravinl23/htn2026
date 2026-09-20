@@ -1,5 +1,5 @@
 // Ghost anywhere on the native side (docs/anywhere.md): GHAffordance's hints, GHNextAction's proposal and the
-// role memory on disk, all of it through the REAL ghost-core.js in JavaScriptCore (DESKTOP_CORE_PATH, set by
+// role memory on disk, all of it through the REAL shabang-core.js in JavaScriptCore (DESKTOP_CORE_PATH, set by
 // `make test`) and against fake accessibility trees.
 //
 // Every window here is synthetic and generic: a player, a grid, a shop header, a plain app window. Nothing in

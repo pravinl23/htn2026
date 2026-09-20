@@ -385,7 +385,7 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
 + (NSArray<NSString *> *)defaultPausedBundleIds {
     return @[
         // Ghost itself
-        @"dev.ghost.desktop",
+        @"dev.shabang.desktop",
         // terminals
         @"com.apple.Terminal", @"com.googlecode.iterm2", @"dev.warp.Warp-Stable", @"net.kovidgoyal.kitty",
         @"com.github.wez.wezterm", @"io.alacritty", @"org.alacritty", @"co.zeit.hyper", @"com.mitchellh.ghostty",

@@ -1,4 +1,4 @@
-// GHLog: append-only file log at ~/Library/Logs/Ghost/desktop.log.
+// GHLog: append-only file log at ~/Library/Logs/Shabang/desktop.log.
 // RULE: never pass field values or profile values. Labels go through GHLogLabel() (truncated).
 #import <Foundation/Foundation.h>
 
@@ -17,7 +17,7 @@ void GHLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
 /// looks like it names a secret (cheap native check; capture already drops such fields).
 NSString *GHLogLabel(NSString *_Nullable label);
 
-/// Default ~/Library/Logs/Ghost/desktop.log. Tests point it at a temp file. nil restores the default.
+/// Default ~/Library/Logs/Shabang/desktop.log. Tests point it at a temp file. nil restores the default.
 void GHLogSetPath(NSString *_Nullable path);
 NSString *GHLogPath(void);
 void GHLogSetMirrorToStderr(BOOL mirror);

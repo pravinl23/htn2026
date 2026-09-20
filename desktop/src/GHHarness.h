@@ -110,7 +110,7 @@ BOOL GHHarnessRemoveOldAnswer(NSString *_Nullable path);
 
 #pragma mark - talking to the agent that is already running
 
-/// File channel in ~/Library/Application Support/Ghost/harness (0700):
+/// File channel in ~/Library/Application Support/Shabang/harness (0700):
 ///   requests/<id>.json   written by the launched process, claimed (read + deleted) by the agent
 ///   responses/<id>.json  only for a request without --out: the launched process prints it
 ///   agent.lock           flock()ed by the agent for as long as it lives, so "is an agent running" survives crashes
@@ -253,7 +253,7 @@ extern NSString *const GHHarnessRequestNotification;
 + (BOOL)bundleIdentifierIsPaused:(nullable NSString *)bundleId;
 /// Tests replace the pause check; nil restores it.
 + (void)setPauseCheck:(nullable BOOL (^)(NSString *_Nullable bundleId))check;
-/// Path of the image this code was loaded from (libghost.dylib, or the test runner).
+/// Path of the image this code was loaded from (libshabang.dylib, or the test runner).
 + (nullable NSString *)libraryPath;
 @end
 

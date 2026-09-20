@@ -20,12 +20,12 @@ static unsigned long long gMaxBytes = 2ULL * 1024 * 1024;
 static dispatch_queue_t GHLogQueue(void) {
     static dispatch_queue_t queue;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ queue = dispatch_queue_create("dev.ghost.desktop.log", DISPATCH_QUEUE_SERIAL); });
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("dev.shabang.desktop.log", DISPATCH_QUEUE_SERIAL); });
     return queue;
 }
 
 static NSString *GHDefaultLogPath(void) {
-    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Logs/Ghost/desktop.log"];
+    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Logs/Shabang/desktop.log"];
 }
 
 NSString *GHLogPath(void) {

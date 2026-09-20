@@ -222,7 +222,7 @@ static NSString *DemoEmail(void) {
 
 #define RIG(name, client) \
     GHRig *name = [GHRig rigWithClient:(client)]; \
-    GH_ASSERT_MSG(name != nil, @"ghost-core.js is not loadable (run make core)")
+    GH_ASSERT_MSG(name != nil, @"shabang-core.js is not loadable (run make core)")
 
 #pragma mark - the walk
 

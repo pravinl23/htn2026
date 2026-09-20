@@ -137,7 +137,7 @@ describe("finding 2: SSRF guard for cloud browsers", () => {
   });
 });
 
-describe("finding 9: GHOST_PUBLIC_DEMO_URL only ever replaces a private baseUrl", () => {
+describe("finding 9: SHABANG_PUBLIC_DEMO_URL only ever replaces a private baseUrl", () => {
   it("leaves a public site alone", () => {
     expect(createUrlRewriter("https://real.example.com", "https://demo.example.dev")("https://real.example.com/mail/1")).toBe("https://real.example.com/mail/1");
     expect(createUrlRewriter(DEMO, "https://demo.example.dev/app/")(`${DEMO}/mail/1`)).toBe("https://demo.example.dev/app/mail/1");

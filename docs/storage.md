@@ -5,7 +5,7 @@ Binding design. Everything Shabang learns about a person stays on that person's 
 ## 1. One canonical file
 
 ```
-~/Library/Application Support/Ghost/graph.json      mode 0600, atomic writes, versioned
+~/Library/Application Support/Shabang/graph.json      mode 0600, atomic writes, versioned
 ```
 
 It holds four sections, and nothing else:

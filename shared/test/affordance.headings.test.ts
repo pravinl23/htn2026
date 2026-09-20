@@ -1,6 +1,6 @@
 // A list hands Ghost its headings as rows, in the same list and the same index space as the rows themselves.
 //
-// Every label below was CAPTURED from a live app on a real Mac (`ghostctl next --frontmost ...`, 2026-09-20),
+// Every label below was CAPTURED from a live app on a real Mac (`shabangctl next --frontmost ...`, 2026-09-20),
 // which is why they are shaped the way they are: a native table interleaves its column widths into the header
 // row's accessible name, so "# Title 50 Album 50 Date added 50 Duration" is one row's real name, not a typo.
 //

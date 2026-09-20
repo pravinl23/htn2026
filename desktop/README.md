@@ -13,9 +13,9 @@ does not match the SDK).
 `make -C desktop core lib test`: **373 native tests, 0 failures**, zero compiler warnings (2026-09-19, after the
 second live Safari run and the two combobox fixes it forced).
 
-**A COMPLETE application, verified LIVE in Safari** (2026-09-19, 20:26 EDT, granted host `~/Applications/Ghost.app`,
+**A COMPLETE application, verified LIVE in Safari** (2026-09-19, 20:26 EDT, granted host `~/Applications/Shabang.app`,
 real TypeSafe/Jev server on :8787, the real Greenhouse posting `job-boards.greenhouse.io/viamrobotics/jobs/6185046004`,
-the fictional Alex Chen profile). `ghostctl autotab 40 --interval 700 --frontmost Safari --expect-field "First Name"`
+the fictional Alex Chen profile). `shabangctl autotab 40 --interval 700 --frontmost Safari --expect-field "First Name"`
 posted **16 real Tab presses in 21.1 s**, **accepted 14** and stopped itself with `"stopped": "locked"`, parked on
 **Submit application**. **Every question on the form is answered:**
 
@@ -34,7 +34,7 @@ posted **16 real Tab presses in 21.1 s**, **accepted 14** and stopped itself wit
   `combobox-has-value` and left it exactly as it was: Shabang never overwrites a value.
 - **Nothing was submitted.** Submit was never pressed, and the harness refuses to Tab past a locked ghost.
 
-**Independently checked afterwards** with `ghostctl dump-tree` (values reduced to their length): First Name 4,
+**Independently checked afterwards** with `shabangctl dump-tree` (values reduced to their length): First Name 4,
 Last Name 4, Email 25, Phone 15, LinkedIn 36, Github 31, Website 20 characters; the Resume/CV widget shows
 **Remove file**; and **7 `select__single-value` nodes with 0 `select__placeholder` nodes left** - every one of the
 seven comboboxes holds a chosen option. Saved as `docs/media/desktop-greenhouse-autotab.json` and
@@ -130,7 +130,7 @@ scrolls Safari's page, and the capture budget question is answered (see fix 1).
 
 **Still unchecked**: Firefox and Arc structures, and whether Chrome can be made to scroll at all. The server exposes `/v1/presence`; the extension
 heartbeat is not wired yet, so do not run both clients in the same browser. Note that `autotab --frontmost Safari` only
-makes sure **Safari** is in front, not which tab: check the page with `ghostctl dump` right before a run.
+makes sure **Safari** is in front, not which tab: check the page with `shabangctl dump` right before a run.
 
 ## Build: a host that never changes, a library that always can
 
@@ -139,55 +139,55 @@ grant on every rebuild, so Shabang is two pieces (design: [`docs/desktop-realwor
 
 | Piece | Built from | Rebuilt |
 | --- | --- | --- |
-| `build/Ghost.app` (the **host**) | `host/main.m` only: `dlopen` the library, call `GhostMain`. About 60 lines. | **Once.** Its hash carries the grant. |
-| `build/libghost.dylib` (+ `build/ghost-core.js` beside it) | every `src/*.m` | As often as you like. It lives OUTSIDE the bundle, so the bundle's seal never changes. |
+| `build/Shabang.app` (the **host**) | `host/main.m` only: `dlopen` the library, call `GhostMain`. About 60 lines. | **Once.** Its hash carries the grant. |
+| `build/libshabang.dylib` (+ `build/shabang-core.js` beside it) | every `src/*.m` | As often as you like. It lives OUTSIDE the bundle, so the bundle's seal never changes. |
 
 ```sh
 pnpm install                 # once, at the repo root (the core bundle borrows the workspace's esbuild)
-make -C desktop app          # core + host + lib. The host is built ONLY if build/Ghost.app does not exist yet.
+make -C desktop app          # core + host + lib. The host is built ONLY if build/Shabang.app does not exist yet.
 make -C desktop lib          # just the library: the everyday rebuild. Never touches the host.
 make -C desktop test         # plain test runner (links the sources, not the dylib), exits non-zero on failure
-make -C desktop run          # open -n build/Ghost.app with GHOST_LIB=build/libghost.dylib
-make -C desktop install-lib  # a harness-free library + ghost-core.js, read-only, into a 0700 ~/Library/Application Support/Ghost/
+make -C desktop run          # open -n build/Shabang.app with SHABANG_LIB=build/libshabang.dylib
+make -C desktop install-lib  # a harness-free library + shabang-core.js, read-only, into a 0700 ~/Library/Application Support/Shabang/
 ```
 
 Other targets: `core`, `host`, `selftest`, `trust`, `dump`, `clean`. `make clean` removes objects, the library and the
-tests but **keeps `build/Ghost.app`**. Every `src/*.m` and every `tests/test_*.m` is picked up by wildcard, so a new
+tests but **keeps `build/Shabang.app`**. Every `src/*.m` and every `tests/test_*.m` is picked up by wildcard, so a new
 module only has to be dropped into the folder.
 
 `make host-force` is the one target that rebuilds the host, and with it **throws the Accessibility grant away**.
-Before you ever run it, look at what is there: `codesign -dv --verbose=4 build/Ghost.app 2>&1 | grep CDHash`, and
+Before you ever run it, look at what is there: `codesign -dv --verbose=4 build/Shabang.app 2>&1 | grep CDHash`, and
 read `build/HOST_IS_FINAL.txt` if it exists. If that hash is one somebody already granted, do not rebuild: there is
 no way to get the same hash back.
 
-Where the host looks for the library, in order: `$GHOST_LIB` (when set, the only candidate), then
-`~/Library/Application Support/Ghost/libghost.dylib`, then `libghost.dylib` next to `Ghost.app`, then the path written in
-`~/Library/Application Support/Ghost/lib-path.txt` (used when this macOS has no `open --env`). A missing library, or one
+Where the host looks for the library, in order: `$SHABANG_LIB` (when set, the only candidate), then
+`~/Library/Application Support/Shabang/libshabang.dylib`, then `libshabang.dylib` next to `Shabang.app`, then the path written in
+`~/Library/Application Support/Shabang/lib-path.txt` (used when this macOS has no `open --env`). A missing library, or one
 without the `GhostMain` symbol, is a clear message on stderr, an alert when there is no terminal, and an
-`{ "error": "library not loaded" }` answer when the launch carried `--out`. The library loads `ghost-core.js` from beside
+`{ "error": "library not loaded" }` answer when the launch carried `--out`. The library loads `shabang-core.js` from beside
 itself first and from the bundle's Resources only as a fallback, and only the exact file it was built with: `make lib`
-embeds its SHA-256, and a different `ghost-core.js` is not loaded (rebuild with `make -C desktop core lib`).
+embeds its SHA-256, and a different `shabang-core.js` is not loaded (rebuild with `make -C desktop core lib`).
 `DESKTOP_CORE_PATH` is honoured by the test runner only.
 
 ### Security: the grant covers any code the host loads
 
-The Accessibility grant belongs to `Ghost.app`, and the host loads whatever library it finds: `$GHOST_LIB`, then the
+The Accessibility grant belongs to `Shabang.app`, and the host loads whatever library it finds: `$SHABANG_LIB`, then the
 user-writable lookup paths above, and (ad-hoc signed, no hardened runtime) `DYLD_INSERT_LIBRARIES` too. So **any process
 running as you can borrow the grant**: read every window, post keystrokes. Until the host is rebuilt with a Developer ID,
-the hardened runtime, library validation and no `GHOST_LIB` (do that together with the next re-grant that is needed
+the hardened runtime, library validation and no `SHABANG_LIB` (do that together with the next re-grant that is needed
 anyway; it cannot be done without one):
 
 - Switch Shabang off in System Settings -> Privacy & Security -> Accessibility when you are not developing with it, and
   never install it on a shared or untrusted machine.
 - `make install-lib` builds the installed copy **without the harness** (no `--dump`, `--dump-tree`, `--autotab`, no
-  request folder), installs it and `ghost-core.js` read-only (0444) into a 0700 folder it checks is yours without an ACL,
-  removes `lib-path.txt`, refuses when `launchctl getenv` has `GHOST_LIB`, `DYLD_INSERT_LIBRARIES` or `DESKTOP_CORE_PATH`
-  or when a `libghost.dylib` sits next to `~/Applications/Ghost.app`, and prints the library's CDHash and the core's SHA-256.
-- The library only loads the `ghost-core.js` it was built with (its SHA-256 is compiled in): that JavaScript is where the
+  request folder), installs it and `shabang-core.js` read-only (0444) into a 0700 folder it checks is yours without an ACL,
+  removes `lib-path.txt`, refuses when `launchctl getenv` has `SHABANG_LIB`, `DYLD_INSERT_LIBRARIES` or `DESKTOP_CORE_PATH`
+  or when a `libshabang.dylib` sits next to `~/Applications/Shabang.app`, and prints the library's CDHash and the core's SHA-256.
+- The library only loads the `shabang-core.js` it was built with (its SHA-256 is compiled in): that JavaScript is where the
   fact allowlist and the wire filters live.
-- These checks catch misconfiguration only. `GHOST_LIB` or `DYLD_INSERT_LIBRARIES` set by another process still get past
-  them, and the developer library (`make lib`, used with `GHOST_LIB` and `tools/ghostctl`) keeps the harness, which any
-  process running as you can drive through its request folder or `open -n Ghost.app --args ...`.
+- These checks catch misconfiguration only. `SHABANG_LIB` or `DYLD_INSERT_LIBRARIES` set by another process still get past
+  them, and the developer library (`make lib`, used with `SHABANG_LIB` and `tools/shabangctl`) keeps the harness, which any
+  process running as you can drive through its request folder or `open -n Shabang.app --args ...`.
 
 Requirements: macOS 13 or later, the Command Line Tools (`xcode-select --install`), Node 22.
 
@@ -208,12 +208,12 @@ state: no capture, no event tap, no overlay.
 
 **Build the host once, grant once, rebuild the library freely.** The grant belongs to the host's code hash, and
 `make lib` / `make app` / `make clean` never change it (check: the `CDHash=` line of `codesign -dv --verbose=4
-build/Ghost.app` is the same before and after). Only `make host-force` changes it. If the grant is lost anyway (the
-menu says "Needs Accessibility permission" although Shabang is listed and switched on): remove Ghost.app from the list
+build/Shabang.app` is the same before and after). Only `make host-force` changes it. If the grant is lost anyway (the
+menu says "Needs Accessibility permission" although Shabang is listed and switched on): remove Shabang.app from the list
 with the **-** button, then add it again with **+**. Toggling is not always enough for an ad-hoc signed app.
 
-Always start Shabang through LaunchServices (`make run`, `tools/ghostctl run`, Finder), never as
-`build/Ghost.app/Contents/MacOS/Shabang` from a shell: macOS judges a binary started from a terminal by the
+Always start Shabang through LaunchServices (`make run`, `tools/shabangctl run`, Finder), never as
+`build/Shabang.app/Contents/MacOS/Shabang` from a shell: macOS judges a binary started from a terminal by the
 **terminal's** permissions, so it looks untrusted (or trusted) for the wrong reason.
 
 ## The menu
@@ -232,11 +232,11 @@ Always start Shabang through LaunchServices (`make run`, `tools/ghostctl run`, F
 
 | Path | What |
 | --- | --- |
-| `~/Library/Application Support/Ghost/profile.json` | `{ "facts": { "firstName": "...", ... }, "pastAnswers": [] }`. Seeded with the fictional demo profile (Alex Chen). Mode 0600. Edit it in any editor: Shabang reloads within a second. A file that is not valid JSON is ignored (the last good profile stays active) and never overwritten. Optional `resumePath` / `coverLetterPath`: see `profile.example.json` below. |
+| `~/Library/Application Support/Shabang/profile.json` | `{ "facts": { "firstName": "...", ... }, "pastAnswers": [] }`. Seeded with the fictional demo profile (Alex Chen). Mode 0600. Edit it in any editor: Shabang reloads within a second. A file that is not valid JSON is ignored (the last good profile stays active) and never overwritten. Optional `resumePath` / `coverLetterPath`: see `profile.example.json` below. |
 | `desktop/profile.example.json` | Documented example: the fictional demo profile plus `"resumePath": "~/Projects/htn2026/demo/fixtures/resume-alex-chen.pdf"` (the fictional resume in this repo; adjust for your checkout). File facts are validated on every load: an absolute path (`~/` expanded) to an existing, readable, regular pdf/doc/docx/rtf/txt/odt/pages file under 25 MB, no `..`, no control characters; anything else is dropped and the log names only the key and a reason code. Paths never leave the machine, and the HUD shows the file name only. |
-| `~/Library/Application Support/Ghost/settings.json` | `enabled`, `confidenceThreshold` (clamped to 0.5...0.99), `serverUrl`, `showHud`, `learningEnabled`, plus `pausedBundleIds`. Mode 0600. |
-| `~/Library/Application Support/Ghost/form-cache.json` | Per-window form mappings, so a repeat visit makes zero server calls. Hashed keys, fact **keys** and confidences only, never values. Mode 0600. Safe to delete. |
-| `~/Library/Logs/Ghost/desktop.log` | Numbers, names and truncated labels. Never a field value, never a profile value. Rotates at 2 MB. |
+| `~/Library/Application Support/Shabang/settings.json` | `enabled`, `confidenceThreshold` (clamped to 0.5...0.99), `serverUrl`, `showHud`, `learningEnabled`, plus `pausedBundleIds`. Mode 0600. |
+| `~/Library/Application Support/Shabang/form-cache.json` | Per-window form mappings, so a repeat visit makes zero server calls. Hashed keys, fact **keys** and confidences only, never values. Mode 0600. Safe to delete. |
+| `~/Library/Logs/Shabang/desktop.log` | Numbers, names and truncated labels. Never a field value, never a profile value. Rotates at 2 MB. |
 
 ## What leaves the process
 
@@ -257,17 +257,17 @@ Only requests to the local prediction server (`settings.serverUrl`, default `htt
 
 With the server down Shabang still works: the keyword heuristic runs in-process.
 
-## ghostctl: the test and debug harness (no mouse)
+## shabangctl: the test and debug harness (no mouse)
 
-`tools/ghostctl` wraps `open -n -g build/Ghost.app --args ...`, waits for the `--out` file and prints it. A
+`tools/shabangctl` wraps `open -n -g build/Shabang.app --args ...`, waits for the `--out` file and prints it. A
 LaunchServices launch has no stdout, which is why every answer travels through a file.
 
 ```sh
-tools/ghostctl trust                               # { "trusted": bool, "pid", "library" }
-tools/ghostctl dump --frontmost Safari             # captured fields: labels, kinds, options, rects, locked. NO values.
-tools/ghostctl dump-tree --frontmost Safari --depth 60 --out ~/tree.json     # raw AX tree, values -> their length
-tools/ghostctl autotab 30 --interval 450           # 30 real Tab presses through Shabang, one record per press
-tools/ghostctl run | quit | log [LINES] | selftest
+tools/shabangctl trust                               # { "trusted": bool, "pid", "library" }
+tools/shabangctl dump --frontmost Safari             # captured fields: labels, kinds, options, rects, locked. NO values.
+tools/shabangctl dump-tree --frontmost Safari --depth 60 --out ~/tree.json     # raw AX tree, values -> their length
+tools/shabangctl autotab 30 --interval 450           # 30 real Tab presses through Shabang, one record per press
+tools/shabangctl run | quit | log [LINES] | selftest
 ```
 
 Options: `--frontmost "App"` (name or bundle id; the run fails with `frontmost-failed` rather than look at the wrong
@@ -275,7 +275,7 @@ window), `--delay S`, `--interval MS`, `--depth N`, `--out FILE`, `--timeout S`.
 error, 1 an answer with `"error"`, 2 no answer, 64 usage. `--out` must be a `.json` name in an existing directory of
 yours (never `/tmp`, never through a link): the answer is written 0600 through a private temporary file and a rename, an
 old answer is removed only when it is a plain file, and nothing else at that path (a directory, a link) is ever touched.
-Without `--out`, ghostctl uses `$TMPDIR` (per user), else `~/Library/Application Support/Ghost/harness`.
+Without `--out`, shabangctl uses `$TMPDIR` (per user), else `~/Library/Application Support/Shabang/harness`.
 
 - **Untrusted:** every mode answers `{ "error": "not trusted", "trusted": false }` at once. Nothing waits out a delay,
   nothing prompts, nothing hangs.
@@ -291,16 +291,16 @@ Without `--out`, ghostctl uses `$TMPDIR` (per user), else `~/Library/Application
   chosen-value widgets (react-select's single value) are not entered. Other page text (AXStaticText) is kept so labels
   stay readable; anything that looks like an e-mail address or a phone number becomes `[redacted:N]`.
 - **A running agent answers.** A second `open -n` instance shares nothing with the agent in the menu bar, so `dump`,
-  `dump-tree` and `autotab` are handed to it as a JSON file in `~/Library/Application Support/Ghost/harness/requests/`
+  `dump-tree` and `autotab` are handed to it as a JSON file in `~/Library/Application Support/Shabang/harness/requests/`
   and it writes `--out`. With no agent running they run in the launched process (`autotab` then starts the whole
   pipeline for the length of the run). Paused apps (terminals, password managers, and every app on your own pause
   list in `settings.json`) answer `paused-app`. The installed library (`make install-lib`) has no harness at all.
-- Every run appends a line to `~/Library/Logs/Ghost/desktop.log`: mode, id, app, counts. Never a value.
+- Every run appends a line to `~/Library/Logs/Shabang/desktop.log`: mode, id, app, counts. Never a value.
 
-`Shabang --selftest` is the one mode that is fine to run directly (`tools/ghostctl selftest`): it needs no permission.
+`Shabang --selftest` is the one mode that is fine to run directly (`tools/shabangctl selftest`): it needs no permission.
 
-Environment: `GHOST_LOG_STDERR=1` mirrors the log to stderr, `GHOST_NO_PROMPT=1` skips the permission dialog at
-launch, `DESKTOP_CORE_PATH=/path/ghost-core.js` loads another core bundle in the test runner only (Shabang itself ignores it).
+Environment: `GHOST_LOG_STDERR=1` mirrors the log to stderr, `SHABANG_NO_PROMPT=1` skips the permission dialog at
+launch, `DESKTOP_CORE_PATH=/path/shabang-core.js` loads another core bundle in the test runner only (Shabang itself ignores it).
 
 ## Layout
 
@@ -329,7 +329,7 @@ src/GHAppDelegate    status item (live), trust polling, hotkey, drives the pipel
 src/GHHarness        --trust / --dump / --dump-tree / --autotab: request encoding, file channel, tree redaction, Tab-only poster
 src/GhostMain.m      `int GhostMain(int, const char **)`: the library's one exported entry point (agent, harness, selftest)
 host/main.m          the host: dlopen + GhostMain and nothing else. Do not edit: a rebuilt host loses the grant
-tools/ghostctl       shell wrapper around the harness
+tools/shabangctl       shell wrapper around the harness
 profile.example.json the documented example profile (fictional Alex Chen + the fictional resume)
 tests/               GHTest.h (tiny macros), main.m (runner), test_*.m; test_integration.m walks the real Greenhouse fixture
 tools/               overlay-demo (make overlay-demo / overlay-demo-offscreen)
@@ -397,17 +397,17 @@ GH_TEST(thing_does_what_it_says) {
 | Symptom | Fix |
 | --- | --- |
 | `core: FAILED: esbuild not found` | `pnpm install` at the repo root. |
-| Menu says "Core bundle missing" | `make -C desktop core lib` (the library reads `ghost-core.js` from beside itself). |
-| "Needs Accessibility permission" after a rebuild | `make lib` cannot cause this; somebody rebuilt the host (`make host-force`, or deleted `build/Ghost.app`). Remove Ghost.app with **-** and re-add it with **+** under Privacy & Security -> Accessibility. |
-| `ghostctl trust` says `"trusted": false` | The grant belongs to another code hash. Compare `codesign -dv --verbose=4 build/Ghost.app` with the copy you granted; then remove and re-add as above. |
-| `Shabang: libghost.dylib not found` / `has no GhostMain symbol` | `make -C desktop lib`. The message lists every path the host tried; `GHOST_LIB=/abs/path` overrides them all. |
-| `ghostctl` prints `no answer ... after Ns` | The host never started. `tools/ghostctl log`, and check that `build/Ghost.app` exists (`make -C desktop app`). |
-| `"error": "agent-not-responding"` | A Shabang that predates the harness is running. `tools/ghostctl quit`, then `tools/ghostctl run`. |
-| No ghosts in Chrome/Arc/Electron | Those apps build their web accessibility tree on demand. Shabang asks for it (`AXEnhancedUserInterface`, `AXManualAccessibility`); give the page a second, or check `tools/ghostctl dump`. |
+| Menu says "Core bundle missing" | `make -C desktop core lib` (the library reads `shabang-core.js` from beside itself). |
+| "Needs Accessibility permission" after a rebuild | `make lib` cannot cause this; somebody rebuilt the host (`make host-force`, or deleted `build/Shabang.app`). Remove Shabang.app with **-** and re-add it with **+** under Privacy & Security -> Accessibility. |
+| `shabangctl trust` says `"trusted": false` | The grant belongs to another code hash. Compare `codesign -dv --verbose=4 build/Shabang.app` with the copy you granted; then remove and re-add as above. |
+| `Shabang: libshabang.dylib not found` / `has no GhostMain symbol` | `make -C desktop lib`. The message lists every path the host tried; `SHABANG_LIB=/abs/path` overrides them all. |
+| `shabangctl` prints `no answer ... after Ns` | The host never started. `tools/shabangctl log`, and check that `build/Shabang.app` exists (`make -C desktop app`). |
+| `"error": "agent-not-responding"` | A Shabang that predates the harness is running. `tools/shabangctl quit`, then `tools/shabangctl run`. |
+| No ghosts in Chrome/Arc/Electron | Those apps build their web accessibility tree on demand. Shabang asks for it (`AXEnhancedUserInterface`, `AXManualAccessibility`); give the page a second, or check `tools/shabangctl dump`. |
 | No ghosts in a browser that has the extension | Intended: the menu shows "<Browser>: handled by the extension". Disable the extension there to let Desktop take over. |
 | "Server: offline (unreachable)" | Start it: `pnpm --filter @ghost/server dev`. Shabang keeps working with the in-process heuristic. |
 | Menu says "Keyboard tap unavailable" | The system refused the event tap: same permission problem as above. Shabang retries every 5 s; Tab stays native meanwhile. |
 | Ghosts show but Tab does nothing | Tab is only Shabang's while focus is in the walk (the ghosted field, the field just left, or the page itself) and the current ghost is on screen. Click the ghosted field. The log (`controller:` / `writer:` lines, never values) says what happened. |
 | "Shabang could not fill this field (did-not-hold)" | The app reverted AXValue, AXSelectedText and typed input. The walk stops there by design; the next ghost still works. |
 | Alt+Shift+G does nothing | Another app owns the shortcut; the log says `could not register the Alt+Shift+G hotkey`. Use the menu. |
-| Two ghosts in the menu bar | A second copy exits on its own; if one is stuck: `pkill -f "Ghost.app/Contents/MacOS/Shabang"`. |
+| Two ghosts in the menu bar | A second copy exits on its own; if one is stuck: `pkill -f "Shabang.app/Contents/MacOS/Shabang"`. |

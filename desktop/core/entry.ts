@@ -1,4 +1,4 @@
-// Ghost Desktop core bridge. Bundled by build-core.mjs into build/ghost-core.js as an IIFE whose global
+// Ghost Desktop core bridge. Bundled by build-core.mjs into build/shabang-core.js as an IIFE whose global
 // is `GhostCore`, and run inside JavaScriptCore by desktop/src/GHCore.m.
 //
 // Strings in, strings out (JSON): the Objective-C side stays thin and the behaviour stays identical to
@@ -103,7 +103,7 @@ export function mapForm(fieldsJson: string, factKeysJson: string): string {
 }
 
 /**
- * Answers the user gave before, read back from ~/Library/Application Support/Ghost/answers.json.
+ * Answers the user gave before, read back from ~/Library/Application Support/Shabang/answers.json.
  * A file that is missing, empty, corrupt or not the right shape is simply an empty store: a broken file
  * must never stop Ghost from proposing anything. Nothing in here ever leaves the machine.
  */

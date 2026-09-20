@@ -340,7 +340,7 @@ static BOOL GHEventIsPrintable(CGEventRef event) {
         CFRunLoopRun();
         dispatch_semaphore_signal(finished);
     }];
-    _thread.name = @"dev.ghost.desktop.eventtap";
+    _thread.name = @"dev.shabang.desktop.eventtap";
     _thread.qualityOfService = NSQualityOfServiceUserInteractive;
     [_thread start];
     dispatch_semaphore_wait(ready, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)));
