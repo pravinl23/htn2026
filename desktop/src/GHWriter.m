@@ -204,8 +204,10 @@ static BOOL GHRoleOpensAMenu(NSString *role) {
 
 - (BOOL)openNode:(id<GHAXNode>)node {
     AXUIElementRef element = node.axElement;
-    // AXOpen is the app saying what "activate this row" means; it beats guessing with the mouse.
-    if (element && AXUIElementPerformAction(element, CFSTR("AXOpen")) == kAXErrorSuccess) return YES;
+    // AXOpen is the app saying what "activate this row" means, and it beats guessing with the mouse -- but it
+    // is an ACTION, so it lies everywhere AXPress does. In a Chromium window it answers success and opens
+    // nothing, so asking first only throws away the double click that would have worked.
+    if (element && [self pressIsTrustworthyForNode:node] && AXUIElementPerformAction(element, CFSTR("AXOpen")) == kAXErrorSuccess) return YES;
     return [self clickNode:node clicks:2];
 }
 
@@ -696,13 +698,10 @@ static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
     // A row is not a button: activating one is an OPEN, and AXPress on it only selects (measured on Spotify,
     // where pressing a playlist highlighted it and opened nothing).
     if (item) {
-        // ...unless the row is a web element in a Chromium-hosted window, where a SINGLE click is what opens it
-        // and a double click either fires the thing twice or just selects the text under the pointer.
-        if (![self.actuator pressIsTrustworthyForNode:node]) {
-            if ([self.actuator clickNode:node]) { finish([GHWriteResult okWithMethod:GHWriteMethodClick]); return; }
-            finish([GHWriteResult failure:GHWriteReasonDidNotHold method:GHWriteMethodClick]);
-            return;
-        }
+        // Whether the app's actions can be BELIEVED and whether a row takes one click or two are two different
+        // questions, and conflating them is how this briefly did a half press: one real click on a track row,
+        // which selected it and played nothing. A row selects on one and opens on two in a web list exactly as
+        // in a native one. -openNode: answers both.
         if ([self.actuator openNode:node]) { finish([GHWriteResult okWithMethod:GHWriteMethodOpen]); return; }
         finish([GHWriteResult failure:GHWriteReasonDidNotHold method:GHWriteMethodOpen]);
         return;
