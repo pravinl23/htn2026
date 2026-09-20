@@ -636,7 +636,21 @@ static NSString *GHWireSource(NSString *source) {
     if (!request) return;
     // The surface tag the server reads; without it every desktop ghost would be counted as the browser's.
     [request setValue:@"desktop" forHTTPHeaderField:@"x-ghost-surface"];
-    [[_session dataTaskWithRequest:request] resume];
+    // Still fire and forget -- a failed post must never change a walk -- but no longer SILENT. This is the only
+    // evidence that the learning loop is running at all, and without a line here "are the outcomes arriving?"
+    // cannot be answered from the machine that sends them. Codes and outcomes only, never a label or a value.
+    NSString *reported = [outcome copy];
+    [[_session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)response).statusCode : 0;
+        if (error || status != 200) {
+            GHLog(@"walk-outcome: %@ NOT reported (status=%ld%@)", reported, (long)status, error ? @", transport error" : @"");
+            return;
+        }
+        // { accepted, captured } -- `captured` is the Sentry event id, so it says the rejection stream is live.
+        NSDictionary *answer = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
+        BOOL captured = [answer isKindOfClass:[NSDictionary class]] && [answer[@"captured"] boolValue];
+        GHLog(@"walk-outcome: %@ reported, sentry=%@", reported, captured ? @"captured" : @"not-captured");
+    }] resume];
 }
 
 #pragma mark streaming
