@@ -98,6 +98,22 @@ static GHFakeAXNode *GridWindow(void) {
     return window;
 }
 
+/// The same grid, except the list leads with a heading that names the rows under it -- which is exactly how a
+/// real notes list and a real file list publish their groups: same list, same index space as the rows.
+static GHFakeAXNode *GridWindowLedByAHeading(void) {
+    GHFakeAXNode *window = Node(@"AXWindow", @"", CGRectMake(0, 0, 1000, 800));
+    GHFakeAXNode *main = [window addChild:Node(@"AXGroup", nil, CGRectMake(0, 60, 1000, 700))];
+    for (NSUInteger i = 0; i < 7; i++) {
+        CGRect tile = CGRectMake(20 + 320 * (i % 3), 80 + 240 * (i / 3), 300, 220);
+        GHFakeAXNode *card = [main addChild:Node(@"AXGroup", nil, tile)];
+        // Row zero is the heading; every other row is an ordinary item with the same shape.
+        NSString *label = i == 0 ? @"Today" : [NSString stringWithFormat:@"Item number %lu", (unsigned long)i];
+        [card addChild:Node(@"AXLink", label, tile)];
+        [card addChild:Text([NSString stringWithFormat:@"%lu minutes", (unsigned long)i + 3], CGRectMake(tile.origin.x, CGRectGetMaxY(tile) - 16, 80, 14))];
+    }
+    return window;
+}
+
 /// A shop header: a search box, a cart carrying a count, prices, and a checkout that must stay locked.
 static GHFakeAXNode *ShopWindow(NSUInteger inCart) {
     GHFakeAXNode *window = Node(@"AXWindow", @"", CGRectMake(0, 0, 1000, 800));
@@ -309,6 +325,23 @@ GH_TEST(anywhere_grid_window_offers_the_first_item) {
     for (GHField *field in result.fields) if ([field.signature isEqualToString:top.signature]) chosen = field;
     GH_ASSERT(chosen != nil);
     GH_ASSERT_EQUAL_OBJECTS(chosen.label, @"Item number 1");   // the FIRST item, not a navigation entry
+}
+
+GH_TEST(anywhere_never_offers_the_heading_a_list_leads_with) {
+    // Measured live before this existed: a notes list put "Pinned" at the top of its own list and Ghost proposed
+    // it, top of the window. A heading names the rows under it; pressing one does nothing at all.
+    GHNextAction *engine = Engine(TempMemory());
+    GHFakeAXNode *window = GridWindowLedByAHeading();
+    GHCaptureResult *result = [Capture() captureWindow:window];
+    GHNextProposal *top = [engine proposeForResult:result window:window signals:nil];
+    GH_ASSERT(top != nil);
+    GHField *chosen = nil;
+    for (GHField *field in result.fields) if ([field.signature isEqualToString:top.signature]) chosen = field;
+    GH_ASSERT(chosen != nil);
+    GH_ASSERT_MSG(![chosen.label isEqualToString:@"Today"], @"a heading is not something to press");
+    GH_ASSERT_MSG(![top.role isEqualToString:@"section"], @"a heading can never be the proposal");
+    GH_ASSERT_EQUAL_OBJECTS(top.role, @"primary-item");
+    GH_ASSERT_EQUAL_OBJECTS(chosen.label, @"Item number 1");
 }
 
 GH_TEST(anywhere_shop_with_a_full_cart_offers_the_cart_and_locks_checkout) {

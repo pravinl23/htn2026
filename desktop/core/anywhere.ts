@@ -275,7 +275,11 @@ export function nextAction(candidatesJson: string, signalsJson: string, memoryJs
   const rows: NextActionRow[] = ranked.map((row) => ({ ...row, guess: row.confidence < threshold || row.role === "unknown" }));
   // A named role first, because "the first item of this grid" is a better guess than "this button, whatever it is";
   // but a window where nothing classified still gets the best row rather than silence.
-  const top = rows.find((row) => row.role !== "unknown") ?? rows[0] ?? null;
+  //
+  // A heading is named and is still not an answer: it labels the rows under it and pressing it does nothing. It
+  // already sorts under every ordinary row on confidence alone, so this only decides a window that holds nothing
+  // BUT headings and unnamed controls -- and there, an unnamed control the user can actually press wins.
+  const top = rows.find((row) => row.role !== "unknown" && row.role !== "section") ?? rows[0] ?? null;
   const result: NextActionResult = {
     pageKind: page.kind,
     pageConfidence: page.confidence,
