@@ -751,6 +751,40 @@ GH_TEST(controller_the_ghost_key_accepts_even_when_focus_is_elsewhere) {
     GH_ASSERT(rig.nodes[@"First name"].value.length > 0);
 }
 
+/// The messaging half of "Ghost anywhere": a thread on screen and an empty box under it, so the ghost is the
+/// reply. Shaped like a real Messages window -- the words of each message live on a group's AXDescription as
+/// "<who>, <what>, <when>", the bubble itself carries nothing, and the compose box is at the bottom.
+GH_TEST(controller_a_thread_on_screen_drafts_a_reply_into_the_box_below_it) {
+    [GHCtlStub reset];
+    GHRig *rig = [GHRig rigWithClient:StubClient([GHCore sharedCore], [[GHFormCache alloc] initWithPath:nil])];
+    rig.window = [GHFakeAXNode nodeWithRole:@"AXWindow" title:@"Messages" frame:CGRectMake(0, 0, 1400, 800)];
+    GHFakeAXNode *thread = [rig.window addChild:[GHFakeAXNode nodeWithRole:@"AXGroup" title:nil frame:CGRectMake(300, 40, 1100, 700)]];
+    NSArray<NSString *> *said = @[ @"Tahseen Rayhan, are you coming tonight, 7:04 PM", @"Alex Chen, yes, 7:05 PM" ];
+    for (NSUInteger i = 0; i < said.count; i++) {
+        GHFakeAXNode *row = [thread addChild:[GHFakeAXNode nodeWithRole:@"AXGroup" title:nil
+                                                                  frame:CGRectMake(320, (CGFloat)(60 + i * 40), 300, 33)]];
+        row.axDescription = said[i];
+        [row addChild:[GHFakeAXNode nodeWithRole:@"AXTextArea" title:nil frame:CGRectMake(320, (CGFloat)(60 + i * 40), 300, 33)]];
+    }
+    // A search box at the top and the compose box at the bottom: only the bottom one is the reply box.
+    GHFakeAXNode *search = [rig.window addChild:[GHFakeAXNode nodeWithRole:@"AXTextField" title:@"Search" frame:CGRectMake(20, 50, 260, 30)]];
+    search.subrole = @"AXSearchField";
+    GHFakeAXNode *compose = [rig.window addChild:[GHFakeAXNode nodeWithRole:@"AXTextField" title:@"Message" frame:CGRectMake(320, 750, 1000, 33)]];
+    [rig rescan];
+
+    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return [GHCtlStub openDraftCount] == 1; }));
+    GH_ASSERT_EQUAL_INT(rig.controller.walk.ghosts.count, 1);
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.walk.current.action, GHGhostActionFill);
+    GH_ASSERT([GHCtlStub completeDraftForLabel:@"Message" text:@"ya see you there"]);
+    GH_ASSERT(GHTestWaitUntil(5.0, ^BOOL { return !rig.controller.walk.current.pending; }));
+
+    // The reply goes where a reply goes, and taking it writes it there and nowhere else.
+    [rig.controller noteFocusedNode:compose];
+    [rig ghostKey];
+    GH_ASSERT_EQUAL_OBJECTS(compose.value, @"ya see you there");
+    GH_ASSERT_EQUAL_INT(search.value.length, 0);
+}
+
 #pragma mark - lifecycle
 
 GH_TEST(controller_start_and_stop_are_safe_while_untrusted) {

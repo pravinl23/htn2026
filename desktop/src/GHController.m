@@ -24,6 +24,7 @@ static const NSUInteger kMaxFormsPerPage = 6;
 static const NSUInteger kMinFormFields = 2;
 static const NSUInteger kDraftMaxChars = 600;
 static const NSUInteger kReplyMaxChars = 200;   // a message is not an essay
+static const double kReplyConfidence = 0.72;   // a thread and an empty box under it is a clear enough place
 static const NSTimeInterval kSettleSeconds = 0.4;          // an upgrade may still replace a ghost nobody looked at yet
 static const NSTimeInterval kOwnWriteQuietSeconds = 0.4;   // value-changed notifications caused by our own write
 static const NSUInteger kChromiumMaxNodes = 4000;
@@ -574,6 +575,8 @@ static const NSUInteger kUploadVerifyTries = 8;
         [ghosts addObject:ghost];
     }
     NSArray<GHGhost *> *withDrafts = [self ghostsByAddingDrafts:ghosts offline:offline answers:answers settings:settings];
+    // A thread on screen and an empty box under it: the ghost is the reply to the last thing that was said.
+    withDrafts = [self ghostsByAddingReply:withDrafts result:result];
     // Most windows are not forms. With nothing to fill, Ghost offers the one thing this KIND of place is for.
     withDrafts = [self ghostsByAddingNextAction:withDrafts result:result settings:settings];
     [self updateGateWithGhosts:withDrafts accepted:accepted];
@@ -876,6 +879,67 @@ static BOOL GHIsValueKind(NSString *kind) {
     }
     if (lock) [out addObject:lock];
     return out;
+}
+
+/// Every chat window has a search box as well as a compose box, and the search box is never the reply box.
+static BOOL GHLabelLooksLikeSearch(NSString *label) {
+    static NSRegularExpression *regex;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        regex = [NSRegularExpression regularExpressionWithPattern:@"\\bsearch\\b|\\bfind\\b|\\bfilter\\b"
+                                                          options:NSRegularExpressionCaseInsensitive error:NULL];
+    });
+    NSString *text = label ?: @"";
+    return text.length > 0 && [regex firstMatchInString:text options:0 range:NSMakeRange(0, text.length)] != nil;
+}
+
+/**
+ * The reply ghost (docs/anywhere.md, the messaging half).
+ *
+ * A form walk is never disturbed: with even one value ghost on the page this does nothing at all, exactly
+ * like the next-action proposal. What it needs is a thread Ghost could actually read and an empty box to
+ * answer it in, and both of those come from the window itself -- no app is named anywhere in the path.
+ *
+ * The box is the one the app has put the cursor in, or else the lowest empty one in the window: every chat
+ * app in existence puts its compose box under the conversation.
+ */
+- (NSArray<GHGhost *> *)ghostsByAddingReply:(NSArray<GHGhost *> *)ghosts result:(GHCaptureResult *)result {
+    if (ghosts.count > 0 || !_client || result.fields.count == 0) return ghosts;
+    if (![self conversationContext]) return ghosts;
+    GHField *box = [self replyBoxIn:result];
+    if (!box) return ghosts;
+    if ([_walk.dismissed containsObject:box.signature]) return ghosts;
+    GHDraft *draft = _drafts[box.signature];
+    if (!draft) {
+        draft = [[GHDraft alloc] init];
+        draft.signature = box.signature;
+        draft.confidence = kReplyConfidence;
+        draft.text = [NSMutableString string];
+        _drafts[box.signature] = draft;
+    }
+    if (draft.failed) return ghosts;
+    return [ghosts arrayByAddingObject:[self ghostForDraft:draft]];
+}
+
+/**
+ * Where a reply would be typed: the LOWEST empty box in the window.
+ *
+ * Every chat app in existence puts its compose box under the conversation, and that is the only thing about
+ * the layout worth relying on. Not the focused box: in a brand new message the app puts the cursor in `To`,
+ * and a reply drafted into `To` is the right idea in exactly the wrong place.
+ *
+ * Never a box that already holds something -- that is somebody's half-written message, and it is theirs --
+ * and never the search box, which every chat window also has.
+ */
+- (GHField *)replyBoxIn:(GHCaptureResult *)result {
+    GHField *lowest = nil;
+    for (GHField *field in result.fields) {
+        BOOL typeable = [field.kind isEqualToString:GHKindText] || [field.kind isEqualToString:GHKindTextArea];
+        if (!typeable || field.value.length > 0) continue;
+        if (GHLabelLooksLikeSearch(field.label)) continue;
+        if (!lowest || CGRectGetMinY(field.rect) > CGRectGetMinY(lowest.rect)) lowest = field;
+    }
+    return lowest;
 }
 
 - (GHGhost *)ghostForDraft:(GHDraft *)draft {
