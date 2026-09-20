@@ -38,6 +38,33 @@ If it says `sentry off (SENTRY_DSN is not set)`, the DSN did not load. Nothing e
 
 ---
 
+## 1b. The desktop agent loads ONE OF TWO libraries — get this wrong and nothing logs
+
+`desktop/` builds two dylibs, and they are not interchangeable:
+
+| Library | Who loads it | Built by |
+| --- | --- | --- |
+| `desktop/build/libghost.dylib` | `make run` and `tools/ghostctl` (sets `GHOST_LIB`) | `make lib` |
+| `~/Library/Application Support/Ghost/libghost.dylib` | **a plain `open Ghost.app`** | `make install-lib` |
+
+`make lib` updates only the first one. So after changing agent code, launching Ghost normally still runs
+the **old** release library and sends nothing — the agent looks healthy, the menu bar says On, ghosts
+appear, and Sentry stays empty. Always:
+
+```bash
+make -C desktop lib && make -C desktop install-lib
+```
+
+Accessibility is bound to the host binary's code hash, and the Makefile never rebuilds the host for that
+reason — so installing a new library does not cost you the grant.
+
+**If the grant is refused anyway**, look for duplicate entries: several builds at different paths all
+report as "Ghost" with bundle id `dev.ghost.desktop`, and they shadow each other. Reset and grant once:
+
+```bash
+tccutil reset Accessibility dev.ghost.desktop
+```
+
 ## 2. The six products, and where to click
 
 | # | Product | What Ghost sends | Where to show it |
