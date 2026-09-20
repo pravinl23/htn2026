@@ -1,5 +1,191 @@
 # Current handoff
 
+## 2026-09-20 09:30 UTC — accepts that do something, and proposals that lead somewhere
+
+Pushed to `main` as `7df6bb8..280638a`, seven commits. 454 desktop tests, 1,687 shared, 796 server, 0 failed.
+Everything below was measured on the live agent with `ghostctl`, not reasoned about.
+
+### The one-line summary
+
+Ghost could see the desktop but could not act on it, and its proposals went nowhere. Four things were
+wrong, and all four are fixed and proven live.
+
+### 1. Accepts did nothing in half the apps
+
+In a Chromium-hosted window — Electron, CEF, **or any browser** — a web control publishes `AXPress`,
+answers `kAXErrorSuccess`, and does nothing at all. Chromium answers the action on the element's behalf
+without dispatching the click the page listens for. So the press reported `ok=1`, and the real click that
+would have worked was never tried, because the press "succeeded".
+
+That is the worst failure in the product: the ghost is right, the accept says it worked, nothing happens.
+
+Now: in those apps Ghost does not ask politely, it clicks. A row there gets a **single** click, not the
+double click that opens a native row. Everywhere else `AXPress` is honest and is still preferred.
+
+```
+writer: click kind=item label=4 Play Hellcats & Trackhawks... ok=1 method=click reason=- 15 ms
+```
+
+**`ghostctl accept`** is new, and it is how any of this is checkable: it takes the ghost on screen exactly
+as the Ghost key does and reports what moved. It is the only harness mode that actuates.
+
+### 2. Every iMessage draft was the same because Ghost was reading the sidebar
+
+A sidebar row publishes exactly the `"<who>, <what>, <when>"` description a message does — because it **is**
+one: the last message of some other conversation. `GHConversation` walks the window breadth-first, the
+sidebar is shallower than the thread, so the sidebar answered first.
+
+Measured: `conversation of 8 messages`, **seven of them other people's previews**. That set is identical
+whatever conversation is open, which is exactly why the draft never changed.
+
+Baseten was never the problem. Handed two real threads by hand it answers *"got em, will bring"* and
+*"on it, rolling staging back now"*. It was being fed the sidebar.
+
+The fix is the compose box — which the reply path already finds, and which the code already says every chat
+app puts under the thread and beside nothing else. Find the box first, read only the column it is in.
+
+```
+before: controller: conversation of 8 messages (51 nodes)
+after:  controller: conversation of 4 messages (51 nodes) in the compose column
+```
+
+and the draft became a real 862 ms Baseten call of 97 chars where it had been a **34 ms cache hit of the
+same 25 characters every time**.
+
+### 3. Proposals led nowhere because no web page was ever a "player"
+
+Three accepts on a real video site, before:
+
+```
+1. "Go to channel NBA"                     accepted
+2. "Videos"                                not-visible   (a channel TAB)
+3. "Damian Lillard's Most ICONIC Moments"  accepted      -> a video page
+   then proposed: "RBC Bank Account Offer"               (an advert)
+```
+
+The page was `pageKind: feed` with `hasMediaElement: false`, while the same capture held `Play (k)`,
+`Mute (m)` and `Full screen (f)`. Chromium publishes no `AXVideo` for a `<video>`, so `isMediaElement` —
+which only knows `AXVideo`/`AXAudio` — can never fire on the web. Media priors never applied, play and
+fullscreen scored the unlisted 0.435, and a sidebar advert won on 0.88.
+
+Two generic fixes: a **scrubber** is a player and never said so (`markScrubbersIn:` runs *after* the loop
+that decided `hasMediaElement`, so its seeds were thrown away); and a window that publishes a **transport
+bar** is a player — play/pause **plus** one of mute, volume, full screen, captions, mini player, autoplay,
+next track, playback speed. Two controls, never one: a lone "Play" is a verb the rest of the desktop uses.
+
+```
+after:  pageKind: media   evidence: [media-element, media-controls, media-roles]
+        0.722 play        "Play (k)"
+        0.644 fullscreen  "Full screen (f)"
+took [click] "Play (k)" -> accepted, verified, 19 ms
+now proposes: "Full screen (f)"
+```
+
+That is the chain you asked for: open a video, it plays it, then it offers fullscreen.
+
+### 4. The resume upload — never a Finder problem, and never worked in Chrome
+
+Chromium publishes `<input type=file>` as a **plain AXButton**: no `AXFileUploadButton` subrole, role
+description `"button"`. It puts the control's own state in the name instead:
+
+```
+role=AXButton subrole=- roleDesc="button" title="Resume / CV: No file chosen"
+```
+
+**Three** separate gates each wanted that subrole, so in Chrome the upload silently did not exist: the
+control captured as an ordinary button (no `file` field, no upload ghost — the walk filled thirteen fields
+and skipped the resume without a word); then the writer refused its own ghost with `no-upload-target`; then
+the Attach press was the same Chromium lie as (1). WebKit does publish the subrole, which is why the earlier
+Greenhouse run in **Safari** worked and this looked like a mystery.
+
+All three now read the state the browser itself writes into the name. The same text tells Ghost a file is
+**already** there, so rule 9 holds and Ghost never replaces somebody's own attachment.
+
+Live, on the local demo application in Chrome:
+
+```
+openpanel: -> pressUpload (0 ms in) ... -> done (2099 ms in)
+openpanel: attached in done (escape=0 leftOpen=0) 2101 ms
+walk: 14 accepted, upload/accepted, stopped=no-ghost
+page now reads: "Resume / CV: resume-alex-chen.pdf"
+```
+
+`Submit application` stayed **locked and untouched** throughout. Both long questions were drafted by Baseten
+and written verified — "Why Northwind?" at 541 chars, "a project you are proud of" at 538.
+
+Every open-panel transition is now logged. An upload is ten steps in another process, and this is the only
+way to see which one goes wrong.
+
+### The "why this company" answer is good when it has the posting
+
+Given the posting and the applicant's facts, the essay path produces a real answer — it used the matching
+engine, correctness under load, tests, distributed systems, and the applicant's own order-book project.
+`pageContext {company, role, description}` is capped at 2000 chars on both sides. The plumbing was fine;
+what was missing was context, and that was (2) and (4).
+
+### Sentry: it works, and it was invisible
+
+`POST /v1/walk/outcomes` returns `{"accepted":true,"captured":true}` — `captured` is the Sentry event id.
+The desktop's payload shape is valid and the route accepts it. (A first test said otherwise and **the test
+was wrong**: a hand-written `runId` that was not a v4 UUID. The desktop uses `NSUUID`, which is.)
+
+The post was fire-and-forget with **no logging at all**, so this could not be answered from the machine that
+sends it. It now says so, and this is a real accept in Messages:
+
+```
+walk-outcome: accepted reported, sentry=captured
+```
+
+**What is logged:** per outcome — action, source (offline/server/cache/llm), a confidence bucket, locked,
+and the outcome (accepted/escaped/typed-over/refused). Plus the server's own spans, latency percentiles and
+cache hit rate.
+
+**What is missing, and what I would change before leaning on it for training** (not done — it edits a
+privacy-reviewed schema, and that is your call):
+
+- `provider` and `latency` are **hardcoded to `"none"`** in the desktop's payload, even when the ghost came
+  from typesafe or baseten with a real measured latency. Sentry cannot currently answer "which provider gets
+  accepted more".
+- `duration` is hardcoded to `"under-250ms"`. How long the user actually took to decide is never recorded.
+- `state: "parked"`, `reason: "locked-action"` is claimed for **every** accept, whether or not the walk
+  stopped at a lock. That is false data going to Sentry.
+- **The role and the page kind are not sent at all.** This is the big one for your "use the logs to build the
+  knowledge graph": the next-action proposal is the whole product, and Sentry never learns that it was
+  `play` on a `media` page rather than `search` on a `feed`. Both are closed enums, so they would fit the
+  value-free schema without weakening it.
+- `/v1/metrics` counters (`ghostsShown`, `ghostsAccepted`) sit at 0 and always will: they are fed by the
+  **browser extension**, which is in `attic/` and dead. Do not read them as "nothing is being reported".
+
+### Still open
+
+- **Tab switching.** Step 2 above, `"Videos"`, was a channel **tab** proposed as a list item, and it failed
+  `not-visible`. A tab is not an item; the rule is not written yet. This is the clearest remaining instance
+  of "it just switches between tabs".
+- **A knowledge tree about you.** Nothing was done here. It is what the Amazon-style flow needs
+  ("you would look at X, add to cart, open the cart").
+- **Role memory still re-poisons itself.** Walking a list with the accept key teaches "after an item comes an
+  item"; it reached `accepted: 8` again during this session from my own measurement accepts. Cleared twice.
+  It is healthy right now (one honest entry, `media/none/play`). Check
+  `~/Library/Application Support/Ghost/memory.json` first when guesses get strange.
+- `GHVision` is still called from nowhere useful: `unnamedCount` is 0 or 1 on every app here.
+- `PLAN.md` and `ROUTINE_PROMPT.md` are still stale.
+- **Rotate the OpenAI key** (it was pasted into a chat).
+
+### A trap worth keeping
+
+`make app` in a **fresh worktree also builds the host**, which changes its code signature and costs the
+Accessibility grant. To take over the agent without a permission prompt, run *your* library under the
+*already-granted* host:
+
+```
+GHOST_APP=<granted-worktree>/desktop/build/Ghost.app GHOST_LIB=<your-worktree>/desktop/build/libghost.dylib ./tools/ghostctl run
+```
+
+`make install-lib` puts your library where a plain `open Ghost.app` finds it, so do it every time.
+
+---
+
+
 ## 2026-09-20 06:50 UTC — the native agent stopped being a web form filler
 
 Everything below this section predates the boundary in `CLAUDE.md` (Ghost is a native macOS app; the

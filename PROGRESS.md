@@ -72,9 +72,37 @@ Format:
 - Correction to the previous run's note: `stage5-next.spec.ts:187` (presence heartbeat) PASSED in both full runs today. It is flaky, not consistently failing as Run 5 and MORNING.md recorded.
 - Next: `tab-surface` needs fixing or quarantining before main can go green on e2e, then `DEMO.md` around the invoice-loop and desktop Greenhouse proofs.
 
-## Run 7: 2026-09-20 08:40 (UTC) [IN PROGRESS]
-- Worked on: the handoff's top remaining item — classifier vocabulary in `shared/src/affordance/roles.ts`. Native
-  controls like "add", "Record audio", "Emoji picker" classify `unknown`; this is pure local code with no key and no
-  latency, and it lifts every native app at once.
-- Next: measure the live `unknown` set across Spotify / Messages / Finder / Chrome, extend the vocabulary from the
-  measurement, verify all four apps together (never one at a time).
+## Run 7: 2026-09-20 08:40 (UTC) [DONE at 09:30 UTC]
+- Worked on: the handoff's classifier-vocabulary item, then a live redirect from Pravin — clicks that do nothing,
+  proposals that lead nowhere, repetitive iMessage drafts, and the broken resume upload. Seven commits, `7df6bb8..280638a`.
+- Measured first, every time, with `ghostctl` against the live agent. The premise of the vocabulary item turned out
+  to be only half right: the missing word was not "add" or "Emoji picker" (those are outranked long before they
+  matter) but "this row NAMES the rows under it". Notes proposed "Pinned" and a track list proposed its column-title
+  row, both top of their window.
+- Changed:
+  - `shared`: a `section` role. A group heading ("Today", "Previous 7 Days", "Pinned") or a run of nothing but column
+    titles is not an item. Whole-name match, and only on a row — a toolbar's own "Today" button is still an action.
+    It has no prior anywhere, so it sits at 0.435 and can never be the proposal.
+  - `desktop`: in a Chromium-hosted window (Electron, CEF, any browser) `AXPress` answers success and does nothing,
+    so Ghost clicks for real instead; a row there gets a single click, not a double. Same lie fixed in the upload
+    driver and the checkbox path.
+  - `desktop`: `ghostctl accept` — takes the ghost on screen as the Ghost key does and reports what moved. The only
+    harness mode that actuates, and the reason any of the rest of this is checkable.
+  - `desktop`: the conversation reader was reading the SIDEBAR (a sidebar row publishes the same
+    "<who>, <what>, <when>" description a message does). Now it reads only the compose box's column.
+  - `desktop`: a window that publishes a transport bar, or a scrubber, is a player. Chromium publishes no AXVideo,
+    so no web video page was ever `media` and an advert outranked play and fullscreen.
+  - `desktop`: Chromium publishes `<input type=file>` as a plain AXButton and puts the state in the name
+    ("Resume / CV: No file chosen"). Three gates wanted the subrole, so the upload never existed in Chrome. All
+    three now read the state; the same text stops Ghost replacing a file somebody already attached.
+  - `desktop`: every open-panel transition is logged, and a walk outcome now says whether Sentry captured it.
+- Tests: 454 desktop, 1,687 shared, 796 server, 0 failed. No e2e run (asked to skip it).
+- Proven live: `method=click` on Spotify; `conversation of 4 messages in the compose column`; `pageKind: media` with
+  play then fullscreen on a real video page, and the accept chaining to fullscreen; the demo application in Chrome
+  filled 14 fields, drafted both long answers, attached `resume-alex-chen.pdf`, and left Submit locked;
+  `walk-outcome: accepted reported, sentry=captured`.
+- Blocked or stubbed: nothing blocked. Deliberately NOT done — the Sentry schema additions (role, pageKind, real
+  provider/latency/duration) are written up in MORNING.md as a decision for Pravin, since they edit a
+  privacy-reviewed envelope.
+- Next: a tab is not an item (the one clear remaining case of "it just switches between tabs"); the knowledge tree
+  about the user, which the shop flow needs; role-memory poisoning, which is mitigated but still recurs.
