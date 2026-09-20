@@ -35,7 +35,7 @@
 	<key>NSSupportsSuddenTermination</key>
 	<false/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Ghost Desktop. Local only: talks to 127.0.0.1.</string>
+	<string>Shabang Desktop. Local only: talks to 127.0.0.1.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

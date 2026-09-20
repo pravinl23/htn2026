@@ -1,6 +1,13 @@
 # Shabang
 
-**Cursor Tab for your whole computer.** Shabang predicts your next action anywhere in the browser and shows it as a translucent ghost: a ghost cursor gliding onto the field or button you are about to use, and gray ghost text inside the field you are about to fill. Press **Tab** to accept. Open a job application and Tab, Tab, Tab fills the whole form. Do a multi-step task twice and Shabang offers to do the rest.
+**Cursor Tab for your whole computer.** Shabang is a native macOS agent: it reads the accessibility tree of whatever app is frontmost — a web page, Spotify, Messages, Finder, a terminal — and proposes the single thing you are most likely to do next. It shows as a translucent ghost: a purple ring on the control, a ghost cursor pointing at it, and gray ghost text inside the field you are about to fill. **Right ⌘** accepts.
+
+Open a job application and it fills the form, drafts the long answers and attaches your resume, stopping at Submit. Open a conversation and it drafts the reply. Open a video and it plays it, then offers fullscreen.
+
+**Every outcome is recorded — taken or refused.** Locally, so it learns you, and to Sentry, so the stream of rejected proposals can improve the model for everyone. A ghost you turn down is a labelled training example, and it is the only thing the product learns from.
+
+**New here? Read [SETUP.md](SETUP.md)** — getting it running on a fresh Mac, start to finish, including the
+Accessibility grant (the step that fights back) and every trap worth knowing.
 
 Built at Hack the North 2026. Instructions for the autonomous builder live in `CLAUDE.md`, the roadmap in `PLAN.md`, the run log in `PROGRESS.md`, and the morning handoff in `MORNING.md`.
 

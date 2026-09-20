@@ -2,7 +2,7 @@
   "name": "ghost",
   "private": true,
   "version": "0.1.0",
-  "description": "Ghost: Cursor Tab for your whole computer",
+  "description": "Shabang: Cursor Tab for your whole computer",
   "engines": {
     "node": ">=22"
   },
