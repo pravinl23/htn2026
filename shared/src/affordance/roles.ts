@@ -225,6 +225,18 @@ function inMainList(listSignature: string, context: AffordanceContext): boolean 
   return context.mainListSignature === undefined || context.mainListSignature === listSignature;
 }
 
+/**
+ * How much being the Nth row of a list says about wanting to open it. The top of a list is the likeliest
+ * thing in it and it tails off going down.
+ *
+ * Graded rather than first-versus-the-rest, because a flat weight for "the rest" is how a whole Finder
+ * window came back as twelve proposals with identical confidence: with nothing to separate them, the order
+ * fell through to capture order, which changes on every rescan.
+ */
+function listItemWeight(index: number): number {
+  return Math.max(0.42, 0.62 - 0.02 * Math.max(0, index));
+}
+
 class Scores {
   private readonly score = new Map<AffordanceRole, number>();
   private readonly evidence = new Map<AffordanceRole, Set<AffordanceEvidence>>();
@@ -299,13 +311,12 @@ export function classifyAffordance(candidate: AffordanceCandidate, context: Affo
   // An irreversible control inside a list is that action, never "the item": a row's Sign in is not a row.
   const itemLike = !actionClaimed && candidate.kind !== "field" && !isLockedAction({ text: candidate.label });
   // A repeated item is "the item" only when nothing inside it claimed a verb: a row's own Reply button stays a reply.
-  if (itemLike && candidate.list && inMainList(candidate.list.listSignature, context)) {
-    scores.add("primary-item", candidate.list.index === 0 ? 0.62 : 0.5, "list-item");
-  }
-  // A native row says so itself. The list detector needs repeated SHAPES and never fires on an AXOutline whose
-  // rows differ, so a Messages conversation or a Finder file would otherwise score as nothing at all.
-  if (itemLike && LIST_ENTRY_ROLE.test((candidate.ariaRole ?? "").trim().toLowerCase())) {
-    scores.add("primary-item", 0.6, "list-item");
+  // A native row says so itself, too: the list detector needs repeated SHAPES and does not always fire on an
+  // AXOutline whose rows differ, so a Messages conversation would otherwise score as nothing at all.
+  const listEntry = LIST_ENTRY_ROLE.test((candidate.ariaRole ?? "").trim().toLowerCase());
+  const inList = candidate.list !== undefined && inMainList(candidate.list.listSignature, context);
+  if (itemLike && (inList || listEntry)) {
+    scores.add("primary-item", listItemWeight(candidate.list?.index ?? 0), "list-item");
   }
   // A price beside a link is a product tile even where the list detector found no list (a single featured item).
   if (itemLike && candidate.nearbyPrice === true) {

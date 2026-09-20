@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  ROLE_MEMORY_FLOOR, ROLE_MEMORY_ONCE, ROLE_MEMORY_REPEATED, RoleMemory,
+  EVIDENCE_SPAN, ROLE_MEMORY_FLOOR, ROLE_MEMORY_ONCE, ROLE_MEMORY_REPEATED, RoleMemory,
   predictByRole, priorsFor, roleConfidence, roleMemoryKey, roleReason,
 } from "../src";
 import type { PriorState, RankedAffordance, RoleMemorySnapshot, RolePredictionState, RoleStat } from "../src";
@@ -124,7 +124,10 @@ describe("predictByRole on a page it has never seen", () => {
   it("puts the cursor on play on a paused video", () => {
     const best = top(rank(videoPage(), { pageKind: "media" }));
     expect(best.id).toBe("btn:play");
-    expect(best.confidence).toBe(0.7);
+    // The prior is 0.7; a well-named control is nudged a little above it by EVIDENCE_SPAN, so that two
+    // candidates the place ranks equally do not come back as the same number (see withEvidence).
+    expect(best.confidence).toBeGreaterThanOrEqual(0.7);
+    expect(best.confidence).toBeLessThan(0.7 + EVIDENCE_SPAN);
     expect(best.source).toBe("prior");
     expect(best.reason).toBe("most people start playing on a video page");
   });
@@ -132,7 +135,16 @@ describe("predictByRole on a page it has never seen", () => {
   it("moves to fullscreen once the video is playing", () => {
     const rows = rank(videoPage(), { pageKind: "media", previousRole: "play" }, null, { mediaPlaying: true });
     expect(top(rows).id).toBe("btn:fullscreen");
-    expect(top(rows).confidence).toBe(0.7);
+    expect(top(rows).confidence).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it("separates candidates the place ranks the same, so a ranking is not just a list", () => {
+    // Measured on a real page before this: eight proposals, every one at 0.70, every one with the same
+    // reason. Nothing but capture order separated them, and capture order changes on every rescan.
+    const rows = rank(gridFeed(), { pageKind: "feed" });
+    const sameRole = rows.filter((r) => r.role === "primary-item").map((r) => r.confidence);
+    expect(sameRole.length).toBeGreaterThan(1);
+    expect(new Set(sameRole).size).toBeGreaterThan(1);
   });
 
   it("proposes nothing above the gate to someone already watching fullscreen", () => {

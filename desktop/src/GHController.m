@@ -27,6 +27,8 @@ static const NSTimeInterval kOwnWriteQuietSeconds = 0.4;   // value-changed noti
 static const NSUInteger kChromiumMaxNodes = 4000;
 static const NSTimeInterval kChromiumWebAreaBudget = 1.6;
 static const NSTimeInterval kValueRescanSpacing = 0.5;
+static const NSTimeInterval kProposalCooldownSeconds = 2.5;   // a proposal just dealt with is not offered again
+static const double kProposalStickyMargin = 0.08;             // how much better a rival must be to move the ghost
 static const NSTimeInterval kScrollSettleSeconds = 0.06;
 static const NSTimeInterval kDraftRenderSpacing = 0.08;
 static const NSUInteger kFocusClimb = 3;
@@ -92,6 +94,9 @@ static const NSUInteger kUploadVerifyTries = 8;
     BOOL _stepMayHandBack;   // the first step of a fresh, unqueued press: a Tab that was not Ghost's goes back to the app
     BOOL _stepDirect;        // the step in flight follows the user's press at once (no draft wait, no sequence)
     BOOL _stepFromGhostKey;  // the accept came from the Ghost key, which no app binds and nothing can take back
+    NSString *_stickySignature;    // the proposal currently on screen: it wins near-ties so the ghost stops moving
+    NSString *_cooldownSignature;  // just taken or just turned down: not offered again until _cooldownUntil
+    CFAbsoluteTime _cooldownUntil;
     BOOL _rescanDeferred;
     NSString *_walkBundleId;   // the app whose window the walk belongs to (live captures only)
     NSString *_waitingDraft;
@@ -400,6 +405,8 @@ static const NSUInteger kUploadVerifyTries = 8;
     _pageContextRead = NO;
     _proposal = nil;
     _previousRole = nil;
+    _stickySignature = nil;
+    _cooldownSignature = nil;
     _hudStatus = nil;
     _epoch++;   // an answer still in flight belongs to the page we left
     [self endDraftWait:NO];
@@ -608,12 +615,43 @@ static const NSUInteger kUploadVerifyTries = 8;
     GHPageSignals *signals = [[GHPageSignals alloc] init];
     signals.appBundleId = _walkBundleId ?: self.accessibility.frontmostBundleIdentifier;
     signals.previousRole = _previousRole;
-    GHNextProposal *proposal = [engine proposeForResult:result window:result.windowNode signals:signals];
+    GHNextProposal *top = [engine proposeForResult:result window:result.windowNode signals:signals];
+    GHNextProposal *proposal = [self steadyProposalFrom:engine.ranked top:top];
     _proposal = proposal;
     if (!proposal) return ghosts;
     GHField *field = _fields[proposal.signature];
     if (!field) return ghosts;
     return [ghosts arrayByAddingObject:[proposal ghostWithDisplayText:field.label ?: @""]];
+}
+
+/**
+ * Which ranked row actually becomes the ghost. The engine's own order is a ranking; this is the part that
+ * decides whether the ghost MOVES, and it is what stops Ghost fidgeting.
+ *
+ * Two rules, both about not moving for no reason:
+ *
+ *   - a row that was just taken or just turned down is not offered again for a moment. The page has usually
+ *     not caught up yet, and nothing anywhere else excludes it.
+ *   - the row that is already on screen keeps the ghost unless another beats it by a clear margin. On a real
+ *     page most rows tie exactly: measured on one, eight candidates came back at 0.70 with the same reason,
+ *     so the only thing separating them was capture order -- which changes on every rescan, and a live window
+ *     rescans several times a second. That is the ghost "making many guesses and keeping moving".
+ */
+- (GHNextProposal *)steadyProposalFrom:(NSArray<GHNextProposal *> *)ranked top:(GHNextProposal *)top {
+    if (CFAbsoluteTimeGetCurrent() >= _cooldownUntil) _cooldownSignature = nil;
+    NSString *cooling = _cooldownSignature ?: @"";
+    GHNextProposal *best = [top.signature isEqualToString:cooling] ? nil : top;
+    for (GHNextProposal *row in ranked) {
+        if ([row.signature isEqualToString:cooling]) continue;
+        if (!best) best = row;
+        // The ghost already on screen wins any near-tie, however the rows happen to be ordered this time.
+        if ([row.signature isEqualToString:_stickySignature ?: @""] && row.confidence + kProposalStickyMargin >= best.confidence) {
+            best = row;
+            break;
+        }
+    }
+    _stickySignature = best.signature;
+    return best;
 }
 
 /// The user took the proposal, refused it, or did something else: remembered under the ROLE, so it transfers to
@@ -643,6 +681,12 @@ static const NSUInteger kUploadVerifyTries = 8;
     if (!proposal || ![proposal.signature isEqualToString:signature ?: @""]) return;
     [_nextAction recordOutcome:outcome forProposal:proposal];
     if ([outcome isEqualToString:GHRoleOutcomeAccepted]) _previousRole = proposal.role;
+    // Taken or turned down, this one is not offered again straight away. A window rescans several times a
+    // second, and nothing anywhere excluded the row that was just dealt with, so the same ghost came
+    // immediately back -- and, because role memory is keyed by role, pulled its neighbours up with it.
+    _cooldownSignature = [proposal.signature copy];
+    _cooldownUntil = CFAbsoluteTimeGetCurrent() + kProposalCooldownSeconds;
+    _stickySignature = nil;
     _proposal = nil;
 }
 

@@ -48,6 +48,14 @@ export const ROLE_DISMISS_STEP = 0.15;
 export const ROLE_MEMORY_FLOOR = 0.2;
 /** A role this place has no opinion about: available, but never proposed on its own above the 0.7 gate. */
 export const UNLISTED_PRIOR = 0.45;
+/**
+ * How much the classifier's own certainty may move a score, and the certainty that moves it by nothing.
+ * Small on purpose: it separates candidates the place ranks equally, and never reorders the place's bands.
+ */
+export const EVIDENCE_SPAN = 0.06;
+const NEUTRAL_CERTAINTY = 0.55;
+/** Worth more than the whole certainty range (0.3 to 0.95 spans 0.024 of it), and still far under one band. */
+const BADGE_NUDGE = 0.03;
 
 export function roleMemoryKey(parts: RoleKeyParts): string {
   return `${parts.pageKind}|${parts.previousRole ?? "none"}|${parts.role}`;
@@ -172,7 +180,9 @@ export function predictByRole(
       row: {
         id: candidate.id,
         role: affordance.role,
-        confidence: round(scored.confidence),
+        // Only a prior is nudged. Once role memory has an opinion the number IS the opinion, and the rule that
+        // one accept does not yet reorder the place's own defaults (ties broken by the prior) has to survive.
+        confidence: round(scored.source === "memory" ? scored.confidence : withEvidence(scored.confidence, affordance, candidate.badgeCount ?? 0)),
         locked: lockedForRole(candidate, affordance.role),
         reason: roleReason(affordance.role, state, scored.source, stat),
         source: scored.source,
@@ -199,6 +209,23 @@ export function predictByRole(
       a.index - b.index,
   );
   return ranked.map((r) => r.row);
+}
+
+/**
+ * How sure the classifier is that this control plays the role, folded into the score as a small nudge.
+ *
+ * Without it the score was the place's prior VERBATIM, so every candidate sharing a role came back at exactly
+ * the same number and the order was decided by the tie-break chain -- ultimately by capture order. Measured on
+ * a real page: eight proposals, all 0.70, all with the same reason. That is not a ranking, it is a list.
+ *
+ * The nudge is deliberately smaller than the gap between prior bands (0.55 to 0.7), so it can reorder rows
+ * that the place ranks equally and can never promote a role the place ranks below another.
+ */
+function withEvidence(base: number, a: Affordance, badge: number): number {
+  // A live count drawn on a control is evidence about the USER, not about the classifier: two things in the
+  // cart, four unread messages. It outranks how sure the classifier happened to be, so it is worth more than
+  // the whole certainty range.
+  return base + (badge > 0 ? BADGE_NUDGE : 0) + (a.confidence - NEUTRAL_CERTAINTY) * EVIDENCE_SPAN;
 }
 
 function certainty(a: Affordance): number {

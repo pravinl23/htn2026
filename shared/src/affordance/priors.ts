@@ -69,10 +69,14 @@ function build(kind: PageKind, state: PriorState): RolePrior[] {
       // Terminal actions stay low here AND are withheld entirely by the walk gate until the form is ready
       // (docs/incremental.md section 2): the prior must never be what puts a cursor on Submit.
       return [{ role: "field", weight: 0.7 }, { role: "submit", weight: 0.58 }];
+    // `app` is where almost every native window lands, so its first prior is the default answer for most of the
+    // desktop. It used to be `search`, and "it always guesses a search box" was the result. Reaching for search
+    // is what you do when you do not know what is on the screen; opening the thing in front of you is what
+    // people actually do, so the item leads and search sits behind it.
     case "app":
-      return [{ role: "search", weight: 0.66 }, { role: "primary-item", weight: 0.62 }, { role: "more", weight: 0.58 }];
+      return [{ role: "primary-item", weight: 0.66 }, { role: "search", weight: 0.6 }, { role: "more", weight: 0.58 }];
     case "unknown":
-      return [{ role: "search", weight: 0.6 }, { role: "primary-item", weight: 0.58 }, { role: "more", weight: 0.55 }];
+      return [{ role: "primary-item", weight: 0.6 }, { role: "search", weight: 0.56 }, { role: "more", weight: 0.55 }];
   }
 }
 
