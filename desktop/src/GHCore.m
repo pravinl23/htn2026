@@ -10,7 +10,8 @@ NSString *const GHCoreErrorDomain = @"dev.ghost.desktop.core";
 /// Everything the native side calls. Loading fails when one is missing (a stale bundle must not half work).
 static NSArray<NSString *> *GHRequiredExports(void) {
     return @[ @"demoProfile", @"defaultSettings", @"mapForm", @"ghostsFor", @"upgradeGhosts", @"isSensitive",
-              @"isLockedAction", @"textFacts", @"formRequest", @"cleanAssignments", @"isPlaceholder", @"textPastAnswers" ];
+              @"isLockedAction", @"textFacts", @"formRequest", @"cleanAssignments", @"isPlaceholder", @"textPastAnswers",
+              @"cleanLearnedAnswers", @"recordAnswerCorrection" ];
 }
 
 NSString *GHJSONString(id object) {
@@ -223,6 +224,24 @@ BOOL GHCoreBundleMatchesPin(NSString *path, NSString *pinned) {
     return [self dictionaryFrom:@"defaultSettings" arguments:@[]];
 }
 
+- (NSDictionary<NSString *, id> *)cleanLearnedAnswers:(NSDictionary *)snapshot {
+    NSString *json = GHJSONString(snapshot ?: @{});
+    if (!json) return @{ @"max": @500, @"answers": @[] };
+    NSDictionary *clean = [self dictionaryFrom:@"cleanLearnedAnswers" arguments:@[ json ]];
+    return clean.count ? clean : @{ @"max": @500, @"answers": @[] };
+}
+
+- (NSDictionary<NSString *, id> *)recordAnswerCorrectionForFieldObject:(NSDictionary *)field
+                                                                  value:(NSString *)value
+                                                            optionLabel:(NSString *)optionLabel
+                                                                 origin:(NSString *)origin
+                                                                answers:(NSDictionary *)answers {
+    NSString *fieldJSON = GHJSONString(field), *answersJSON = GHJSONString(answers ?: @{});
+    if (!fieldJSON || !answersJSON) return @{};
+    return [self dictionaryFrom:@"recordAnswerCorrection"
+                      arguments:@[ fieldJSON, value ?: @"", optionLabel ?: @"", origin ?: @"", answersJSON ]];
+}
+
 - (NSArray<NSDictionary<NSString *, id> *> *)mapFields:(NSArray<GHField *> *)fields factKeys:(NSArray<NSString *> *)factKeys {
     return [self mapFieldObjects:[GHField JSONObjectsForFields:fields] factKeys:factKeys];
 }
@@ -321,9 +340,18 @@ BOOL GHCoreBundleMatchesPin(NSString *path, NSString *pinned) {
                                   factKeys:(NSArray<NSString *> *)factKeys
                                     origin:(NSString *)origin
                              formSignature:(NSString *)formSignature {
+    return [self formRequestBodyForFieldObjects:fields factKeys:factKeys origin:origin formSignature:formSignature learnedAnswers:nil];
+}
+
+- (NSData *)formRequestBodyForFieldObjects:(NSArray<NSDictionary *> *)fields
+                                  factKeys:(NSArray<NSString *> *)factKeys
+                                    origin:(NSString *)origin
+                             formSignature:(NSString *)formSignature
+                            learnedAnswers:(NSDictionary *)learnedAnswers {
     NSString *fieldsJson = GHJSONString(fields), *keysJson = GHJSONString(factKeys);
-    if (!fieldsJson || !keysJson) return nil;
-    NSString *body = [self callString:@"formRequest" arguments:@[ fieldsJson, keysJson, origin ?: @"", formSignature ?: @"" ]];
+    NSString *answersJson = GHJSONString(learnedAnswers ?: @{ @"max": @500, @"answers": @[] });
+    if (!fieldsJson || !keysJson || !answersJson) return nil;
+    NSString *body = [self callString:@"formRequest" arguments:@[ fieldsJson, keysJson, origin ?: @"", formSignature ?: @"", answersJson ]];
     if (!body || [body isEqualToString:@"null"]) return nil;
     return [body dataUsingEncoding:NSUTF8StringEncoding];
 }

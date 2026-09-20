@@ -251,6 +251,49 @@ GH_TEST(core_ghostsFor_skips_filled_fields) {
     GH_ASSERT(map[@"sel|authorized"] == nil); // the user already chose
 }
 
+GH_TEST(core_learned_answer_replays_across_greenhouse_amazon_and_airbnb_without_jev) {
+    GHCore *core = Core();
+    GHField *greenhouse = Field(@"gh-auth", @"Are you legally authorized to work in Canada for any employer?", GHKindSelect);
+    greenhouse.options = @[ @{ @"value": @"0", @"label": @"No" }, @{ @"value": @"1", @"label": @"Yes" } ];
+    NSDictionary *result = [core recordAnswerCorrectionForFieldObject:[greenhouse toJSONObject]
+                                                                 value:@"1" optionLabel:@"Yes" origin:@"https://greenhouse.example"
+                                                               answers:[core cleanLearnedAnswers:@{}]];
+    NSDictionary *answers = result[@"snapshot"];
+    GH_ASSERT_EQUAL_OBJECTS(result[@"changed"], @"added");
+    GH_ASSERT_EQUAL_INT([answers[@"answers"] count], 1);
+
+    GHField *amazon = Field(@"amazon-auth", @"Are you authorized to work in Canada for any employer?", GHKindSelect);
+    amazon.options = @[ @{ @"value": @"not_authorized", @"label": @"No" }, @{ @"value": @"authorized", @"label": @"Yes" } ];
+    GHField *airbnb = Field(@"airbnb-auth", @"Are you legally authorized to work in Canada?", GHKindRadio);
+    airbnb.options = @[ @{ @"value": @"n", @"label": @"No" }, @{ @"value": @"y", @"label": @"Yes" } ];
+    NSDictionary *profile = [core demoProfile];
+    for (GHField *target in @[ amazon, airbnb ]) {
+        NSArray *assignments = [core mapFields:@[ target ] factKeys:FactKeys(profile)];
+        NSDictionary *ghost = [core ghostsForFields:@[ target ] assignments:assignments profile:profile settings:[core defaultSettings]
+                                               source:@"offline" options:@{ @"answers": answers }].firstObject;
+        GH_ASSERT(ghost != nil);
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"answer"][@"source"], @"learned");
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"displayText"], @"Yes");
+    }
+    NSArray *amazonAssignments = [core mapFields:@[ amazon ] factKeys:FactKeys(profile)];
+    NSDictionary *amazonGhost = [core ghostsForFields:@[ amazon ] assignments:amazonAssignments profile:profile settings:[core defaultSettings]
+                                                  source:@"offline" options:@{ @"answers": answers }].firstObject;
+    GH_ASSERT_EQUAL_OBJECTS(amazonGhost[@"value"], @"authorized");
+    NSArray *airbnbAssignments = [core mapFields:@[ airbnb ] factKeys:FactKeys(profile)];
+    NSDictionary *airbnbGhost = [core ghostsForFields:@[ airbnb ] assignments:airbnbAssignments profile:profile settings:[core defaultSettings]
+                                                  source:@"offline" options:@{ @"answers": answers }].firstObject;
+    GH_ASSERT_EQUAL_OBJECTS(airbnbGhost[@"value"], @"y");
+
+    GHField *first = Field(@"first", @"First name", GHKindText);
+    NSData *body = [core formRequestBodyForFieldObjects:[GHField wireJSONObjectsForFields:@[ amazon, first ]]
+                                               factKeys:FactKeys(profile) origin:@"app://com.google.Chrome/amazon.jobs"
+                                          formSignature:@"amazon-form" learnedAnswers:answers];
+    NSDictionary *wire = [NSJSONSerialization JSONObjectWithData:body options:0 error:NULL];
+    NSDictionary *fields = BySignature(wire[@"fields"]);
+    GH_ASSERT(fields[@"amazon-auth"] == nil); // answered locally: even its label stays away from JEV
+    GH_ASSERT(fields[@"first"] != nil);
+}
+
 GH_TEST(core_ghostsFor_treats_placeholder_choice_as_empty) {
     GHField *select = Field(@"sel|country", @"Country", GHKindSelect);
     select.options = @[ @{ @"value": @"placeholder", @"label": @"Choose a country" }, @{ @"value": @"CA", @"label": @"Canada" }, @{ @"value": @"US", @"label": @"United States" } ];

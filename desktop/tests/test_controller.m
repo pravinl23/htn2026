@@ -8,6 +8,10 @@
 #import "GHProfileStore.h"
 #import "GHWriter.h"
 
+@interface GHController (LearningTests)
+- (void)learnCorrectionsFromResult:(GHCaptureResult *)result focusedSignature:(NSString *)focusedSignature;
+@end
+
 #pragma mark - stub server
 
 @interface GHCtlStub : NSURLProtocol
@@ -214,6 +218,21 @@ static GHServerClient *StubClient(GHCore *core, GHFormCache *cache) {
 
 static NSString *DemoEmail(void) {
     return [[GHCore sharedCore] demoProfile][@"facts"][@"email"];
+}
+
+GH_TEST(controller_learns_a_focused_manual_correction_locally) {
+    GHRig *rig = [GHRig rigWithClient:nil];
+    [rig buildFormWithAreas:@[]];
+    GH_ASSERT([rig.store updateSettings:@{ @"learningEnabled": @YES } error:NULL]);
+    [rig rescan];
+    GHFakeAXNode *first = rig.nodes[@"First name"];
+    NSString *signature = [rig.controller focusSignatureForNode:first];
+    GH_ASSERT(signature.length > 0);
+    first.value = @"Robin";
+    GHCaptureResult *changed = [rig.capture captureWindow:rig.window];
+    [rig.controller learnCorrectionsFromResult:changed focusedSignature:signature];
+    GH_ASSERT_EQUAL_INT([rig.store.learnedAnswers[@"answers"] count], 1);
+    GH_ASSERT_EQUAL_OBJECTS([rig.store.learnedAnswers[@"answers"] firstObject][@"value"], @"Robin");
 }
 
 #define RIG(name, client) \

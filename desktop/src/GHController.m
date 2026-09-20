@@ -458,7 +458,36 @@ static const NSUInteger kUploadVerifyTries = 8;
     NSString *pageKey = [@[ bundle, webOrigin ?: @"", title ] componentsJoinedByString:@"\n"];
     NSString *origin = [GHServerClient originForBundleId:bundle pageURL:webOrigin windowTitle:title];
     _walkBundleId = [bundle copy];
+    if ((reasons & GHRescanReasonValueChanged) && _result && [pageKey isEqualToString:_pageKey ?: @""] && [self canReadLiveFocus]) {
+        NSString *focused = [self liveFocusSignature];
+        [self learnCorrectionsFromResult:result focusedSignature:focused];
+    }
     [self adoptCaptureResult:result pageKey:pageKey origin:origin];
+}
+
+/// ValueChanged is noisy (pages dispatch it too), so native learning requires all three signals: learning is
+/// explicitly enabled, the question existed in the prior capture, and keyboard/accessibility focus is still on it.
+/// Ghost's own writes are suppressed by _quietUntil and also update the prior captured value after verification.
+- (void)learnCorrectionsFromResult:(GHCaptureResult *)result focusedSignature:(NSString *)focusedSignature {
+    if (!_store.learningEnabled || !result || focusedSignature.length == 0 || [focusedSignature isEqualToString:GHWalkFocusElsewhere]) return;
+    GHField *before = _fields[focusedSignature];
+    GHField *after = nil;
+    for (GHField *field in result.fields) if ([field.signature isEqualToString:focusedSignature]) { after = field; break; }
+    if (!before || !after) return;
+    static NSSet<NSString *> *answerable;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ answerable = [NSSet setWithArray:@[ GHKindText, GHKindEmail, GHKindTel, GHKindURL,
+        GHKindNumber, GHKindDate, GHKindMonth, GHKindTextArea, GHKindSelect, GHKindRadio, GHKindCheckbox ]]; });
+    if (![answerable containsObject:after.kind]) return;
+    NSString *value = after.value ?: @"";
+    if (value.length == 0 || [value isEqualToString:before.value ?: @""]) return;
+    NSString *optionLabel = nil;
+    for (NSDictionary<NSString *, NSString *> *option in after.options ?: @[]) {
+        if ([option[@"value"] isEqualToString:value]) { optionLabel = option[@"label"]; break; }
+    }
+    if ([_store recordCorrectionForField:after value:value optionLabel:optionLabel origin:_origin]) {
+        GHLog(@"learning: saved a local answer (kind=%@)", after.kind);
+    }
 }
 
 - (void)adoptCaptureResult:(GHCaptureResult *)result pageKey:(NSString *)pageKey origin:(NSString *)origin {
@@ -485,6 +514,7 @@ static const NSUInteger kUploadVerifyTries = 8;
     NSMutableDictionary *options = [NSMutableDictionary dictionary];
     options[@"keepLock"] = @(_walk.keepLock);
     if (_walk.lockSignature) options[@"lockSignature"] = _walk.lockSignature;
+    options[@"answers"] = _store.learnedAnswers ?: @{ @"max": @500, @"answers": @[] };
 
     NSArray<NSDictionary *> *offline = _orderedFields.count ? [_core mapFields:_orderedFields factKeys:factKeys] : @[];
     NSMutableArray<NSDictionary *> *answers = [NSMutableArray array];
@@ -567,7 +597,8 @@ static BOOL GHIsValueKind(NSString *kind) {
     _predictionRequests++;
     NSUInteger epoch = _epoch;
     __weak GHController *weakSelf = self;
-    [_client predictFormForFields:_orderedFields factKeys:factKeys origin:_origin ?: @"" formSignature:formSignature
+    [_client predictFormForFields:_orderedFields factKeys:factKeys learnedAnswers:_store.learnedAnswers
+                           origin:_origin ?: @"" formSignature:formSignature
                        completion:^(GHFormPrediction *prediction, NSString *errorCode) {
         GHController *controller = weakSelf;
         // Server down, slow or wrong: the offline ghosts are already on screen and simply stay.

@@ -32,6 +32,8 @@ GH_TEST(store_seeds_demo_profile_with_private_modes) {
     GH_ASSERT_EQUAL_INT(ModeOf(store.directory), 0700);
     GH_ASSERT_EQUAL_INT(ModeOf(store.profilePath), 0600);
     GH_ASSERT_EQUAL_INT(ModeOf(store.settingsPath), 0600);
+    GH_ASSERT_EQUAL_INT(ModeOf(store.answersPath), 0600);
+    GH_ASSERT_EQUAL_INT([store.learnedAnswers[@"answers"] count], 0);
     GH_ASSERT_EQUAL_OBJECTS(store.profile[@"facts"][@"firstName"], @"Alex");
     GH_ASSERT_EQUAL_OBJECTS(store.profile[@"facts"][@"email"], @"alex.chen.dev@example.com");
     GH_ASSERT(store.enabled);
@@ -56,7 +58,26 @@ GH_TEST(store_profile_round_trip_keeps_0600) {
     GH_ASSERT_EQUAL_OBJECTS([reopened usableFactKeys], (@[ @"firstName", @"nickname" ])); // empty facts are not offered
     // No temp file left behind.
     NSArray *files = [NSFileManager.defaultManager contentsOfDirectoryAtPath:store.directory error:NULL];
-    GH_ASSERT_EQUAL_INT(files.count, 2);
+    GH_ASSERT_EQUAL_INT(files.count, 3);
+}
+
+GH_TEST(store_records_only_safe_opt_in_answers_in_private_storage) {
+    GHProfileStore *store = FreshStore();
+    GHField *authorization = [GHField fieldWithSignature:@"gh-auth" label:@"Are you legally authorized to work in Canada for any employer?" kind:GHKindSelect];
+    authorization.options = @[ @{ @"value": @"0", @"label": @"No" }, @{ @"value": @"1", @"label": @"Yes" } ];
+    GH_ASSERT_FALSE([store recordCorrectionForField:authorization value:@"1" optionLabel:@"Yes" origin:@"https://greenhouse.example"]);
+    GH_ASSERT([store updateSettings:@{ @"learningEnabled": @YES } error:NULL]);
+    GH_ASSERT(store.learningEnabled);
+    GH_ASSERT([store recordCorrectionForField:authorization value:@"1" optionLabel:@"Yes" origin:@"https://greenhouse.example"]);
+    GH_ASSERT_EQUAL_INT([store.learnedAnswers[@"answers"] count], 1);
+    GH_ASSERT_EQUAL_INT(ModeOf(store.answersPath), 0600);
+
+    GHProfileStore *reopened = [[GHProfileStore alloc] initWithDirectory:store.directory core:StoreCore()];
+    [reopened prepare];
+    GH_ASSERT_EQUAL_INT([reopened.learnedAnswers[@"answers"] count], 1);
+    GHField *card = [GHField fieldWithSignature:@"card" label:@"Card number" kind:GHKindText];
+    GH_ASSERT_FALSE([reopened recordCorrectionForField:card value:@"4111111111111111" optionLabel:nil origin:@"https://shop.example"]);
+    GH_ASSERT_EQUAL_INT([reopened.learnedAnswers[@"answers"] count], 1);
 }
 
 GH_TEST(store_never_overwrites_existing_files_and_tightens_modes) {

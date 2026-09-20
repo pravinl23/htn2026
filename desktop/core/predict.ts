@@ -10,12 +10,14 @@
 //   (`lazy: true`), matched against the real options when it is accepted;
 // - EEO / demographic questions never get a ghost, whatever an assignment says;
 // - work authorization / sponsorship questions about a country the profile does not cover never get a ghost.
-import { NEEDS_TEXT, NONE, isSensitive, mapFormHeuristically, normalize, parseIsoDate, resolveFieldValue } from "@ghost/shared";
-import type { CapturedField, FieldAssignment, Ghost, GhostAction, GhostSettings, GhostSource, Profile } from "@ghost/shared";
+import { NEEDS_TEXT, NONE, isSensitive, learnedConfidence, mapFormHeuristically, normalize, parseIsoDate, proposeAnswer, resolveFieldValue } from "@ghost/shared";
+import type { CapturedField, FieldAssignment, Ghost, GhostAction, GhostSettings, GhostSource, LearnedAnswerStore, Profile } from "@ghost/shared";
 
 export interface PredictDeps {
   profile: Profile;
   settings: GhostSettings;
+  /** User-authored answers persisted locally by Ghost Desktop. */
+  answers?: LearnedAnswerStore | null;
   /** Keep the parked Submit ghost even when no value ghosts remain (the walk already filled them). */
   keepLock?: boolean;
   /** The button the walk was heading for: with no value ghosts left, keepLock keeps this button or nothing. */
@@ -283,13 +285,53 @@ export function isPlaceholderChoice(value: string, label: string): boolean {
 }
 
 function valueGhost(field: DesktopField, assignment: FieldAssignment, deps: PredictDeps, source: GhostSource): DesktopGhost | null {
+  // Whatever the question looks like: a demographic answer is never offered by Desktop. The user may opt to
+  // remember it for another client, but native Ghost keeps the stricter existing EEO rule.
+  if (looksSensitive(field) || isProtectedQuestion(field)) return null;
+  if (fieldHasValue(field)) return null;
+
+  // The shared answer engine owns site-independent matching. It runs before JEV/profile mapping, so a correction
+  // made on Greenhouse can answer the same question on Amazon or Airbnb even when their option values differ.
+  const learned = deps.answers?.get(field) ?? null;
+  if (learned) {
+    const proposed = proposeAnswer(field, { profile: deps.profile, answers: deps.answers, factKey: assignment.factKey });
+    let resolved: Resolved | null = proposed.source === "learned" && proposed.action
+      ? {
+          action: proposed.action,
+          value: proposed.value,
+          displayText: proposed.optionLabel ?? proposed.value,
+          confidenceFactor: 1,
+        }
+      : null;
+    // ARIA/react-select controls expose no options until opened. Keep the learned visible label and let the
+    // native combo-box driver match it against the options at accept time.
+    if (!resolved && field.kind === "select" && field.lazyOptions === true) {
+      resolved = resolveLazyChoice(learned.optionLabel ?? learned.value);
+    }
+    if (resolved && resolved.value !== field.value) {
+      if (resolved.action === "check" && resolved.value === "false") return null;
+      const confidence = learnedConfidence(learned.count);
+      if (confidence >= deps.settings.confidenceThreshold) {
+        const ghost: DesktopGhost = {
+          signature: field.signature,
+          action: resolved.action,
+          value: resolved.value,
+          displayText: resolved.displayText,
+          confidence,
+          locked: false,
+          source,
+          answer: { class: learned.class, source: "learned", needsReview: false },
+        };
+        if (resolved.lazy) ghost.lazy = true;
+        return ghost;
+      }
+    }
+  }
+
   if (assignment.factKey === NONE || assignment.factKey === NEEDS_TEXT) return null;
-  // Whatever the question looks like: a demographic fact is never an answer (a server may assign `gender` to
-  // "How do you identify?").
-  if (looksSensitive(field) || isProtectedQuestion(field) || isProtectedFactKey(assignment.factKey)) return null;
+  if (isProtectedFactKey(assignment.factKey)) return null;
   // A path only ever goes to an upload, and an upload only ever takes the path it asks for.
   if (isFileFact(assignment.factKey) !== (field.kind === "file")) return null;
-  if (fieldHasValue(field)) return null;
   const fact = deps.profile.facts[assignment.factKey];
   if (!fact || asksAboutAnotherCountry(field, assignment.factKey, deps.profile)) return null;
   const resolved = resolveForDesktop(field, assignment.factKey, fact);

@@ -1,4 +1,4 @@
-// GHProfileStore: ~/Library/Application Support/Ghost/profile.json and settings.json.
+// GHProfileStore: ~/Library/Application Support/Ghost/profile.json, settings.json and answers.json.
 // Same shapes as the extension (`Profile`, `GhostSettings`), seeded with the fictional demo profile from
 // the core, created with mode 0600 (directory 0700), and watched for edits made in any editor.
 //
@@ -6,7 +6,7 @@
 //   "pausedBundleIds": ["com.example.app", ...]   apps the user paused from the menu
 #import <Foundation/Foundation.h>
 
-@class GHCore;
+@class GHCore, GHField;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -39,6 +39,7 @@ NSString *_Nullable GHUsableProfileFilePath(NSString *_Nullable raw, NSString *_
 @property (nonatomic, readonly, copy) NSString *directory;
 @property (nonatomic, readonly, copy) NSString *profilePath;
 @property (nonatomic, readonly, copy) NSString *settingsPath;
+@property (nonatomic, readonly, copy) NSString *answersPath;
 
 /// Creates the directory and seeds missing files. Existing files are never overwritten. Returns NO when
 /// the directory cannot be created (the store then serves in-memory defaults).
@@ -49,6 +50,8 @@ NSString *_Nullable GHUsableProfileFilePath(NSString *_Nullable raw, NSString *_
 @property (atomic, readonly, copy) NSDictionary<NSString *, id> *profile;
 /// GhostSettings merged over the defaults, types checked, threshold clamped to 0.5...0.99.
 @property (atomic, readonly, copy) NSDictionary<NSString *, id> *settings;
+/// Local-only LearnedAnswersSnapshot (`{ max, answers }`). Values in this object never leave the process.
+@property (atomic, readonly, copy) NSDictionary<NSString *, id> *learnedAnswers;
 
 /// Fact keys that have a value and do not look sensitive. Keys are all the server ever learns.
 - (NSArray<NSString *> *)usableFactKeys;
@@ -57,12 +60,20 @@ NSString *_Nullable GHUsableProfileFilePath(NSString *_Nullable raw, NSString *_
 @property (nonatomic, readonly) double confidenceThreshold;
 @property (nonatomic, readonly, copy) NSString *serverURLString;
 @property (nonatomic, readonly) BOOL showHud;
+@property (nonatomic, readonly) BOOL learningEnabled;
 
 - (BOOL)saveProfile:(NSDictionary<NSString *, id> *)profile error:(NSError *_Nullable *_Nullable)error;
 /// Merges `patch` into settings.json (unknown keys already in the file are preserved).
 - (BOOL)updateSettings:(NSDictionary<NSString *, id> *)patch error:(NSError *_Nullable *_Nullable)error;
 - (BOOL)setEnabled:(BOOL)enabled;
 - (BOOL)resetToDemoProfile;
+
+/// Learns a user-authored field change when learningEnabled is on. The shared core refuses sensitive fields,
+/// secret-like values and non-answerable controls. Returns YES only when answers.json was updated.
+- (BOOL)recordCorrectionForField:(GHField *)field
+                           value:(NSString *)value
+                     optionLabel:(nullable NSString *)optionLabel
+                          origin:(nullable NSString *)origin;
 
 // ---------- per-app pause (safety rule 6) ----------
 /// Password managers, terminals, Keychain Access, System Settings...: never touched, not user-removable.

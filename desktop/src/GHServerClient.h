@@ -143,6 +143,13 @@ extern const NSTimeInterval GHPresenceFreshSeconds;      // 90 s
                       origin:(NSString *)origin
                formSignature:(NSString *)formSignature
                   completion:(void (^)(GHFormPrediction *_Nullable prediction, NSString *_Nullable errorCode))completion;
+/// Local learned answers are removed before the value-free request is built; the snapshot itself never leaves.
+- (void)predictFormForFields:(NSArray<GHField *> *)fields
+                    factKeys:(NSArray<NSString *> *)factKeys
+              learnedAnswers:(nullable NSDictionary<NSString *, id> *)learnedAnswers
+                      origin:(NSString *)origin
+               formSignature:(NSString *)formSignature
+                  completion:(void (^)(GHFormPrediction *_Nullable prediction, NSString *_Nullable errorCode))completion;
 
 - (void)checkHealthWithCompletion:(void (^)(GHServerHealth *_Nullable health, NSString *_Nullable errorCode))completion;
 - (void)fetchPresenceWithCompletion:(void (^)(GHPresence *_Nullable presence, NSString *_Nullable errorCode))completion;

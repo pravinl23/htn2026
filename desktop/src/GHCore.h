@@ -55,6 +55,15 @@ BOOL GHCoreBundleMatchesPin(NSString *_Nullable path, NSString *_Nullable pinned
 - (NSDictionary<NSString *, id> *)demoProfile;
 /// GhostSettings defaults (enabled, confidenceThreshold 0.7, serverUrl, showHud, learningEnabled).
 - (NSDictionary<NSString *, id> *)defaultSettings;
+/// A validated LearnedAnswersSnapshot (`{ max, answers }`). Malformed entries are dropped.
+- (NSDictionary<NSString *, id> *)cleanLearnedAnswers:(nullable NSDictionary *)snapshot;
+/// Records one user-authored correction through the shared answer policy. The result carries `snapshot`,
+/// `changed`, an optional `refusal`, and a value-free `event`. Empty on bridge failure.
+- (NSDictionary<NSString *, id> *)recordAnswerCorrectionForFieldObject:(NSDictionary *)field
+                                                                  value:(NSString *)value
+                                                            optionLabel:(nullable NSString *)optionLabel
+                                                                 origin:(nullable NSString *)origin
+                                                                answers:(nullable NSDictionary *)answers;
 
 /// FieldAssignment dictionaries { signature, factKey, confidence } from the shared heuristic.
 - (NSArray<NSDictionary<NSString *, id> *> *)mapFields:(NSArray<GHField *> *)fields factKeys:(NSArray<NSString *> *)factKeys;
@@ -105,6 +114,12 @@ BOOL GHCoreBundleMatchesPin(NSString *_Nullable path, NSString *_Nullable pinned
                                            factKeys:(NSArray<NSString *> *)factKeys
                                              origin:(NSString *)origin
                                       formSignature:(NSString *)formSignature;
+/// Same request, omitting any field already answered by the local learned-answer store.
+- (nullable NSData *)formRequestBodyForFieldObjects:(NSArray<NSDictionary *> *)fields
+                                           factKeys:(NSArray<NSString *> *)factKeys
+                                             origin:(NSString *)origin
+                                      formSignature:(NSString *)formSignature
+                                     learnedAnswers:(nullable NSDictionary *)learnedAnswers;
 
 /// Keeps the well-formed entries of a server reply or a cache entry.
 - (NSArray<NSDictionary<NSString *, id> *> *)cleanAssignments:(id)rawAssignments;

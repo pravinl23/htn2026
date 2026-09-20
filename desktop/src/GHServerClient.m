@@ -509,9 +509,19 @@ static NSString *GHErrorCode(NSError *error) {
 
 - (void)predictFormForFields:(NSArray<GHField *> *)fields factKeys:(NSArray<NSString *> *)factKeys origin:(NSString *)origin
                formSignature:(NSString *)formSignature completion:(void (^)(GHFormPrediction *, NSString *))completion {
+    [self predictFormForFields:fields factKeys:factKeys learnedAnswers:nil origin:origin formSignature:formSignature completion:completion];
+}
+
+- (void)predictFormForFields:(NSArray<GHField *> *)fields factKeys:(NSArray<NSString *> *)factKeys
+              learnedAnswers:(NSDictionary<NSString *, id> *)learnedAnswers origin:(NSString *)origin
+               formSignature:(NSString *)formSignature completion:(void (^)(GHFormPrediction *, NSString *))completion {
     CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
     // Wire objects carry no value, and GhostCore.formRequest rebuilds them once more (kinds, limits, sensitivity).
-    NSData *body = [_core formRequestBodyForFieldObjects:[GHField wireJSONObjectsForFields:fields] factKeys:factKeys origin:origin formSignature:formSignature];
+    NSData *body = [_core formRequestBodyForFieldObjects:[GHField wireJSONObjectsForFields:fields]
+                                                factKeys:factKeys
+                                                  origin:origin
+                                           formSignature:formSignature
+                                          learnedAnswers:learnedAnswers];
     if (!body) {
         dispatch_async(dispatch_get_main_queue(), ^{ completion(nil, @"bad-request"); });
         return;

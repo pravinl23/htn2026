@@ -154,6 +154,7 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
 @interface GHProfileStore ()
 @property (atomic, readwrite, copy) NSDictionary<NSString *, id> *profile;
 @property (atomic, readwrite, copy) NSDictionary<NSString *, id> *settings;
+@property (atomic, readwrite, copy) NSDictionary<NSString *, id> *learnedAnswers;
 @end
 
 @implementation GHProfileStore {
@@ -179,11 +180,13 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
     _directory = [directory copy];
     _profilePath = [[directory stringByAppendingPathComponent:@"profile.json"] copy];
     _settingsPath = [[directory stringByAppendingPathComponent:@"settings.json"] copy];
+    _answersPath = [[directory stringByAppendingPathComponent:@"answers.json"] copy];
     _sources = [NSMutableArray array];
     NSDictionary *coreDefaults = [core defaultSettings];
     _defaultSettings = coreDefaults.count ? GHCleanSettings(coreDefaults, GHFallbackSettings()) : GHCleanSettings(@{}, GHFallbackSettings());
     _profile = @{ @"facts": @{}, @"pastAnswers": @[] };
     _settings = _defaultSettings;
+    _learnedAnswers = @{ @"max": @500, @"answers": @[] };
     return self;
 }
 
@@ -211,9 +214,12 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
     if (![fm fileExistsAtPath:self.settingsPath]) {
         GHWritePrivateFile(self.settingsPath, GHPrettyJSON(_defaultSettings), NULL);
     }
+    if (![fm fileExistsAtPath:self.answersPath]) {
+        GHWritePrivateFile(self.answersPath, GHPrettyJSON(@{ @"max": @500, @"answers": @[] }), NULL);
+    }
     // Whatever an editor or an older build left world-readable is tightened; the content is untouched.
     chmod(self.directory.fileSystemRepresentation, 0700);
-    for (NSString *path in @[ self.profilePath, self.settingsPath ]) chmod(path.fileSystemRepresentation, 0600);
+    for (NSString *path in @[ self.profilePath, self.settingsPath, self.answersPath ]) chmod(path.fileSystemRepresentation, 0600);
     [self reloadNotifying:NO];
     return YES;
 }
@@ -237,6 +243,13 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
         if (![clean isEqualToDictionary:self.settings]) { self.settings = clean; changed = YES; }
     } else if ([NSFileManager.defaultManager fileExistsAtPath:self.settingsPath]) {
         GHLog(@"store: settings.json is not valid JSON; keeping the previous settings");
+    }
+    NSDictionary *rawAnswers = GHReadJSONDictionary(self.answersPath);
+    if (rawAnswers) {
+        NSDictionary *clean = _core ? [_core cleanLearnedAnswers:rawAnswers] : rawAnswers;
+        if (![clean isEqualToDictionary:self.learnedAnswers]) { self.learnedAnswers = clean; changed = YES; }
+    } else if ([NSFileManager.defaultManager fileExistsAtPath:self.answersPath]) {
+        GHLog(@"store: answers.json is not valid JSON; keeping the previous learned answers");
     }
     if (changed && notify) {
         GHLog(@"store: reloaded (facts=%lu, enabled=%d)", (unsigned long)[self.profile[@"facts"] count], self.enabled);
@@ -265,6 +278,7 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
 - (double)confidenceThreshold { return [self.settings[@"confidenceThreshold"] doubleValue]; }
 - (NSString *)serverURLString { return self.settings[@"serverUrl"]; }
 - (BOOL)showHud { return [self.settings[@"showHud"] boolValue]; }
+- (BOOL)learningEnabled { return [self.settings[@"learningEnabled"] boolValue]; }
 
 #pragma mark - writes
 
@@ -297,6 +311,25 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
 
 - (BOOL)resetToDemoProfile {
     return [self saveProfile:[self seedProfile] error:NULL];
+}
+
+- (BOOL)recordCorrectionForField:(GHField *)field
+                           value:(NSString *)value
+                     optionLabel:(NSString *)optionLabel
+                          origin:(NSString *)origin {
+    if (!self.learningEnabled || !_core || !field || value.length == 0) return NO;
+    NSDictionary *result = [_core recordAnswerCorrectionForFieldObject:[field toJSONObject]
+                                                                  value:value
+                                                            optionLabel:optionLabel
+                                                                 origin:origin
+                                                                answers:self.learnedAnswers];
+    NSDictionary *snapshot = result[@"snapshot"];
+    NSString *changed = result[@"changed"];
+    if (![snapshot isKindOfClass:[NSDictionary class]] || ![changed isKindOfClass:[NSString class]] || [changed isEqualToString:@"refused"]) return NO;
+    NSData *data = GHPrettyJSON(snapshot);
+    if (!data || ![self ensureDirectory] || !GHWritePrivateFile(self.answersPath, data, NULL)) return NO;
+    [self reloadNotifying:YES];
+    return YES;
 }
 
 #pragma mark - pause list
@@ -366,7 +399,7 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
 - (void)armSources {
     for (dispatch_source_t source in _sources) dispatch_source_cancel(source);
     [_sources removeAllObjects];
-    for (NSString *path in @[ self.directory, self.profilePath, self.settingsPath ]) {
+    for (NSString *path in @[ self.directory, self.profilePath, self.settingsPath, self.answersPath ]) {
         int fd = open(path.fileSystemRepresentation, O_EVTONLY);
         if (fd < 0) continue;
         unsigned long mask = DISPATCH_VNODE_WRITE | DISPATCH_VNODE_EXTEND | DISPATCH_VNODE_RENAME | DISPATCH_VNODE_DELETE | DISPATCH_VNODE_ATTRIB;

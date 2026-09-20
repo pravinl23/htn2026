@@ -7,8 +7,10 @@
 import {
   DEFAULT_SETTINGS,
   DEMO_PROFILE,
+  LearnedAnswerStore,
   isLockedAction,
   isSensitive,
+  recordCorrection,
 } from "@ghost/shared";
 import type {
   CapturedField,
@@ -17,6 +19,7 @@ import type {
   GhostSettings,
   GhostSource,
   LockProbe,
+  LearnedAnswersSnapshot,
   Profile,
   SensitiveProbe,
 } from "@ghost/shared";
@@ -95,7 +98,46 @@ function asDeps(profileJson: string, settingsJson: string, optionsJson?: string)
   const options = optionsJson ? parse<unknown>(optionsJson, "options") : {};
   const keepLock = isObject(options) && options.keepLock === true;
   const lockSignature = isObject(options) && typeof options.lockSignature === "string" ? options.lockSignature : undefined;
-  return { profile: asProfile(profileJson), settings: asSettings(settingsJson), keepLock, lockSignature };
+  const answers = isObject(options) && isObject(options.answers)
+    ? LearnedAnswerStore.fromJSON(options.answers as unknown as LearnedAnswersSnapshot)
+    : new LearnedAnswerStore();
+  return { profile: asProfile(profileJson), settings: asSettings(settingsJson), answers, keepLock, lockSignature };
+}
+
+function asAnswerStore(json?: string): LearnedAnswerStore {
+  if (!json) return new LearnedAnswerStore();
+  const raw = parse<unknown>(json, "learned answers");
+  return LearnedAnswerStore.fromJSON(isObject(raw) ? (raw as unknown as LearnedAnswersSnapshot) : undefined);
+}
+
+/** Sanitizes a persisted answers.json snapshot, dropping malformed entries and enforcing the cap. */
+export function cleanLearnedAnswers(snapshotJson: string): string {
+  return JSON.stringify(asAnswerStore(snapshotJson).toJSON());
+}
+
+/** Records one user-authored answer locally. Sensitive questions and secret-like values are refused in shared code. */
+export function recordAnswerCorrection(
+  fieldJson: string,
+  value: string,
+  optionLabel: string,
+  origin: string,
+  snapshotJson: string,
+): string {
+  const raw = parse<unknown>(fieldJson, "field");
+  if (!isObject(raw) || typeof raw.kind !== "string" || typeof raw.label !== "string") {
+    throw new TypeError("GhostCore: field must be an answerable field object");
+  }
+  const store = asAnswerStore(snapshotJson);
+  const result = recordCorrection(raw as unknown as DesktopField, String(value ?? ""), store, {
+    ...(optionLabel ? { optionLabel } : {}),
+    ...(origin ? { origin } : {}),
+  });
+  return JSON.stringify({
+    snapshot: store.toJSON(),
+    changed: result.changed,
+    ...(result.refusal ? { refusal: result.refusal } : {}),
+    event: result.event,
+  });
 }
 
 function asSource(source: string): GhostSource {
@@ -270,10 +312,13 @@ function toWireField(raw: unknown): CapturedField | null {
  * The JSON body for POST /v1/predict/form, or "null" when there is nothing worth asking. EEO / demographic
  * questions are not asked about at all (Ghost never answers them), and file-path facts are local only.
  */
-export function formRequest(fieldsJson: string, factKeysJson: string, origin: string, formSignature: string): string {
+export function formRequest(fieldsJson: string, factKeysJson: string, origin: string, formSignature: string, answersJson?: string): string {
   const rawFields = parse<unknown>(fieldsJson, "fields");
   const rawKeys = parse<unknown>(factKeysJson, "factKeys");
+  const answers = asAnswerStore(answersJson);
   const fields = (Array.isArray(rawFields) ? rawFields : [])
+    // Local learned answers win before JEV: labels and option text for these questions stay on-device too.
+    .filter((f) => !(isObject(f) && typeof f.kind === "string" && typeof f.label === "string" && answers.get(f as unknown as DesktopField)))
     .map(toWireField)
     .filter((f): f is CapturedField => f !== null && !isProtectedQuestion(f));
   // Demographic facts (gender, veteranStatus, dateOfBirth...) are never offered to the server as possible answers.
