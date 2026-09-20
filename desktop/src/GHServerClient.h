@@ -147,7 +147,7 @@ extern const NSTimeInterval GHPresenceFreshSeconds;      // 90 s
 - (void)checkHealthWithCompletion:(void (^)(GHServerHealth *_Nullable health, NSString *_Nullable errorCode))completion;
 - (void)fetchPresenceWithCompletion:(void (^)(GHPresence *_Nullable presence, NSString *_Nullable errorCode))completion;
 
-/// One ghost outcome to POST /v1/walk/outcomes, which is the Sentry rejection stream (docs/sentry-demo.md).
+/// One ghost outcome to POST /v1/walk/outcomes, which is the Sentry rejection stream (SENTRY.md).
 ///
 /// Fire and forget on purpose: it never blocks a walk, never retries and never surfaces an error, because
 /// losing one telemetry post must never change what the user sees. Every argument is a count, a bucket or a

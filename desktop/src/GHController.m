@@ -612,7 +612,7 @@ static const NSUInteger kUploadVerifyTries = 8;
 /// The user took the proposal, refused it, or did something else: remembered under the ROLE, so it transfers to
 /// the next video, the next shop and the next feed. Never under a label, a window or an app.
 /**
- * Every ghost outcome, to the server and on to Sentry (docs/sentry-demo.md).
+ * Every ghost outcome, to the server and on to Sentry (SENTRY.md).
  *
  * This is deliberately separate from `recordProposalOutcome:`, which only fires for NEXT-ACTION proposals
  * and so never saw a form fill at all. The learning loop is judged on the rejection stream, and a stream

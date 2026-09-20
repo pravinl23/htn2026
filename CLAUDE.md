@@ -89,9 +89,12 @@ server/      Node 22 + TypeScript (Hono) prediction service on http://localhost:
 demo/        Local demo sites on http://localhost:5173. Kept as the SAFE test surface: rule 5 below
              says never drive a real site in an automated test, so the native agent rehearses here
 terminal/    zsh line-editor ghost (`source terminal/ghost.zsh`)
-docs/        architecture notes, docs/sentry-demo.md, recorded demo videos (docs/media)
+docs/        architecture notes and recorded demo videos (docs/media)
 attic/       kept, not used. Never read it. See attic/README.md
 ```
+
+`SENTRY.md` at the repo root is the pitching reference: the six products in use, how to prove each
+one live, how Sentry data actually changed the code, what not to claim, and the setup traps.
 
 Run the server on **Node 22**, not 23: `@sentry/profiling-node` ships prebuilt binaries for LTS
 (even majors) only, so on 23 profiling silently reports off and you lose a Sentry product.
