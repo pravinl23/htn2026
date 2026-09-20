@@ -639,11 +639,13 @@ GH_TEST(integration_greenhouse_tab_walk_fills_uploads_chooses_and_parks_on_submi
     GH_ASSERT([rig.statuses containsObject:@"Picking resume-alex-chen.pdf"]);   // the HUD names the file only
     for (NSString *status in rig.statuses) GH_ASSERT_FALSE([status containsString:@"/"]);
 
-    // Presses: the Attach button once, one option per combobox, never Submit (or Apply, Autofill, Dropbox...).
+    // Presses: each combo box is pressed ONCE to try to open it without a keystroke (what the real Greenhouse
+    // react-select needs), then its chosen option; the Attach button once; never Submit (or Apply, Autofill,
+    // Dropbox...), and never anything belonging to an EEO or work-authorization question.
     GHFakeAXNode *submit = [rig buttonTitled:@"Submit application"];
     NSMutableArray<NSString *> *pressed = [NSMutableArray array];
     for (id<GHAXNode> node in world.actuator.pressedNodes) [pressed addObject:node.title ?: node.value ?: node.role];
-    GH_ASSERT_EQUAL_OBJECTS(pressed, (@[ @"Canada +1", @"Attach", @"Hack the North" ]));
+    GH_ASSERT_EQUAL_OBJECTS(pressed, (@[ @"Country", @"Canada +1", @"Attach", kHeard, @"Hack the North" ]));
 
     // EEO and the US work-authorization question were never focused, typed into or opened.
     for (NSString *title in @[ kAuthorized, @"Gender", @"Are you Hispanic/Latino?", @"Veteran Status", @"Disability Status" ]) {

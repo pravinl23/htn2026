@@ -84,6 +84,17 @@ typedef NS_ENUM(NSInteger, GHCaptureStop) {
 /// whether the field is on screen right now; nothing off screen may ever be written to.
 @property (nonatomic) BOOL keepsScrolledOutFields;
 
+/// Chromium (and Electron) report NO frame at all for content that is scrolled out of the viewport, where WebKit
+/// still reports the real off-screen rectangle. With the default NO a Chromium page therefore loses every field
+/// below the fold to the zero-size rule -- on the real Greenhouse posting in Chrome that was the entire application
+/// form, captured as 13 stray fields instead of 31. With YES (and only together with keepsScrolledOutFields) a
+/// frameless node inside a web area is kept as a scrolled-out field instead of being dropped as a hidden one. That
+/// is safe in a Chromium tree specifically, because Chromium leaves display:none / visibility:hidden / aria-hidden
+/// elements OUT of the accessibility tree altogether, so a node that is there but has no box is real content that
+/// merely is not on screen. Its rect stays empty until something scrolls it into view, and an empty rect is never
+/// on screen, so it still can never be written to or drawn.
+@property (nonatomic) BOOL treatsFramelessWebNodesAsScrolledOut;
+
 /// `window` is normally the focused AXWindow. Any node works (tests pass a web area or a group).
 - (GHCaptureResult *)captureWindow:(id<GHAXNode>)window;
 

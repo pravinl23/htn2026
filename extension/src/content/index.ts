@@ -18,6 +18,7 @@ import { createFormPredictor } from "./predict";
 import { createServedLedger, observePredictions } from "./servedLedger";
 import { WalkOutcomeReporter, observeWalkProvider } from "./walkTelemetry";
 import type { ServedLedger } from "./servedLedger";
+import { ghostOptedOut } from "./tabSurface";
 import { syncLoopCapture } from "./trace";
 
 const LOADED_FLAG = "__ghostContentLoaded";
@@ -74,7 +75,9 @@ async function reportWalkOutcome(outcome: GhostWalkOutcome): Promise<void> {
 
 function apply(session: Session): void {
   const wasRunning = session.running;
-  session.running = session.settings.enabled;
+  // `ghost-tab: off` (tabSurface.ts) is the page saying it runs its own Tab surface: Ghost is as off here as
+  // the switch makes it anywhere else — no capture, no ghosts, no overlay, no next-action, no loop sheet.
+  session.running = session.settings.enabled && !ghostOptedOut(document);
   syncLoopCapture(session.running); // action trace + page facts (docs/loops.md section 1), only while Ghost is enabled
   if (!session.running) {
     session.controller.stop();

@@ -23,6 +23,8 @@ static const NSUInteger kMinFormFields = 2;
 static const NSUInteger kDraftMaxChars = 600;
 static const NSTimeInterval kSettleSeconds = 0.4;          // an upgrade may still replace a ghost nobody looked at yet
 static const NSTimeInterval kOwnWriteQuietSeconds = 0.4;   // value-changed notifications caused by our own write
+static const NSUInteger kChromiumMaxNodes = 4000;
+static const NSTimeInterval kChromiumWebAreaBudget = 1.6;
 static const NSTimeInterval kValueRescanSpacing = 0.5;
 static const NSTimeInterval kScrollSettleSeconds = 0.06;
 static const NSTimeInterval kDraftRenderSpacing = 0.08;
@@ -436,6 +438,19 @@ static const NSUInteger kUploadVerifyTries = 8;
     _lastRescanAt = now;
 
     GHAccessibility *ax = self.accessibility;
+    // Chromium and Electron give a scrolled-out node no frame at all, where WebKit gives its real off-screen one.
+    // Told which kind of app is in front, the capture keeps those frameless nodes instead of dropping them as
+    // hidden -- without this the whole part of a Chrome page below the fold is invisible to Ghost.
+    BOOL chromium = ax.frontmostNeedsEnhancedUserInterface;
+    self.capture.treatsFramelessWebNodesAsScrolledOut = chromium;
+    // Chromium answers an AX call several times slower than WebKit and exposes more nodes per page, so the same
+    // walk that finishes in Safari stops half way through a Chrome page and the form below the fold is lost.
+    GHCaptureLimits *limits = [[GHCaptureLimits defaultLimits] copy];
+    if (chromium) {
+        limits.maxNodes = kChromiumMaxNodes;
+        limits.webAreaTimeBudget = kChromiumWebAreaBudget;
+    }
+    self.capture.limits = limits;
     GHCaptureResult *result = [ax captureFocusedWindowWithCapture:self.capture];
     NSString *bundle = ax.frontmostBundleIdentifier ?: @"";
     NSString *title = result ? ([ax focusedWindowTitle] ?: @"") : @"";

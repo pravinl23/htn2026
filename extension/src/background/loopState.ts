@@ -1,8 +1,11 @@
 // The loop run state machine (docs/loops.md 3.5). The background worker owns it and keeps it in
 // chrome.storage.session, so a run survives page loads and the worker going to sleep.
 //   idle -> proposed -> previewing -> confirmed -> running(itemIndex, stepIndex) -> done | failed | cancelled
-// `running` is only reachable through `confirm`, and a program with irreversible steps is only confirmed
-// with confirmIrreversible: true (the single batch confirmation). The reducer is pure.
+// `running` is only reachable through `confirm`, and a program whose safety class demands an explicit
+// confirmation (shared/src/loop/safety.ts) is only confirmed with confirmIrreversible: true — the single batch
+// confirmation. The class is derived here from the program itself, so no content script can talk it down.
+// The reducer is pure.
+import { classifyStep, requiredConfirmation } from "@ghost/shared";
 import type { LoopProgram, LoopStep } from "@ghost/shared";
 import { LOOP_MODES } from "../lib/loopMessages";
 import type { LoopItemProgress, LoopMode, LoopProposal, LoopRunProgress, LoopUiState } from "../lib/loopMessages";
@@ -68,10 +71,11 @@ export function defaultMode(itemCount: number): LoopMode {
   return itemCount > BACKGROUND_MODE_ABOVE ? "background" : "visible";
 }
 
+/** High-impact by the shared classifier: the recorder's lock, the program's own list, or an irreversible label. */
 function isIrreversible(program: LoopProgram, stepIndex: number): boolean {
   const step: LoopStep | undefined = program.steps[stepIndex];
-  const locked = (step?.op === "click" || step?.op === "fill") && step.locked === true;
-  return locked || program.irreversible.some((effect) => effect.stepIndex === stepIndex);
+  if (!step) return false;
+  return classifyStep(step, program.irreversible.some((effect) => effect.stepIndex === stepIndex)) === "high-impact";
 }
 
 function propose(state: LoopState, action: Extract<LoopAction, { type: "propose" }>): LoopState {
@@ -82,7 +86,9 @@ function propose(state: LoopState, action: Extract<LoopAction, { type: "propose"
 function confirm(state: LoopState, action: Extract<LoopAction, { type: "confirm" }>): LoopState {
   const proposal = state.proposal;
   if (!proposal || (state.phase !== "proposed" && state.phase !== "previewing") || action.runId === "") return state;
-  if (proposal.program.irreversible.length > 0 && action.confirmIrreversible !== true) return state;
+  // A high-impact batch (a locked step, a listed effect, or a step whose own label reads irreversible) can only
+  // be confirmed with the explicit flag the sheet sets from an Enter or a click. Never downgradable.
+  if (requiredConfirmation(proposal.program) === "explicit" && action.confirmIrreversible !== true) return state;
   const wanted = action.items ? new Set(action.items) : null;
   const indexes = proposal.remaining.filter((index) => !wanted || wanted.has(index));
   if (indexes.length === 0) return state;

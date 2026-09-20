@@ -19,6 +19,12 @@ export const DEMO_PROFILE: Profile = {
     github: "https://github.com/alexchen-dev",
     linkedin: "https://linkedin.com/in/alexchen-dev",
     website: "https://alexchen.dev",
+    // Work authorization is per country: Alex is Canadian, and says nothing at all about the US.
+    // A US question is therefore answered by the conservative guess (not authorized, sponsorship needed)
+    // until the user corrects it once. The unqualified keys stay for older profiles and for a question
+    // that names no country. See docs/answers.md section 2.
+    "workAuthorization.CA": "yes",
+    "requiresSponsorship.CA": "no",
     workAuthorization: "yes",
     requiresSponsorship: "no",
     referralSource: "Hack the North",
@@ -46,5 +52,7 @@ export const FACT_DESCRIPTIONS: Record<string, string> = {
   website: "personal website or portfolio URL",
   workAuthorization: "legally authorized to work in the country (yes/no)",
   requiresSponsorship: "requires visa sponsorship (yes/no)",
+  "workAuthorization.CA": "legally authorized to work in Canada (yes/no)",
+  "requiresSponsorship.CA": "requires visa sponsorship in Canada (yes/no)",
   referralSource: "how the applicant heard about the company",
 };

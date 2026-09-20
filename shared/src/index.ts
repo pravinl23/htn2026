@@ -8,5 +8,6 @@ export * from "./resolve";
 export * from "./trace";
 export * from "./loop";
 export * from "./memory";
+export * from "./answers";
 export * from "./workflow";
 export * from "./walkTelemetry";

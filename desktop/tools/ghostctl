@@ -5,12 +5,18 @@
 #   ghostctl dump      [options]           captured fields of the frontmost window (labels, never values)
 #   ghostctl dump-tree [options]           raw AX tree, values reduced to their length
 #   ghostctl autotab N [options]           N real Tab presses through Ghost, one record per press; stops at a lock
+#   ghostctl probe-combobox "How did" [options]   open ONE combo box, record what the AX tree shows, close it
 #   ghostctl run                           start the menu-bar agent (a second copy exits on its own)
 #   ghostctl quit                          stop every Ghost process
 #   ghostctl log [LINES]                   tail ~/Library/Logs/Ghost/desktop.log
 #   ghostctl selftest                      core + mapping self-test (needs no permission)
 #
-#   options: --frontmost "App"  --delay S  --interval MS  --depth N  --out FILE  --timeout S
+#   options: --frontmost "App"  --expect-field "First Name"  --delay S  --interval MS  --depth N  --out FILE  --timeout S
+#
+#   --expect-field pins the PAGE. --frontmost only promises the APP is in front, never which tab: with
+#   --expect-field the harness re-captures the window before the first Tab and before every later press and
+#   refuses to post unless a captured label still matches, so a tab that changed costs zero keystrokes
+#   ("stopped": "expect-field-missing"). Use it for every live run on a real site.
 #
 # Everything is launched through LaunchServices (`open -n ... --args`), never as a child of this shell: macOS
 # judges a binary started from a terminal by the TERMINAL's Accessibility permission, not by Ghost's. Such a
@@ -27,7 +33,7 @@ LOG="$HOME/Library/Logs/Ghost/desktop.log"
 PROCESS_PATTERN="Ghost.app/Contents/MacOS/Ghost"
 
 usage() {
-    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
 }
 
@@ -65,18 +71,21 @@ launch() {
 # harness MODE [N] [options]
 harness() {
     mode="$1"; shift
-    count=""
+    count=""; probe=""
     if [ "$mode" = "autotab" ]; then
         [ $# -ge 1 ] || die "autotab needs a count: ghostctl autotab 12"
         count="$1"; shift
         case "$count" in ''|*[!0-9]*) die "autotab needs a whole number, got '$count'";; esac
+    elif [ "$mode" = "probe-combobox" ]; then
+        [ $# -ge 1 ] || die "probe-combobox needs a label: ghostctl probe-combobox \"How did you hear\""
+        probe="$1"; shift
     fi
-    out=""; delay=0; interval=450; timeout=""
+    out=""; delay=0; interval=450; timeout=""; guarded=0
     set -- "$@" --end--
     while [ "$1" != "--end--" ]; do
         flag="$1"; shift
         case "$flag" in
-            --out|--delay|--interval|--depth|--frontmost|--timeout)
+            --out|--delay|--interval|--depth|--frontmost|--expect-field|--timeout)
                 [ "$1" != "--end--" ] || die "$flag needs a value"
                 value="$1"; shift
                 case "$flag" in
@@ -84,6 +93,7 @@ harness() {
                     --timeout) timeout="$value"; continue;;
                     --delay) delay="$value";;
                     --interval) interval="$value";;
+                    --expect-field) guarded=1;;
                 esac
                 set -- "$@" "$flag" "$value";;
             *) die "unknown option '$flag'";;
@@ -101,7 +111,9 @@ harness() {
     fi
     rm -f "$out"
 
-    if [ "$mode" = "autotab" ]; then set -- --autotab "$count" "$@"; else set -- "--$mode" "$@"; fi
+    if [ "$mode" = "autotab" ]; then set -- --autotab "$count" "$@"
+    elif [ "$mode" = "probe-combobox" ]; then set -- --probe-combobox "$probe" "$@"
+    else set -- "--$mode" "$@"; fi
     launch --args "$@" --out "$out"
 
     # The harness has its own deadline and always answers; this one only covers a host that never started.
@@ -109,7 +121,9 @@ harness() {
         whole="${delay%%.*}"
         case "$whole" in ''|*[!0-9]*) whole=0;; esac
         timeout=$(( whole + 60 ))
-        [ "$mode" = "autotab" ] && timeout=$(( timeout + count * (interval / 1000 + 2) ))
+        # Each guarded press pays for one extra window capture (kGuardTimeBudget + slack), so wait that much longer.
+        [ "$mode" = "autotab" ] && timeout=$(( timeout + count * (interval / 1000 + 2 + guarded * 3) ))
+        [ "$mode" != "autotab" ] && [ "$guarded" -eq 1 ] && timeout=$(( timeout + 10 ))
     fi
     ticks=$(( timeout * 5 ))
     while [ ! -s "$out" ] && [ "$ticks" -gt 0 ]; do
@@ -134,7 +148,7 @@ harness() {
 [ $# -ge 1 ] || usage
 command="$1"; shift
 case "$command" in
-    trust|dump|dump-tree|autotab) harness "$command" "$@";;
+    trust|dump|dump-tree|autotab|probe-combobox) harness "$command" "$@";;
     run) launch; echo "ghostctl: Ghost is starting (menu bar). 'ghostctl log' shows what it does." >&2;;
     quit) pkill -f "$PROCESS_PATTERN" 2>/dev/null && echo "ghostctl: asked Ghost to quit" >&2 || echo "ghostctl: Ghost is not running" >&2;;
     log) if [ -f "$LOG" ]; then tail -n "${1:-40}" "$LOG"; else echo "ghostctl: no log yet at $LOG" >&2; fi;;
@@ -143,5 +157,5 @@ case "$command" in
         [ -n "$lib" ] || die "no libghost.dylib: run 'make -C desktop lib'"
         GHOST_LIB="$lib" exec "$APP/Contents/MacOS/Ghost" --selftest;;
     -h|--help|help) usage;;
-    *) die "unknown command '$command' (trust | dump | dump-tree | autotab N | run | quit | log | selftest)";;
+    *) die "unknown command '$command' (trust | dump | dump-tree | autotab N | probe-combobox LABEL | run | quit | log | selftest)";;
 esac

@@ -727,3 +727,124 @@ GH_TEST(harness_can_only_ever_post_tab) {
     GH_ASSERT_EQUAL_INT(optional, 0);
     GH_ASSERT_EQUAL_OBJECTS(only, @"postTab");
 }
+
+#pragma mark - --expect-field (the page guard)
+
+GH_TEST(harness_request_parses_expect_field) {
+    NSString *error;
+    GHHarnessRequest *request = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--autotab", @"9", @"--frontmost", @"Safari",
+                                                                           @"--expect-field", @"First Name" ] error:&error];
+    GH_ASSERT_MSG(request != nil, @"%@", error);
+    GH_ASSERT_EQUAL_OBJECTS(request.expectField, @"First Name");
+    // It survives the trip to a running agent, or the guard would silently vanish on the way.
+    GHHarnessRequest *again = [GHHarnessRequest requestWithData:request.data error:&error];
+    GH_ASSERT_MSG(again != nil, @"%@", error);
+    GH_ASSERT_EQUAL_OBJECTS(again.expectField, @"First Name");
+    // And the run is given time to pay for one capture per press.
+    GHHarnessRequest *plain = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--autotab", @"9" ] error:NULL];
+    GH_ASSERT(request.autotabBudget > plain.autotabBudget);
+}
+
+GH_TEST(harness_request_rejects_an_unusable_expect_field) {
+    NSString *error = nil;
+    GH_ASSERT([GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--dump", @"--expect-field", @"a\nb" ] error:&error] == nil);
+    GH_ASSERT(error.length > 0);
+    error = nil;
+    GH_ASSERT([GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--dump", @"--expect-field" ] error:&error] == nil);
+    GH_ASSERT(error.length > 0);
+    NSMutableDictionary *wire = [[[GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--dump" ] error:NULL] dictionary] mutableCopy];
+    wire[@"expectField"] = @[ @"not a string" ];
+    GH_ASSERT([GHHarnessRequest requestWithDictionary:wire error:NULL] == nil);
+}
+
+GH_TEST(harness_expectation_matches_a_decorated_label) {
+    NSArray<NSString *> *greenhouse = @[ @"First Name *", @"Last Name *", @"Email *", @"Resume/CV" ];
+    GH_ASSERT(GHHarnessLabelsMeetExpectation(greenhouse, @"First Name"));
+    GH_ASSERT(GHHarnessLabelsMeetExpectation(greenhouse, @"first name"));       // case
+    GH_ASSERT(GHHarnessLabelsMeetExpectation(@[ @"First  Name\t*" ], @"First Name"));   // nbsp + runs of space
+    GH_ASSERT(GHHarnessLabelsMeetExpectation(@[ @"Prénom" ], @"prenom"));       // diacritics
+    GH_ASSERT(GHHarnessLabelsMeetExpectation(greenhouse, @"  "));               // no guard asked for
+    GH_ASSERT_FALSE(GHHarnessLabelsMeetExpectation(greenhouse, @"Card Number"));
+    GH_ASSERT_FALSE(GHHarnessLabelsMeetExpectation(@[ @"Search", @"Inbox" ], @"First Name"));
+    // A page that captured nothing is the case the guard exists for: it never counts as a match.
+    GH_ASSERT_FALSE(GHHarnessLabelsMeetExpectation(@[], @"First Name"));
+    GH_ASSERT_FALSE(GHHarnessLabelsMeetExpectation(nil, @"First Name"));
+    GH_ASSERT_FALSE(GHHarnessLabelsMeetExpectation((id)@"First Name", @"First Name"));   // not even an array
+}
+
+GH_TEST(harness_autotab_presses_nothing_when_the_page_is_not_the_expected_one) {
+    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"First Name", NO), Ghost(@"Last Name", NO), Ghost(@"Submit application", YES) ]);
+    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    __block NSUInteger asked = 0;
+    NSDictionary *report = RunAutotab(subject, poster, 5, ^(GHAutotabRunner *runner) {
+        runner.expectField = @"First Name";
+        runner.precondition = ^(void (^allow)(NSString *problem)) { asked++; allow(@"expect-field-missing"); };
+    });
+    GH_ASSERT_EQUAL_OBJECTS(report[@"stopped"], @"expect-field-missing");
+    GH_ASSERT_EQUAL_INT([report[@"posted"] integerValue], 0);
+    GH_ASSERT_EQUAL_INT(poster.posted, 0);              // the KEYBOARD is what matters: nothing was sent
+    GH_ASSERT_EQUAL_INT(subject.tabsSeen, 0);
+    GH_ASSERT_EQUAL_INT(asked, 1);                      // and it stopped, it did not keep asking
+    GH_ASSERT_EQUAL_INT([report[@"steps"] count], 0);
+    GH_ASSERT_EQUAL_OBJECTS(report[@"expectField"], @"First Name");
+}
+
+GH_TEST(harness_autotab_stops_the_moment_the_page_changes_under_it) {
+    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"First Name", NO), Ghost(@"Last Name", NO), Ghost(@"Email", NO), Ghost(@"Phone", NO) ]);
+    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    __block NSUInteger asked = 0;
+    NSDictionary *report = RunAutotab(subject, poster, 4, ^(GHAutotabRunner *runner) {
+        runner.expectField = @"First Name";
+        // The tab is switched away after two presses.
+        runner.precondition = ^(void (^allow)(NSString *problem)) { asked++; allow(asked > 2 ? @"expect-field-missing" : nil); };
+    });
+    GH_ASSERT_EQUAL_OBJECTS(report[@"stopped"], @"expect-field-missing");
+    GH_ASSERT_EQUAL_INT([report[@"posted"] integerValue], 2);
+    GH_ASSERT_EQUAL_INT(poster.posted, 2);              // the third press never left the process
+    GH_ASSERT_EQUAL_INT(subject.tabsSeen, 2);
+    GH_ASSERT_EQUAL_INT([report[@"steps"] count], 2);
+}
+
+GH_TEST(harness_autotab_guard_runs_before_every_press_and_only_then) {
+    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"First Name", NO), Ghost(@"Last Name", NO), Ghost(@"Submit application", YES) ]);
+    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    __block NSUInteger asked = 0;
+    NSDictionary *report = RunAutotab(subject, poster, 9, ^(GHAutotabRunner *runner) {
+        runner.expectField = @"First Name";
+        runner.precondition = ^(void (^allow)(NSString *problem)) { asked++; allow(nil); };
+    });
+    GH_ASSERT_EQUAL_OBJECTS(report[@"stopped"], @"locked");
+    GH_ASSERT_EQUAL_INT(poster.posted, 2);
+    // Once per press and not once more: parking on the lock is decided before the guard is worth a capture.
+    GH_ASSERT_EQUAL_INT(asked, 2);
+    GH_ASSERT_EQUAL_OBJECTS(report[@"lockedLabel"], @"Submit application");
+}
+
+GH_TEST(harness_autotab_guard_may_answer_late_and_only_once) {
+    GHFakeAutotabSubject *subject = Subject(@[ Ghost(@"First Name", NO), Ghost(@"Last Name", NO) ]);
+    GHFakeTabPoster *poster = [[GHFakeTabPoster alloc] init];
+    // The live guard answers on the main queue after an AX walk: the answer arrives later than the call.
+    NSMutableArray<void (^)(NSString *)> *pending = [NSMutableArray array];
+    poster.subject = subject;
+    GHAutotabRunner *runner = [[GHAutotabRunner alloc] initWithSubject:subject poster:poster];
+    NSMutableArray<dispatch_block_t> *timers = [NSMutableArray array];
+    __block NSTimeInterval now = 1000;
+    runner.after = ^(NSTimeInterval delay, dispatch_block_t block) { now += delay; [timers addObject:[block copy]]; };
+    runner.clock = ^NSTimeInterval { return now; };
+    runner.precondition = ^(void (^allow)(NSString *problem)) { [pending addObject:[allow copy]]; };
+    __block NSDictionary *report = nil;
+    [runner runCount:2 intervalMs:100 completion:^(NSDictionary<NSString *, id> *r) { report = r; }];
+    GH_ASSERT_EQUAL_INT(poster.posted, 0);              // nothing goes out while the guard is still looking
+    GH_ASSERT_EQUAL_INT(pending.count, 1);
+    void (^allow)(NSString *) = pending.firstObject;
+    allow(nil);
+    GH_ASSERT_EQUAL_INT(poster.posted, 1);
+    allow(nil);                                          // a guard that answers twice must not press twice
+    GH_ASSERT_EQUAL_INT(poster.posted, 1);
+    for (NSUInteger guard = 0; !report && guard < 100; guard++) {
+        while (timers.count) { dispatch_block_t next = timers.firstObject; [timers removeObjectAtIndex:0]; next(); }
+        if (pending.count > 1) { pending[1](@"expect-field-missing"); break; }
+    }
+    GH_ASSERT_EQUAL_INT(poster.posted, 1);
+    GH_ASSERT_EQUAL_OBJECTS(report[@"stopped"], @"expect-field-missing");
+}

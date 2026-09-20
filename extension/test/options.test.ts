@@ -82,7 +82,7 @@ describe("options page", () => {
   it("loads the demo profile as JSON with Save disabled until something changes", () => {
     expect(JSON.parse($<HTMLTextAreaElement>("profile-json").value)).toEqual(DEMO_PROFILE);
     expect($<HTMLButtonElement>("profile-save").disabled).toBe(true);
-    expect($("profile-summary").textContent).toContain("19 facts");
+    expect($("profile-summary").textContent).toContain("21 facts");
   });
 
   it("shows a validation error and blocks Save for invalid JSON", () => {
@@ -127,7 +127,7 @@ describe("options page", () => {
   it("opens on the key/value editor with one row per fact and keeps the JSON in step", async () => {
     expect($("profile-view-fields").getAttribute("aria-pressed")).toBe("true");
     expect($<HTMLTextAreaElement>("profile-json").hidden).toBe(true);
-    expect(factRows()).toHaveLength(19);
+    expect(factRows()).toHaveLength(21);
     const [, value] = rowInputs(factRows().find((row) => rowInputs(row)[0].value === "city"));
     type(value, "Toronto");
     expect(JSON.parse($<HTMLTextAreaElement>("profile-json").value).facts.city).toBe("Toronto");
@@ -147,7 +147,7 @@ describe("options page", () => {
     const facts = (await getProfile()).facts;
     expect(facts["extra.languages"]).toBe("English, Mandarin");
     expect(facts.firstName).toBeUndefined();
-    expect($("profile-summary").textContent).toContain("19 facts");
+    expect($("profile-summary").textContent).toContain("21 facts");
   });
 
   it.each([

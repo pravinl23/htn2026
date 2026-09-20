@@ -9,12 +9,14 @@
 #import "GHCore.h"
 #import "GHField.h"
 #import "GHLog.h"
+#import "GHProbe.h"
 #import "GHProfileStore.h"
 
 NSString *const GHHarnessModeTrust = @"trust";
 NSString *const GHHarnessModeDump = @"dump";
 NSString *const GHHarnessModeDumpTree = @"dump-tree";
 NSString *const GHHarnessModeAutotab = @"autotab";
+NSString *const GHHarnessModeProbeComboBox = @"probe-combobox";
 NSString *const GHHarnessRequestNotification = @"dev.ghost.desktop.harness.request";
 
 const NSInteger GHHarnessMaxAutotabCount = 200;
@@ -27,19 +29,22 @@ const NSTimeInterval GHHarnessRequestMaxAge = 120.0;
 static const NSTimeInterval kTreeTimeBudget = 25.0;
 static const NSTimeInterval kCaptureTimeBudget = 2.0;
 static const NSUInteger kCaptureMaxNodes = 6000;
+static const NSTimeInterval kGuardTimeBudget = 2.0;   // the --expect-field re-capture, once per press
 static const NSUInteger kMaxClasses = 12;
 static const NSUInteger kStallLimit = 3;
 
 #pragma mark - request
 
 static NSDictionary<NSString *, NSString *> *GHHarnessModeFlags(void) {
-    return @{ @"--trust": GHHarnessModeTrust, @"--dump": GHHarnessModeDump, @"--dump-tree": GHHarnessModeDumpTree, @"--autotab": GHHarnessModeAutotab };
+    return @{ @"--trust": GHHarnessModeTrust, @"--dump": GHHarnessModeDump, @"--dump-tree": GHHarnessModeDumpTree,
+              @"--autotab": GHHarnessModeAutotab, @"--probe-combobox": GHHarnessModeProbeComboBox };
 }
 
 /// Flags that take a value, and the dictionary key the value travels under.
 static NSDictionary<NSString *, NSString *> *GHHarnessValueFlags(void) {
     return @{ @"--autotab": @"count", @"--interval": @"intervalMs", @"--depth": @"depth", @"--delay": @"delay",
-              @"--frontmost": @"frontmost", @"--out": @"out" };
+              @"--frontmost": @"frontmost", @"--expect-field": @"expectField", @"--out": @"out",
+              @"--probe-combobox": @"probeLabel" };
 }
 
 static BOOL GHHarnessFail(NSString **error, NSString *message) {
@@ -106,7 +111,8 @@ static BOOL GHHarnessIdentifierIsSafe(NSString *identifier) {
         NSString *value = i + 1 < arguments.count ? arguments[i + 1] : nil;
         if (!value || [value hasPrefix:@"--"]) { GHHarnessFail(error, [NSString stringWithFormat:@"%@ needs a value", flag]); return nil; }
         i++;
-        if ([key isEqualToString:@"frontmost"] || [key isEqualToString:@"out"]) { dictionary[key] = value; continue; }
+        if ([key isEqualToString:@"frontmost"] || [key isEqualToString:@"expectField"] || [key isEqualToString:@"out"]
+            || [key isEqualToString:@"probeLabel"]) { dictionary[key] = value; continue; }
         NSNumber *number = GHHarnessParseNumber(value, ![key isEqualToString:@"delay"]);
         if (!number) { GHHarnessFail(error, [NSString stringWithFormat:@"%@ needs a number", flag]); return nil; }
         dictionary[key] = number;
@@ -122,6 +128,7 @@ static BOOL GHHarnessIdentifierIsSafe(NSString *identifier) {
     if (error) *error = nil;
     if (![dictionary isKindOfClass:[NSDictionary class]]) { GHHarnessFail(error, @"not a request"); return nil; }
     NSString *mode = dictionary[@"mode"], *identifier = dictionary[@"id"], *frontmost = dictionary[@"frontmost"], *outPath = dictionary[@"out"];
+    NSString *expectField = dictionary[@"expectField"], *probeLabel = dictionary[@"probeLabel"];
     if (![mode isKindOfClass:[NSString class]] || ![GHHarnessModeFlags().allValues containsObject:mode]) { GHHarnessFail(error, @"unknown mode"); return nil; }
     if (![identifier isKindOfClass:[NSString class]] || !GHHarnessIdentifierIsSafe(identifier)) { GHHarnessFail(error, @"bad id"); return nil; }
     if (frontmost && (![frontmost isKindOfClass:[NSString class]] || frontmost.length == 0 || frontmost.length > 200
@@ -129,9 +136,23 @@ static BOOL GHHarnessIdentifierIsSafe(NSString *identifier) {
         GHHarnessFail(error, @"--frontmost needs an app name or a bundle id");
         return nil;
     }
+    if (expectField && (![expectField isKindOfClass:[NSString class]] || expectField.length == 0 || expectField.length > 200
+                        || [expectField rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location != NSNotFound)) {
+        GHHarnessFail(error, @"--expect-field needs a one-line piece of a field label");
+        return nil;
+    }
     if (outPath) {
         NSString *problem = [outPath isKindOfClass:[NSString class]] ? GHHarnessProblemWithOutPath(outPath) : @"--out needs an absolute path";
         if (problem) { GHHarnessFail(error, problem); return nil; }
+    }
+    if (probeLabel && (![probeLabel isKindOfClass:[NSString class]] || probeLabel.length == 0 || probeLabel.length > 200
+                       || [probeLabel rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location != NSNotFound)) {
+        GHHarnessFail(error, @"--probe-combobox needs a one-line piece of a combo box label");
+        return nil;
+    }
+    if ([mode isEqualToString:GHHarnessModeProbeComboBox] && !probeLabel.length) {
+        GHHarnessFail(error, @"--probe-combobox needs a label");
+        return nil;
     }
     BOOL autotab = [mode isEqualToString:GHHarnessModeAutotab];
     if (autotab && !dictionary[@"count"]) { GHHarnessFail(error, @"--autotab needs a count"); return nil; }
@@ -150,6 +171,8 @@ static BOOL GHHarnessIdentifierIsSafe(NSString *identifier) {
     request.depth = (NSInteger)depth;
     request.delay = delay;
     request.frontmost = frontmost;
+    request.expectField = expectField;
+    request.probeLabel = probeLabel;
     request.outPath = outPath;
     request.createdAt = createdAt;
     return request;
@@ -168,6 +191,8 @@ static BOOL GHHarnessIdentifierIsSafe(NSString *identifier) {
     } mutableCopy];
     if ([self.mode isEqualToString:GHHarnessModeAutotab]) out[@"count"] = @(self.count);
     if (self.frontmost) out[@"frontmost"] = self.frontmost;
+    if (self.expectField) out[@"expectField"] = self.expectField;
+    if (self.probeLabel) out[@"probeLabel"] = self.probeLabel;
     if (self.outPath) out[@"out"] = self.outPath;
     return out;
 }
@@ -177,19 +202,46 @@ static BOOL GHHarnessIdentifierIsSafe(NSString *identifier) {
 }
 
 - (NSTimeInterval)autotabBudget {
-    return (NSTimeInterval)self.count * ((NSTimeInterval)self.intervalMs / 1000.0 + 1.0) + 8.0;
+    // --expect-field re-captures the window before every press: that capture has its own budget (kGuardTimeBudget)
+    // and the run must be allowed to pay it `count` times over, or the guard would time the run out by itself.
+    NSTimeInterval perPress = (NSTimeInterval)self.intervalMs / 1000.0 + 1.0 + (self.expectField.length ? 2.5 : 0.0);
+    return (NSTimeInterval)self.count * perPress + 8.0;
 }
 
 - (NSTimeInterval)deadline {
     NSTimeInterval total = self.delay + 15.0 + (self.frontmost ? 2.0 : 0.0);
     if ([self.mode isEqualToString:GHHarnessModeAutotab]) total += self.autotabBudget;
     if ([self.mode isEqualToString:GHHarnessModeDumpTree]) total += kTreeTimeBudget + 5.0;
+    if ([self.mode isEqualToString:GHHarnessModeProbeComboBox]) total += 20.0;
     return total;
 }
 
 @end
 
 #pragma mark - response
+
+/// Lower case, no diacritics, whitespace (including the &nbsp; Greenhouse puts in labels) collapsed to one space,
+/// trimmed. Both sides go through this, so "first name" matches "First Name *".
+static NSString *GHHarnessFoldedLabel(NSString *text) {
+    if (![text isKindOfClass:[NSString class]] || text.length == 0) return @"";
+    NSString *folded = [text stringByFoldingWithOptions:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch | NSWidthInsensitiveSearch
+                                                 locale:[NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"]];
+    NSArray<NSString *> *pieces = [folded componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSMutableArray<NSString *> *words = [NSMutableArray array];
+    for (NSString *piece in pieces) if (piece.length) [words addObject:piece];
+    return [words componentsJoinedByString:@" "];
+}
+
+BOOL GHHarnessLabelsMeetExpectation(NSArray<NSString *> *labels, NSString *expectation) {
+    NSString *wanted = GHHarnessFoldedLabel(expectation);
+    if (wanted.length == 0) return YES;                     // no guard asked for
+    if (![labels isKindOfClass:[NSArray class]]) return NO;
+    for (NSString *label in labels) {
+        NSString *folded = GHHarnessFoldedLabel([label isKindOfClass:[NSString class]] ? label : nil);
+        if (folded.length && [folded rangeOfString:wanted].location != NSNotFound) return YES;
+    }
+    return NO;
+}
 
 NSDictionary<NSString *, id> *GHHarnessNotTrustedResponse(void) {
     return @{ @"error": @"not trusted", @"trusted": @NO };
@@ -714,6 +766,7 @@ static const CGKeyCode kHarnessTabKeyCode = 48;
     NSMutableDictionary<NSString *, id> *report = [@{ @"requested": @(_count), @"posted": @(_posted), @"stopped": stopped,
                                                       @"steps": [_steps copy], @"final": state ?: @{} } mutableCopy];
     if ([stopped isEqualToString:@"locked"]) report[@"lockedLabel"] = state[@"current"][@"label"] ?: @"";
+    if (self.expectField.length) report[@"expectField"] = self.expectField;
     void (^completion)(NSDictionary<NSString *, id> *) = _completion;
     _completion = nil;
     if (completion) completion(report);
@@ -731,10 +784,24 @@ static const CGKeyCode kHarnessTabKeyCode = 48;
     else if (self.maxDuration > 0 && self.clock() - _startedAt > self.maxDuration) stop = @"timeout";
     if (stop) { [self finish:stop state:state]; return; }
 
+    // Last, because it is the only check that costs a window capture, and it must be the most recent thing known
+    // before the key goes out: everything above is about Ghost, this one is about the page still being the page.
+    if (!self.precondition) { [self press:current]; return; }
+    __block BOOL answered = NO;
+    self.precondition(^(NSString *problem) {
+        if (answered) return;                                    // a guard that answers twice must not press twice
+        answered = YES;
+        if (problem.length) { [self finish:problem state:[self->_subject harnessState] ?: @{}]; return; }
+        [self press:current];
+    });
+}
+
+- (void)press:(NSDictionary *)current {
+    if (!_completion) return;                                    // cancelled while the guard was looking
     _stepCountBefore = _subject.stepCount;
     _currentBefore = current;
     _pressedAt = self.clock();
-    if (![_poster postTab]) { [self finish:@"post-failed" state:state]; return; }
+    if (![_poster postTab]) { [self finish:@"post-failed" state:[_subject harnessState] ?: @{}]; return; }
     _posted++;
     self.after(_interval, ^{ [self settle]; });
 }
@@ -803,6 +870,23 @@ static NSRunningApplication *GHHarnessFindApplication(NSString *nameOrBundleId) 
     return nil;
 }
 
+/// Every piece of text in a redacted --dump-tree that could carry a field label. Values never reach the tree, so
+/// this can only ever see labels and page text.
+static void GHHarnessCollectTreeLabels(id node, NSMutableArray<NSString *> *into) {
+    if (into.count > 4000) return;
+    if ([node isKindOfClass:[NSArray class]]) {
+        for (id child in (NSArray *)node) GHHarnessCollectTreeLabels(child, into);
+        return;
+    }
+    if (![node isKindOfClass:[NSDictionary class]]) return;
+    NSDictionary *dictionary = node;
+    for (NSString *key in @[ @"title", @"description", @"placeholder", @"help", @"text", @"labelledBy", @"roleDescription" ]) {
+        NSString *text = dictionary[key];
+        if ([text isKindOfClass:[NSString class]] && text.length) [into addObject:text];
+    }
+    GHHarnessCollectTreeLabels(dictionary[@"children"], into);
+}
+
 static AXUIElementRef GHHarnessCopyWindow(AXUIElementRef application, AXError *error) {
     CFTypeRef window = NULL;
     for (NSString *attribute in @[ (__bridge NSString *)kAXFocusedWindowAttribute, (__bridge NSString *)kAXMainWindowAttribute ]) {
@@ -814,6 +898,41 @@ static AXUIElementRef GHHarnessCopyWindow(AXUIElementRef application, AXError *e
     if (*error != kAXErrorSuccess || !windows) return NULL;
     NSArray *list = CFBridgingRelease(windows);
     return list.count ? (AXUIElementRef)CFBridgingRetain(list.firstObject) : NULL;
+}
+
+/// A bounded capture of `pid`'s frontmost window, for the --expect-field guard only: the field LABELS, nothing else.
+/// nil (never an empty array) when there is no window, no core or the walk found nothing, so that the caller cannot
+/// confuse "the page is gone" with "the page has no matching field" -- both refuse the press either way.
+static NSArray<NSString *> *GHHarnessCapturedLabels(pid_t pid, NSString *bundleId, NSURL *bundleURL, GHCore *core) {
+    if (!core) return nil;
+    AXUIElementRef application = AXUIElementCreateApplication(pid);
+    if (!application) return nil;
+    AXUIElementSetMessagingTimeout(application, 1.0);
+    if ([GHAccessibility appNeedsEnhancedUserInterface:bundleId bundleURL:bundleURL]) {
+        AXUIElementSetAttributeValue(application, CFSTR("AXEnhancedUserInterface"), kCFBooleanTrue);
+        AXUIElementSetAttributeValue(application, CFSTR("AXManualAccessibility"), kCFBooleanTrue);
+    }
+    AXError axError = kAXErrorSuccess;
+    AXUIElementRef window = GHHarnessCopyWindow(application, &axError);
+    NSArray<NSString *> *labels = nil;
+    id<GHAXNode> node = window ? [GHAXElementNode nodeWithElement:window] : nil;
+    if (node) {
+        GHCapture *capture = [[GHCapture alloc] initWithSafety:core];
+        GHCaptureLimits *limits = [GHCaptureLimits defaultLimits];
+        limits.maxNodes = kCaptureMaxNodes;
+        limits.timeBudget = kGuardTimeBudget;
+        limits.webAreaTimeBudget = kGuardTimeBudget;
+        capture.limits = limits;
+        capture.keepsScrolledOutFields = YES;
+        capture.treatsFramelessWebNodesAsScrolledOut = [GHAccessibility appNeedsEnhancedUserInterface:bundleId bundleURL:bundleURL];
+        GHCaptureResult *result = [capture captureWindow:node];
+        NSMutableArray<NSString *> *found = [NSMutableArray array];
+        for (GHField *field in result.fields) if (field.label.length) [found addObject:field.label];
+        labels = found.count ? [found copy] : nil;
+    }
+    if (window) CFRelease(window);
+    CFRelease(application);
+    return labels;
 }
 
 @implementation GHHarness
@@ -893,6 +1012,26 @@ static BOOL (^gPauseCheck)(NSString *);
     GHAutotabRunner *runner = [[GHAutotabRunner alloc] initWithSubject:(id<GHAutotabSubject>)controller poster:[[GHHarnessTabPoster alloc] init]];
     runner.maxDuration = request.autotabBudget;
     NSString *bundleId = target.bundleIdentifier ?: @"unknown";
+    if (request.expectField.length) {
+        // The page guard. `--frontmost Safari` only says Safari is in front; this says the window in front is still
+        // the one the run was aimed at. It runs before EVERY press, so a tab the user (or a redirect) switched under
+        // the run costs zero keystrokes.
+        NSString *expected = [request.expectField copy];
+        pid_t pid = target.processIdentifier;
+        NSURL *bundleURL = target.bundleURL;
+        GHCore *core = [GHCore sharedCore];
+        runner.expectField = expected;
+        runner.precondition = ^(void (^allow)(NSString *problem)) {
+            NSRunningApplication *now = GHHarnessTargetApplication();       // main queue: NSWorkspace lives there
+            if (!now || now.processIdentifier != pid) { allow(@"frontmost-changed"); return; }
+            dispatch_async(GHHarnessQueue(), ^{
+                NSArray<NSString *> *labels = GHHarnessCapturedLabels(pid, bundleId, bundleURL, core);
+                BOOL ok = GHHarnessLabelsMeetExpectation(labels, expected);
+                if (!ok) GHLog(@"harness: expect-field guard refused a press (app=%@, %lu labels)", bundleId, (unsigned long)labels.count);
+                dispatch_async(dispatch_get_main_queue(), ^{ allow(ok ? nil : @"expect-field-missing"); });
+            });
+        };
+    }
     __block GHAutotabRunner *keepAlive = runner;   // nothing else owns the runner while it waits between presses
     [runner runCount:request.count intervalMs:request.intervalMs completion:^(NSDictionary<NSString *, id> *report) {
         NSMutableDictionary<NSString *, id> *response = [report mutableCopy];
@@ -915,9 +1054,10 @@ static BOOL (^gPauseCheck)(NSString *);
     NSURL *bundleURL = target.bundleURL;
     NSString *appName = target.localizedName ?: @"";
     BOOL wantsTree = [request.mode isEqualToString:GHHarnessModeDumpTree];
+    BOOL wantsProbe = [request.mode isEqualToString:GHHarnessModeProbeComboBox];
     NSUInteger depth = (NSUInteger)request.depth;
-    GHCore *core = wantsTree ? nil : [GHCore sharedCore];
-    if (!wantsTree && !core) { completion(GHHarnessErrorResponse(@"no-core", @"ghost-core.js is missing; run make core lib")); return; }
+    GHCore *core = (wantsTree || wantsProbe) ? nil : [GHCore sharedCore];
+    if (!wantsTree && !wantsProbe && !core) { completion(GHHarnessErrorResponse(@"no-core", @"ghost-core.js is missing; run make core lib")); return; }
 
     dispatch_async(GHHarnessQueue(), ^{
         CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
@@ -946,13 +1086,28 @@ static BOOL (^gPauseCheck)(NSString *);
             response[@"depth"] = @(depth);
             response[@"visitedNodes"] = @(visited);
             response[@"truncated"] = @(truncated);
+            if (request.expectField.length) {
+                NSMutableArray<NSString *> *texts = [NSMutableArray array];
+                GHHarnessCollectTreeLabels(response[@"tree"], texts);
+                BOOL matched = GHHarnessLabelsMeetExpectation(texts, request.expectField);
+                response[@"expectField"] = request.expectField;
+                response[@"expectFieldMatched"] = @(matched);
+                if (!matched) response[@"error"] = @"expect-field-missing";
+            }
+        } else if (wantsProbe) {
+            [response addEntriesFromDictionary:[GHProbe probeComboBoxUnderWindow:node labelSubstring:request.probeLabel]];
         } else {
             GHCapture *capture = [[GHCapture alloc] initWithSafety:core];
             GHCaptureLimits *limits = [GHCaptureLimits defaultLimits];
             limits.maxNodes = kCaptureMaxNodes;
             limits.timeBudget = kCaptureTimeBudget;
+            // webAreaTimeBudget REPLACES timeBudget once the walk meets the page, so raising only timeBudget left
+            // the real budget at the 0.12 s default's 0.6 s successor -- enough for Safari, not for Chrome, whose
+            // AX round trips are several times slower.
+            limits.webAreaTimeBudget = kCaptureTimeBudget;
             capture.limits = limits;
             capture.keepsScrolledOutFields = YES;   // the same view of the page as the running controller
+            capture.treatsFramelessWebNodesAsScrolledOut = [GHAccessibility appNeedsEnhancedUserInterface:bundleId bundleURL:bundleURL];
             GHCaptureResult *result = [capture captureWindow:node];
             NSUInteger locked = 0;
             for (GHField *field in result.fields) if (field.locked) locked++;
@@ -962,6 +1117,15 @@ static BOOL (^gPauseCheck)(NSString *);
             response[@"fieldCount"] = @(result.fields.count);
             response[@"lockedCount"] = @(locked);
             response[@"fields"] = [GHField wireJSONObjectsForFields:result.fields];   // wire objects: never a value
+            if (request.expectField.length) {
+                NSMutableArray<NSString *> *labels = [NSMutableArray array];
+                for (GHField *field in result.fields) if (field.label.length) [labels addObject:field.label];
+                BOOL matched = GHHarnessLabelsMeetExpectation(labels, request.expectField);
+                response[@"expectField"] = request.expectField;
+                response[@"expectFieldMatched"] = @(matched);
+                // The fields stay in the answer: seeing WHAT was captured instead is the whole point of a failed guard.
+                if (!matched) response[@"error"] = @"expect-field-missing";
+            }
         }
         response[@"elapsedMs"] = @(round((CFAbsoluteTimeGetCurrent() - started) * 1000.0));
         if (window) CFRelease(window);

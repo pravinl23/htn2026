@@ -251,6 +251,7 @@ static BOOL GHSameText(NSString *a, NSString *b) {
     NSUInteger _optionCount;
     pid_t _pid;
     BOOL _typed;
+    BOOL _openedByPress;
     NSTimeInterval _started;
 }
 
@@ -263,6 +264,7 @@ static BOOL GHSameText(NSString *a, NSString *b) {
         _pollInterval = 0.1;
         _focusSettleDelay = 0.05;
         _listTimeout = 1.5;
+        _openTimeout = 0.7;
         _verifyDelay = 0.15;
         _keyStepDelay = 0.06;
         _after = ^(NSTimeInterval delay, dispatch_block_t block) {
@@ -284,6 +286,7 @@ static BOOL GHSameText(NSString *a, NSString *b) {
     if (isHighlighted) { _isHighlighted = [isHighlighted copy]; return; }
     _isHighlighted = ^BOOL(id<GHAXNode> option) {
         if (option.isFocused) return YES;
+        if (GHHasHighlightClass(option)) return YES;   // react-select: the class IS the highlight
         AXUIElementRef element = option.axElement;
         if (!element) return NO;
         CFTypeRef value = NULL;
@@ -327,6 +330,28 @@ static BOOL GHLooksLikeList(id<GHAXNode> node) {
     if ([description isEqualToString:@"content list"]) return NO;
     if ([node.role isEqualToString:@"AXList"] || [node.role isEqualToString:@"AXMenu"]) return YES;
     return [description isEqualToString:@"list box"] || [description isEqualToString:@"listbox"] || [description isEqualToString:@"menu"];
+}
+
+/// Does any DOM class of `node` end in "option"? react-select marks every row of an open menu with `select__option`
+/// (plus a generated `…-option`), and in WebKit that is the ONLY thing that separates an option row from ordinary
+/// page text: the role is AXStaticText and the role description is "text", not "option".
+static BOOL GHHasOptionClass(id<GHAXNode> node) {
+    for (NSString *name in node.domClassList) {
+        NSString *lower = name.lowercaseString;
+        if ([lower isEqualToString:@"option"] || [lower hasSuffix:@"-option"] || [lower hasSuffix:@"_option"]) return YES;
+    }
+    return NO;
+}
+
+/// react-select's highlighted row carries `select__option--is-focused`; the chosen one `--is-selected`. Neither sets
+/// AXFocused or AXSelected, so the arrow-key fallback could never see a highlight on a real page without this.
+static BOOL GHHasHighlightClass(id<GHAXNode> node) {
+    for (NSString *name in node.domClassList) {
+        NSString *lower = name.lowercaseString;
+        if ([lower hasSuffix:@"--is-focused"] || [lower hasSuffix:@"--is-selected"]
+            || [lower hasSuffix:@"-is-focused"] || [lower hasSuffix:@"-is-selected"]) return YES;
+    }
+    return NO;
 }
 
 static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget *outer);
@@ -447,13 +472,16 @@ static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget 
     GHWalk(list, 5, &budget, ^BOOL(id<GHAXNode> node, NSUInteger depth, BOOL *stop) {
         if (depth == 0) return YES;
         NSString *description = node.roleDescription.lowercaseString ?: @"";
-        if ([node.role isEqualToString:@"AXMenuItem"] || [description isEqualToString:@"option"] || [node.subrole isEqualToString:@"AXOption"]) {
+        if ([node.role isEqualToString:@"AXMenuItem"] || [description isEqualToString:@"option"] || [node.subrole isEqualToString:@"AXOption"]
+            || GHHasOptionClass(node)) {
             NSString *text = [GHComboBoxDriver textOfOption:node];
             if (node.enabled && text.length && !GHIsNotice(text)) [explicit addObject:node];
             return NO;
         }
         if ([node.role isEqualToString:@"AXStaticText"]) {
-            NSString *text = GHTrimmed(node.value);
+            // NOT node.value: WebKit gives react-select's option divs (AXStaticText, role description "text") their
+            // label in AXTitle and leaves AXValue empty, which is why the real Greenhouse menu read as 0 options.
+            NSString *text = [GHComboBoxDriver textOfOption:node];
             if (text.length && !GHIsNotice(text)) [texts addObject:node];
             return NO;   // nested static text repeats its parent
         }
@@ -559,14 +587,39 @@ static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget 
     _optionCount = 0;
     _pid = pid;
     _typed = NO;
+    _openedByPress = NO;
     _started = self.clock();
 
     [self.actuator focusNode:combo];
     [self later:self.focusSettleDelay do:^{
         id<GHAXNode> focused = [self.state focusedElement];
         if (![focused isSameNode:self->_combo]) { [self finish:GHComboBoxOutcomeSkipped reason:GHComboBoxReasonNotFocused method:GHComboBoxMethodNone escaped:NO cleared:NO]; return; }
-        [self typeAnswer];
+        [self openByPress];
     }];
+}
+
+/// Step 3a, before any key: AXPress the combo box itself. On the real Greenhouse form this is what opens
+/// react-select's menu -- typing into that 4 px wide inner input opens nothing -- and it costs the page no
+/// keystrokes at all. A control that does not answer a press falls through to typing, which is what a location or
+/// type-ahead field needs.
+- (void)openByPress {
+    if (!_running || ![self stillSafe]) return;
+    id<GHAXNode> combo = [self.actuator refreshedNode:_combo];
+    if (!combo) { [self finish:GHComboBoxOutcomeSkipped reason:GHComboBoxReasonGone method:GHComboBoxMethodNone escaped:NO cleared:NO]; return; }
+    if (![self.actuator pressNode:combo]) { [self typeAnswer]; return; }
+    _openedByPress = YES;
+    [self waitForOpenedListUntil:self.clock() + self.openTimeout generation:_generation];
+}
+
+/// Like waitForListUntil:, but running out is not a failure: it just means this control does not open on a press,
+/// so the old typing path takes over.
+- (void)waitForOpenedListUntil:(NSTimeInterval)deadline generation:(NSUInteger)generation {
+    if (generation != _generation || !_running || ![self stillSafe]) return;
+    id<GHAXNode> list = [self currentList];
+    NSArray<id<GHAXNode>> *options = list ? [GHComboBoxDriver optionsInList:list] : @[];
+    if (options.count) { [self pickFrom:options]; return; }
+    if (self.clock() >= deadline) { [self typeAnswer]; return; }
+    self.after(self.pollInterval, ^{ [self waitForOpenedListUntil:deadline generation:generation]; });
 }
 
 - (void)typeAnswer {
@@ -610,7 +663,14 @@ static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget 
     NSArray<NSString *> *texts = [self textsOf:options];
     _optionCount = texts.count;
     GHOptionMatch match = self.matcher(texts, _answer);
-    if (match.index < 0 || (NSUInteger)match.index >= texts.count || match.score < self.threshold) { [self abandon:GHComboBoxReasonNoMatchingOption]; return; }
+    if (match.index < 0 || (NSUInteger)match.index >= texts.count || match.score < self.threshold) {
+        // A menu opened by a press shows everything it has; a type-ahead control only shows what was typed. If
+        // nothing here clears the threshold and nothing has been typed yet, let the page filter once, then judge
+        // again. Never a second time, and never a guess: the threshold still decides.
+        if (_openedByPress && !_typed) { [self typeAnswer]; return; }
+        [self abandon:GHComboBoxReasonNoMatchingOption];
+        return;
+    }
     _chosenText = texts[(NSUInteger)match.index];
     _score = match.score;
     id<GHAXNode> option = options[(NSUInteger)match.index];
@@ -688,7 +748,7 @@ static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget 
 /// closes, a native sheet cancels), so none is posted.
 - (void)abandon:(NSString *)reason {
     BOOL escaped = NO;
-    if (![reason isEqualToString:GHComboBoxReasonNoList] && [self mayPostTo:[self.state frontmostProcessIdentifier]]) {
+    if ((_openedByPress || ![reason isEqualToString:GHComboBoxReasonNoList]) && [self mayPostTo:[self.state frontmostProcessIdentifier]]) {
         GHKeyBurstResult *burst = [self.poster postBurst:@[ [GHKeyStroke escape] ] guard:^BOOL(GHKeyStroke *stroke, pid_t frontmost, id<GHAXNode> focused) {
             // The expensive check first; focus, app and the user's keys are read again by the poster after it.
             return [self currentList] != nil && [focused isSameNode:self->_combo] && [self mayPostTo:frontmost];

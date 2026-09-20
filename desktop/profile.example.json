@@ -25,7 +25,9 @@
     "linkedin": "https://linkedin.com/in/alexchen-dev",
     "website": "https://alexchen.dev",
     "workAuthorization": "yes",
+    "workAuthorization.CA": "yes",
     "requiresSponsorship": "no",
+    "requiresSponsorship.CA": "no",
     "referralSource": "Hack the North",
     "resumePath": "~/Projects/htn2026/demo/fixtures/resume-alex-chen.pdf"
   },
