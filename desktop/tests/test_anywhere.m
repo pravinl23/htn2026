@@ -196,9 +196,14 @@ GH_TEST(anywhere_capture_finds_the_main_list_and_not_the_navigation_bar) {
     GH_ASSERT_EQUAL_INT(signals.mainRegionRepeats, 6);
     GH_ASSERT(signals.mainListSignature.length > 0);
 
+    // The navigation bar is not a list at all now, which is the stronger version of what this test always
+    // meant. Its items are 70 x 24; the grid's tiles are 300 x 220. A thing you OPEN is drawn at a size
+    // somebody would aim a whole click at, and a row of small controls is a toolbar. Measured in a chat
+    // client, where the compose bar's three icon buttons formed a "list" whose first member then outranked
+    // every conversation in the window.
     NSMutableSet<NSString *> *lists = [NSMutableSet set];
     for (GHField *field in result.fields) if (field.listSignature) [lists addObject:field.listSignature];
-    GH_ASSERT_EQUAL_INT(lists.count, 2);   // the grid AND the navigation bar, told apart by the main-list key
+    GH_ASSERT_EQUAL_INT(lists.count, 1);
     GH_ASSERT([lists containsObject:signals.mainListSignature]);
 
     NSUInteger inMain = 0;

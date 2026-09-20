@@ -17,18 +17,26 @@ static const NSUInteger kMediaControlLift = 3;
 static const CGFloat kPriceMargin = 120.0;
 /// A repeated sibling structure needs at least this many members to be a list rather than a coincidence.
 static const NSUInteger kMinListMembers = 3;
+/// A toolbar is small controls in ONE row. Both halves are needed: a shelf of large tiles is still a list,
+/// and a column of small rows is still a list. A 30 x 30 icon is 900; a nav link 70 x 24 is 1,680.
+static const double kToolbarMemberArea = 4000.0;
 /**
  * How far up from a control its list membership is looked for (the row itself, or the tile around it).
  *
- * Four was enough for a native row and nowhere near enough for the web. Measured on a real video site: forty
- * video links on screen, the grid detected, and not one link attached to it -- every tile buries its link
- * under half a dozen wrapper elements, so the walk gave up before it got there, the links classified
- * `unknown`, and the only thing left to propose was the search box.
+ * Two ceilings, because the two kinds of tree are not alike. A native row IS the control's parent, or very
+ * nearly: four levels is plenty, and reaching further attaches things that merely sit near a list. Measured
+ * when it did -- ten levels natively put a chat client's "add" and "Emoji picker" buttons above the actual
+ * conversations, because they found a list they are not really part of.
  *
- * The walk stops at the FIRST ancestor that is in a list, so a deeper ceiling cannot attach a control to a
- * list that something nearer already claimed; it only reaches lists that were previously out of range.
+ * The web buries everything. Measured on a real video site: forty video links on screen, the grid itself
+ * detected, and not one link attached to it, because every tile wraps its link in half a dozen elements.
+ * They classified `unknown`, could not be proposed, and the only thing left on the page was the search box.
+ *
+ * The walk stops at the FIRST ancestor that is in a list, so the deeper ceiling cannot take a control from a
+ * nearer list; it only reaches lists that were out of range.
  */
-static const NSUInteger kListLift = 10;
+static const NSUInteger kListLift = 4;
+static const NSUInteger kListLiftInWebArea = 10;
 /// A badge is a small number, not a year or a price.
 static const NSUInteger kMaxBadgeCount = 999;
 /// What one control is "worth" in characters when the page's text density is measured.
@@ -325,6 +333,32 @@ static uint32_t GHAffHash(NSString *text) {
 
 #pragma mark lists
 
+/**
+ * Is this repeated group a toolbar rather than a list of things?
+ *
+ * Two tests, and it needs both. SMALL, because a thing you open is drawn at a size somebody would aim a
+ * whole click at and a thing you press is not; and IN ONE ROW, because that is what a toolbar is and what a
+ * list of content never is. Either alone is wrong: a shelf of large tiles across the top of a page is still
+ * a list, and a column of small rows is still a list.
+ *
+ * Median area, not mean, so one large member cannot carry a row of small ones.
+ */
+static BOOL GHAffGroupIsAToolbar(NSArray<NSNumber *> *group, NSArray<GHAffEntry *> *entries) {
+    NSMutableArray<NSNumber *> *areas = [NSMutableArray arrayWithCapacity:group.count];
+    CGFloat top = CGFLOAT_MAX, bottom = -CGFLOAT_MAX, tallest = 0;
+    for (NSNumber *kid in group) {
+        CGRect frame = entries[kid.unsignedIntegerValue].node.frame;
+        [areas addObject:@(MAX(0.0, (double)frame.size.width) * MAX(0.0, (double)frame.size.height))];
+        top = MIN(top, CGRectGetMinY(frame));
+        bottom = MAX(bottom, CGRectGetMaxY(frame));
+        tallest = MAX(tallest, CGRectGetHeight(frame));
+    }
+    [areas sortUsingSelector:@selector(compare:)];
+    if (areas[areas.count / 2].doubleValue >= kToolbarMemberArea) return NO;
+    // One row: everything fits inside the height of a single member, give or take.
+    return tallest > 0 && (bottom - top) <= tallest * 1.5;
+}
+
 + (void)findListsIn:(NSArray<GHAffEntry *> *)entries children:(NSArray<NSMutableArray<NSNumber *> *> *)children {
     for (NSUInteger i = 0; i < entries.count; i++) {
         NSArray<NSNumber *> *kids = children[i];
@@ -339,6 +373,13 @@ static uint32_t GHAffHash(NSString *text) {
         for (NSString *shape in byShape) {
             NSArray<NSNumber *> *group = byShape[shape];
             if (group.count < kMinListMembers) continue;
+            // Three icon buttons side by side are a toolbar, not a list. Measured in a chat client: the
+            // compose bar's add / record / emoji buttons formed a group of three, and its first member then
+            // outranked every conversation in the window. A thing you OPEN is drawn at a readable size; a
+            // thing you press is not. The main-list rule already knew this ("a navigation bar has many
+            // members too, but they are small") -- it just was not applied to forming a list in the first
+            // place.
+            if (GHAffGroupIsAToolbar(group, entries)) continue;
             // The signature names the STRUCTURE, never the content: the same grid keeps its key across reloads.
             NSString *signature = [NSString stringWithFormat:@"l%08x", GHAffHash([NSString stringWithFormat:@"%@#%@", entries[i].shape ?: @"", shape])];
             NSUInteger index = 0;
@@ -408,7 +449,8 @@ static uint32_t GHAffHash(NSString *text) {
         field.insideMediaControls = [self set:near meets:mediaContainers];
         field.nearbyPrice = [self isRect:field.rect nearAnyOf:priceRects];
 
-        for (NSInteger up = index, lift = 0; up >= 0 && lift <= (NSInteger)kListLift; up = entries[(NSUInteger)up].parent, lift++) {
+        NSUInteger ceiling = result.sawWebArea ? kListLiftInWebArea : kListLift;
+        for (NSInteger up = index, lift = 0; up >= 0 && lift <= (NSInteger)ceiling; up = entries[(NSUInteger)up].parent, lift++) {
             GHAffEntry *entry = entries[(NSUInteger)up];
             if (!entry.listSignature) continue;
             field.listSignature = entry.listSignature;
