@@ -499,7 +499,15 @@ static void GHAXObserverCallback(AXObserverRef observer, AXUIElementRef element,
     return identifiers;
 }
 
-+ (BOOL)bundleAtURLUsesElectron:(NSURL *)bundleURL {
+/// Frameworks that mean "this window is really Chromium". Electron apps ship one; so do CEF apps, which is
+/// what Spotify, and most music and chat clients that are not Electron, actually are. Both build their
+/// accessibility tree only when asked, so both need the same two attributes set.
++ (NSArray<NSString *> *)chromiumFrameworkPaths {
+    return @[ @"Contents/Frameworks/Electron Framework.framework",
+              @"Contents/Frameworks/Chromium Embedded Framework.framework" ];
+}
+
++ (BOOL)bundleAtURLUsesChromium:(NSURL *)bundleURL {
     if (!bundleURL.isFileURL) return NO;
     static NSMutableDictionary<NSString *, NSNumber *> *cache;
     static dispatch_once_t once;
@@ -509,10 +517,12 @@ static void GHAXObserverCallback(AXObserverRef observer, AXUIElementRef element,
         NSNumber *known = cache[path];
         if (known) return known.boolValue;
     }
-    NSString *framework = [path stringByAppendingPathComponent:@"Contents/Frameworks/Electron Framework.framework"];
-    BOOL electron = [[NSFileManager defaultManager] fileExistsAtPath:framework];
-    @synchronized (cache) { cache[path] = @(electron); }
-    return electron;
+    BOOL chromium = NO;
+    for (NSString *framework in [self chromiumFrameworkPaths]) {
+        if ([[NSFileManager defaultManager] fileExistsAtPath:[path stringByAppendingPathComponent:framework]]) { chromium = YES; break; }
+    }
+    @synchronized (cache) { cache[path] = @(chromium); }
+    return chromium;
 }
 
 + (BOOL)appNeedsEnhancedUserInterface:(NSString *)bundleIdentifier bundleURL:(NSURL *)bundleURL {
@@ -521,7 +531,7 @@ static void GHAXObserverCallback(AXObserverRef observer, AXUIElementRef element,
             if ([bundleIdentifier caseInsensitiveCompare:known] == NSOrderedSame) return YES;
         }
     }
-    return [self bundleAtURLUsesElectron:bundleURL];
+    return [self bundleAtURLUsesChromium:bundleURL];
 }
 
 @end

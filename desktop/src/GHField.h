@@ -21,6 +21,9 @@ extern NSString *const GHKindCheckbox;
 extern NSString *const GHKindFile;
 extern NSString *const GHKindButton;
 extern NSString *const GHKindLink;
+/// One entry of a native list, table or outline: a conversation in Messages, a track in Spotify, a file in
+/// Finder, a message in Mail. Pressed like a button, named by what it contains, never filled.
+extern NSString *const GHKindItem;
 extern NSString *const GHKindOther;
 
 // What a `file` field wants (serialized as `uploadKind`). The core maps them to resumePath / coverLetterPath.

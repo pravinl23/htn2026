@@ -43,6 +43,9 @@ typedef NS_ENUM(NSInteger, GHCaptureStop) {
 @property (nonatomic) NSTimeInterval webAreaTimeBudget;
 @property (nonatomic) NSUInteger maxLinks;        // 40: links never get a ghost, keep the state small
 @property (nonatomic) NSUInteger maxOptions;      // 255: Jev's choice limit
+/// Rows entered per AXTable / AXOutline / AXList / AXGrid / AXBrowser. 12. A Finder folder or a Spotify
+/// playlist has thousands of them, nobody is about to click the 900th, and walking them costs the whole budget.
+@property (nonatomic) NSUInteger maxListRows;
 + (instancetype)defaultLimits;
 @end
 

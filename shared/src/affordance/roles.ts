@@ -173,6 +173,8 @@ const PATH_PATTERNS: readonly { role: AffordanceRole; re: RegExp }[] = [
 ];
 
 const SEARCH_NAME = /\bsearch\b|\bquery\b|^q$/;
+/** What a native tree or ARIA calls one entry of a list, a table, an outline or a listbox. */
+const LIST_ENTRY_ROLE = /^(listitem|row|cell|treeitem|option|gridcell)$/;
 const MAX_CONFIDENCE = 0.95;
 /** A name-derived role at or above this owns the control: a repeated item's own buttons are not "the item". */
 const ACTION_FLOOR = 0.45;
@@ -299,6 +301,11 @@ export function classifyAffordance(candidate: AffordanceCandidate, context: Affo
   // A repeated item is "the item" only when nothing inside it claimed a verb: a row's own Reply button stays a reply.
   if (itemLike && candidate.list && inMainList(candidate.list.listSignature, context)) {
     scores.add("primary-item", candidate.list.index === 0 ? 0.62 : 0.5, "list-item");
+  }
+  // A native row says so itself. The list detector needs repeated SHAPES and never fires on an AXOutline whose
+  // rows differ, so a Messages conversation or a Finder file would otherwise score as nothing at all.
+  if (itemLike && LIST_ENTRY_ROLE.test((candidate.ariaRole ?? "").trim().toLowerCase())) {
+    scores.add("primary-item", 0.6, "list-item");
   }
   // A price beside a link is a product tile even where the list detector found no list (a single featured item).
   if (itemLike && candidate.nearbyPrice === true) {

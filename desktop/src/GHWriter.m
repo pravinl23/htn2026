@@ -521,7 +521,8 @@ static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
     // user asked for with Tab. It is pressed only when a caller gave this writer a live lock check, and only
     // after that check has looked at the element again -- with no check, nothing is ever pressed.
     if (isClick && !self.isNodeLocked) { finish([GHWriteResult refusal:GHWriteReasonLocked]); return; }
-    if (!isClick && ([field.kind isEqualToString:GHKindButton] || [field.kind isEqualToString:GHKindLink])) { finish([GHWriteResult refusal:GHWriteReasonLocked]); return; }
+    if (!isClick && ([field.kind isEqualToString:GHKindButton] || [field.kind isEqualToString:GHKindLink] ||
+                     [field.kind isEqualToString:GHKindItem])) { finish([GHWriteResult refusal:GHWriteReasonLocked]); return; }
     if (ghost.pending) { finish([GHWriteResult refusal:GHWriteReasonPending]); return; }
 
     BOOL isRadio = [field.kind isEqualToString:GHKindRadio];

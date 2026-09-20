@@ -190,7 +190,8 @@ static const double kDefaultThreshold = 0.7;
     // A proposal is a place to GO, not a value to write. A button or a link is pressed; the one value field
     // worth offering is a search box, and offering it means putting the cursor in it (the writer focuses a
     // typeable control instead of pressing it). Every other field belongs to the form walk, which fills it.
-    BOOL clickable = [target.kind isEqualToString:GHKindButton] || [target.kind isEqualToString:GHKindLink];
+    BOOL clickable = [target.kind isEqualToString:GHKindButton] || [target.kind isEqualToString:GHKindLink] ||
+                     [target.kind isEqualToString:GHKindItem];
     if (!clickable && !([role isEqualToString:@"search"] && [target.kind isEqualToString:GHKindText])) return nil;
 
     GHNextProposal *proposal = [[GHNextProposal alloc] init];

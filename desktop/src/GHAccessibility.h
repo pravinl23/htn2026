@@ -112,9 +112,11 @@ typedef NS_OPTIONS(NSUInteger, GHRescanReason) {
 @property (nonatomic, copy) NSSet<NSString *> *userPausedBundleIdentifiers;
 - (BOOL)isBundleIdentifierPaused:(nullable NSString *)bundleIdentifier;
 
-// ---------- Chromium and Electron ----------
+// ---------- Chromium, Electron and CEF ----------
 + (NSSet<NSString *> *)chromiumBundleIdentifiers;
-+ (BOOL)bundleAtURLUsesElectron:(nullable NSURL *)bundleURL;
+/// The app is really Chromium behind a native window: it ships an Electron or a CEF framework. Spotify is CEF,
+/// not Electron, and without this its whole window is 15 accessibility nodes.
++ (BOOL)bundleAtURLUsesChromium:(nullable NSURL *)bundleURL;
 /// YES when the web tree of this app only shows up after AXEnhancedUserInterface / AXManualAccessibility.
 + (BOOL)appNeedsEnhancedUserInterface:(nullable NSString *)bundleIdentifier bundleURL:(nullable NSURL *)bundleURL;
 

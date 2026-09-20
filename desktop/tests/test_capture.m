@@ -369,10 +369,11 @@ GH_TEST(capture_locked_submit_is_detected) {
     GH_ASSERT_FALSE([GHCapture nativeLooksLocked:@"Next"]);
 }
 
-GH_TEST(capture_never_enters_browser_chrome) {
+/// A toolbar is no longer skipped by role: in a native app it is where the app keeps the thing you came to
+/// press. In a BROWSER window nothing outside the page survives anyway, because the walk saw a web area.
+GH_TEST(capture_never_offers_browser_chrome) {
     GHFakeAXNode *toolbar = nil;
     GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:JobApplicationWindow(@"", &toolbar)];
-    GH_ASSERT_EQUAL_INT(toolbar.childrenReadCount, 0);
     GH_ASSERT(FieldLabelled(result, @"Address and search bar") == nil);
     GH_ASSERT(FieldLabelled(result, @"Reload this page") == nil);
 
@@ -382,6 +383,60 @@ GH_TEST(capture_never_enters_browser_chrome) {
     [pageTabs addChild:Node(@"AXTextField", @"City", 10, 10, 300, 30)];
     GHCaptureResult *page = [Capture([[GHFakeSafety alloc] init]) captureWindow:web];
     GH_ASSERT(FieldLabelled(page, @"City") != nil);
+}
+
+/// Measured before this existed: Finder exposed 3,269 accessibility nodes and Ghost found ZERO candidates in
+/// it, because a conversation, a track, a file and a mail message are all AXRow and nothing mapped AXRow.
+GH_TEST(capture_reads_the_rows_of_a_native_list) {
+    GHFakeAXNode *window = Node(@"AXWindow", @"Messages", 0, 0, 900, 600);
+    GHFakeAXNode *outline = [window addChild:Node(@"AXOutline", nil, 0, 52, 300, 548)];
+    NSArray<NSString *> *people = @[ @"Tahseen Rayhan", @"Mum", @"Standup" ];
+    for (NSUInteger i = 0; i < people.count; i++) {
+        GHFakeAXNode *row = [outline addChild:Node(@"AXRow", nil, 0, (CGFloat)(60 + i * 64), 300, 64)];
+        GHFakeAXNode *cell = [row addChild:Node(@"AXCell", nil, 0, (CGFloat)(60 + i * 64), 300, 64)];
+        [cell addChild:Text(people[i], 8, (CGFloat)(66 + i * 64))];
+    }
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:window];
+    GHField *first = FieldLabelled(result, @"Tahseen Rayhan");
+    GH_ASSERT(first != nil);
+    GH_ASSERT_EQUAL_OBJECTS(first.kind, GHKindItem);
+    GH_ASSERT(FieldLabelled(result, @"Standup") != nil);
+    // A row is a place to go, never a value: it must not join the form signature or the fill walk.
+    GH_ASSERT_FALSE(first.locked);
+    // The row is the unit. Its cell is never a second candidate for the same line.
+    NSUInteger rows = 0;
+    for (GHField *field in result.fields) if ([field.kind isEqualToString:GHKindItem]) rows++;
+    GH_ASSERT_EQUAL_INT(rows, 3);
+}
+
+/// A playlist or a folder has thousands of rows; nobody is about to click the 900th, and walking them all
+/// spends the entire time budget before the walk ever reaches the part of the window that matters.
+GH_TEST(capture_keeps_only_the_first_rows_of_a_long_list) {
+    GHFakeAXNode *window = Node(@"AXWindow", @"Player", 0, 0, 900, 600);
+    GHFakeAXNode *table = [window addChild:Node(@"AXTable", nil, 0, 52, 900, 548)];
+    for (NSUInteger i = 0; i < 400; i++) {
+        GHFakeAXNode *row = [table addChild:Node(@"AXRow", nil, 0, (CGFloat)(60 + i * 24), 900, 24)];
+        [row addChild:Text([NSString stringWithFormat:@"Track %lu", (unsigned long)i], 8, (CGFloat)(62 + i * 24))];
+    }
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:window];
+    NSUInteger rows = 0;
+    for (GHField *field in result.fields) if ([field.kind isEqualToString:GHKindItem]) rows++;
+    GH_ASSERT_EQUAL_INT(rows, [GHCaptureLimits defaultLimits].maxListRows);
+    GH_ASSERT(FieldLabelled(result, @"Track 0") != nil);
+    GH_ASSERT(FieldLabelled(result, @"Track 300") == nil);
+}
+
+/// The other half of the same rule: a native window has no web area, so its toolbar IS the offer. Messages
+/// keeps Compose there, Finder keeps New Folder and Share. Skipping AXToolbar hid all of them.
+GH_TEST(capture_reads_the_toolbar_of_a_native_window) {
+    GHFakeAXNode *window = Node(@"AXWindow", @"Messages", 0, 0, 900, 600);
+    GHFakeAXNode *toolbar = [window addChild:Node(@"AXToolbar", nil, 0, 0, 900, 52)];
+    GHFakeAXNode *compose = [toolbar addChild:Node(@"AXButton", @"New Message", 820, 10, 32, 32)];
+    compose.subrole = @"AXToolbarButton";
+    GHCaptureResult *result = [Capture([[GHFakeSafety alloc] init]) captureWindow:window];
+    GHField *found = FieldLabelled(result, @"New Message");
+    GH_ASSERT(found != nil);
+    GH_ASSERT_EQUAL_OBJECTS(found.kind, GHKindButton);
 }
 
 GH_TEST(capture_in_a_browser_window_only_the_page_counts) {
@@ -539,10 +594,12 @@ GH_TEST(capture_time_budget_aborts_and_keeps_partial_results) {
     GHCaptureResult *result = [capture captureWindow:window];
     GH_ASSERT_EQUAL_INT(result.stop, GHCaptureStopTime);
     GH_ASSERT(result.partial);
-    GH_ASSERT(result.visitedNodes > 50 && result.visitedNodes < 200);
+    // 350 ms at a millisecond per clock reading. The budget was 120 ms while Ghost only ever looked at web
+    // pages; a native window is a slower tree with more nodes, and 120 ms stopped Finder a tenth of the way in.
+    GH_ASSERT(result.visitedNodes > 200 && result.visitedNodes < 500);
     NSArray *expected = @[ @"City" ];
     GH_ASSERT_EQUAL_OBJECTS(Labels(result, NO), expected);
-    GH_ASSERT(result.elapsed > 0.120);
+    GH_ASSERT(result.elapsed > 0.350);
 }
 
 /// Live, Safari: the controller's 120 ms walk of the Greenhouse posting stopped at ~270 of ~380 nodes (about 0.4 ms of
@@ -780,12 +837,18 @@ GH_TEST(accessibility_chromium_and_electron_detection) {
     NSString *electron = [root stringByAppendingPathComponent:@"Notes.app"];
     NSString *framework = [electron stringByAppendingPathComponent:@"Contents/Frameworks/Electron Framework.framework"];
     [[NSFileManager defaultManager] createDirectoryAtPath:framework withIntermediateDirectories:YES attributes:nil error:NULL];
+    // Spotify and friends are CEF, not Electron. Detecting only Electron left them at 15 accessibility nodes.
+    NSString *cef = [root stringByAppendingPathComponent:@"Player.app"];
+    NSString *cefFramework = [cef stringByAppendingPathComponent:@"Contents/Frameworks/Chromium Embedded Framework.framework"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:cefFramework withIntermediateDirectories:YES attributes:nil error:NULL];
     NSString *native = [root stringByAppendingPathComponent:@"Native.app"];
     [[NSFileManager defaultManager] createDirectoryAtPath:[native stringByAppendingPathComponent:@"Contents/Frameworks"] withIntermediateDirectories:YES attributes:nil error:NULL];
-    GH_ASSERT([GHAccessibility bundleAtURLUsesElectron:[NSURL fileURLWithPath:electron]]);
+    GH_ASSERT([GHAccessibility bundleAtURLUsesChromium:[NSURL fileURLWithPath:electron]]);
     GH_ASSERT([GHAccessibility appNeedsEnhancedUserInterface:@"com.example.notes" bundleURL:[NSURL fileURLWithPath:electron]]);
-    GH_ASSERT_FALSE([GHAccessibility bundleAtURLUsesElectron:[NSURL fileURLWithPath:native]]);
-    GH_ASSERT_FALSE([GHAccessibility bundleAtURLUsesElectron:nil]);
+    GH_ASSERT([GHAccessibility bundleAtURLUsesChromium:[NSURL fileURLWithPath:cef]]);
+    GH_ASSERT([GHAccessibility appNeedsEnhancedUserInterface:@"com.example.player" bundleURL:[NSURL fileURLWithPath:cef]]);
+    GH_ASSERT_FALSE([GHAccessibility bundleAtURLUsesChromium:[NSURL fileURLWithPath:native]]);
+    GH_ASSERT_FALSE([GHAccessibility bundleAtURLUsesChromium:nil]);
 }
 
 GH_TEST(accessibility_notification_reasons) {

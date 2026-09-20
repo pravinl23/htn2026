@@ -26,7 +26,9 @@ const REQUIRED_EXPORTS = [
 function loadEsbuild() {
   // desktop/ has no node_modules of its own: borrow the workspace's esbuild.
   const require = createRequire(import.meta.url);
-  const roots = ["extension", "server", "demo", "."].map((dir) => join(repo, dir, "node_modules", "esbuild"));
+  // The repo root carries esbuild as a devDependency so this always resolves; the workspace packages are
+  // tried first only because a local install there is the fresher one.
+  const roots = ["server", "demo", "shared", "."].map((dir) => join(repo, dir, "node_modules", "esbuild"));
   for (const candidate of [...roots, "esbuild"]) {
     try {
       return require(candidate);

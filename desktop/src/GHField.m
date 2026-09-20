@@ -14,6 +14,7 @@ NSString *const GHKindCheckbox = @"checkbox";
 NSString *const GHKindFile = @"file";
 NSString *const GHKindButton = @"button";
 NSString *const GHKindLink = @"link";
+NSString *const GHKindItem = @"item";
 NSString *const GHKindOther = @"other";
 
 NSString *const GHUploadKindResume = @"resume";
@@ -142,9 +143,13 @@ static NSNumber *GHFiniteNumber(CGFloat value) {
     NSString *kind = self.kind ?: GHKindText;
     NSMutableDictionary<NSString *, id> *json = [NSMutableDictionary dictionary];
     json[@"id"] = self.signature ?: @"";
-    json[@"kind"] = ([kind isEqualToString:GHKindButton] || [kind isEqualToString:GHKindLink]) ? kind : @"field";
+    // AffordanceCandidate knows three kinds. A list entry is a thing you press, so it travels as a button and
+    // says what it really is in `ariaRole`, which is what turns it into `primary-item` on the other side.
+    BOOL item = [kind isEqualToString:GHKindItem];
+    json[@"kind"] = (item || [kind isEqualToString:GHKindButton]) ? GHKindButton : ([kind isEqualToString:GHKindLink] ? kind : @"field");
     json[@"label"] = self.label ?: @"";
     json[@"locked"] = @(self.locked);
+    if (item) json[@"ariaRole"] = @"listitem";
     if (self.context.length) json[@"context"] = self.context;
     if (self.axDescription.length) json[@"description"] = self.axDescription;
     if (self.inputType.length) json[@"inputType"] = self.inputType;

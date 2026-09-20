@@ -719,7 +719,8 @@ static const NSUInteger kUploadVerifyTries = 8;
 #pragma mark - prediction: cache -> server, once per form
 
 static BOOL GHIsValueKind(NSString *kind) {
-    return !([kind isEqualToString:GHKindButton] || [kind isEqualToString:GHKindLink] || [kind isEqualToString:GHKindFile] || [kind isEqualToString:GHKindOther]);
+    return !([kind isEqualToString:GHKindButton] || [kind isEqualToString:GHKindLink] || [kind isEqualToString:GHKindItem] ||
+             [kind isEqualToString:GHKindFile] || [kind isEqualToString:GHKindOther]);
 }
 
 - (void)requestPredictionWithFactKeys:(NSArray<NSString *> *)factKeys {

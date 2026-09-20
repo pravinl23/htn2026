@@ -18,6 +18,10 @@ static NSString *const kRoleRadioButton = @"AXRadioButton";
 static NSString *const kRoleButton = @"AXButton";
 static NSString *const kRoleLink = @"AXLink";
 static NSString *const kRoleTabGroup = @"AXTabGroup";
+static NSString *const kRoleRow = @"AXRow";
+static NSString *const kRoleCell = @"AXCell";
+static NSString *const kRoleMenuButton = @"AXMenuButton";
+static NSString *const kRoleDisclosureTriangle = @"AXDisclosureTriangle";
 static NSString *const kSubroleFileUpload = @"AXFileUploadButton";
 static NSString *const kSubroleTabButton = @"AXTabButton";
 
@@ -42,10 +46,11 @@ static NSSet<NSString *> *GHAlwaysSkippedRoles(void) {
     return roles;
 }
 
-/// Browser and app chrome. Inside a web area the same roles are page content (an ARIA tablist) and are walked.
-static NSSet<NSString *> *GHChromeRoles(void) {
+/// Containers that repeat one row shape. Only the first `maxListRows` children are entered: a Finder folder or a
+/// Spotify playlist has thousands, nobody wants the 900th, and walking them all spends the whole time budget.
+static NSSet<NSString *> *GHListContainerRoles(void) {
     static NSSet *roles; static dispatch_once_t once;
-    dispatch_once(&once, ^{ roles = GHSet(@[ @"AXToolbar" ]); });
+    dispatch_once(&once, ^{ roles = GHSet(@[ @"AXTable", @"AXOutline", @"AXList", @"AXGrid", @"AXBrowser" ]); });
     return roles;
 }
 
@@ -54,17 +59,18 @@ static NSSet<NSString *> *GHLeafRoles(void) {
     static NSSet *roles; static dispatch_once_t once;
     dispatch_once(&once, ^{
         roles = GHSet(@[ kRoleStaticText, @"AXImage", @"AXValueIndicator", @"AXProgressIndicator", @"AXBusyIndicator",
-                         @"AXIncrementor", @"AXSlider", @"AXColorWell", @"AXDateField", @"AXTimeField", @"AXMenuButton",
+                         @"AXIncrementor", @"AXSlider", @"AXColorWell", @"AXDateField", @"AXTimeField",
                          @"AXLevelIndicator", @"AXRelevanceIndicator" ]);
     });
     return roles;
 }
 
-/// Window furniture that happens to be an AXButton.
+/// Window furniture that happens to be an AXButton. AXToolbarButton is deliberately NOT here: in a native app
+/// the toolbar is where the app keeps the thing you came to press (Compose, New Folder, Share).
 static NSSet<NSString *> *GHSkippedButtonSubroles(void) {
     static NSSet *roles; static dispatch_once_t once;
     dispatch_once(&once, ^{
-        roles = GHSet(@[ @"AXCloseButton", @"AXMinimizeButton", @"AXZoomButton", @"AXFullScreenButton", @"AXToolbarButton",
+        roles = GHSet(@[ @"AXCloseButton", @"AXMinimizeButton", @"AXZoomButton", @"AXFullScreenButton",
                          @"AXSortButton", @"AXIncrementArrow", @"AXDecrementArrow", @"AXIncrementPage", @"AXDecrementPage" ]);
     });
     return roles;
@@ -314,7 +320,8 @@ static NSString *GHFNV1a(NSString *text) {
 }
 
 static BOOL GHIsValueKind(NSString *kind) {
-    return ![kind isEqualToString:GHKindButton] && ![kind isEqualToString:GHKindLink] && ![kind isEqualToString:GHKindOther];
+    return ![kind isEqualToString:GHKindButton] && ![kind isEqualToString:GHKindLink] &&
+           ![kind isEqualToString:GHKindItem] && ![kind isEqualToString:GHKindOther];
 }
 
 #pragma mark - Walk bookkeeping
@@ -359,10 +366,11 @@ static BOOL GHIsValueKind(NSString *kind) {
     GHCaptureLimits *limits = [[self alloc] init];
     limits.maxNodes = 1500;
     limits.maxDepth = 40;
-    limits.timeBudget = 0.120;
+    limits.timeBudget = 0.350;
     limits.webAreaTimeBudget = 0.600;
     limits.maxLinks = 40;
     limits.maxOptions = 255;
+    limits.maxListRows = 12;
     return limits;
 }
 
@@ -374,6 +382,7 @@ static BOOL GHIsValueKind(NSString *kind) {
     copy.webAreaTimeBudget = self.webAreaTimeBudget;
     copy.maxLinks = self.maxLinks;
     copy.maxOptions = self.maxOptions;
+    copy.maxListRows = self.maxListRows;
     return copy;
 }
 
@@ -448,6 +457,12 @@ static BOOL GHIsValueKind(NSString *kind) {
     if ([role isEqualToString:kRoleRadioGroup] || [role isEqualToString:kRoleRadioButton]) return GHKindRadio;
     if ([role isEqualToString:kRoleButton]) return GHKindButton;
     if ([role isEqualToString:kRoleLink]) return GHKindLink;
+    // A menu button and a disclosure triangle are buttons that happen to open something.
+    if ([role isEqualToString:kRoleMenuButton] || [role isEqualToString:kRoleDisclosureTriangle]) return GHKindButton;
+    // The native half of the world. A conversation in Messages, a track in Spotify, a file in Finder and a
+    // message in Mail are all AXRow; a collection-view tile is a bare AXCell. Without these a native window
+    // yields nothing at all: Finder exposed 3,269 nodes and Ghost found zero candidates in it.
+    if ([role isEqualToString:kRoleRow] || [role isEqualToString:kRoleCell]) return GHKindItem;
     return nil;
 }
 
@@ -620,7 +635,9 @@ static NSString *GHDescendantText(id<GHAXNode> node, NSUInteger depth) {
 /// popups report the selected item as their title, and a value must never become a label.
 - (GHNaming *)namingForEntry:(GHWalkEntry *)entry kind:(NSString *)kind {
     id<GHAXNode> node = entry.node;
-    BOOL actionable = [kind isEqualToString:GHKindButton] || [kind isEqualToString:GHKindLink];
+    // A list entry carries no AXTitle: what names it is the text inside it ("Tahseen Rayhan", a track name),
+    // which is exactly how a button with only a glyph and a caption is named. It is read the same way.
+    BOOL actionable = [kind isEqualToString:GHKindButton] || [kind isEqualToString:GHKindLink] || [kind isEqualToString:GHKindItem];
     NSString *value = GHSquash(node.value);
     // Links skip the title element: they never get a ghost and the lookup is one more round trip.
     id<GHAXNode> titleElement = [kind isEqualToString:GHKindLink] ? nil : node.titleUIElement;
@@ -1060,6 +1077,9 @@ static NSString *GHUploadKindForText(NSString *text) {
     if (![self isFrame:frame reachableFromEntry:entry window:window]) return nil;
     BOOL isButton = [kind isEqualToString:GHKindButton];
     BOOL isLink = [kind isEqualToString:GHKindLink];
+    BOOL isItem = [kind isEqualToString:GHKindItem];
+    // Buttons, links and list entries are all places to GO: pressed, never filled, named by their own text.
+    BOOL isAction = isButton || isLink || isItem;
     if (isButton && [GHSkippedButtonSubroles() containsObject:node.subrole ?: @""]) return nil;
 
     GHNaming *naming = [self namingForEntry:entry kind:kind];
@@ -1069,11 +1089,13 @@ static NSString *GHUploadKindForText(NSString *text) {
     // anywhere in the tree, and naming them is exactly what the affordance layer and the vision fallback are
     // for (docs/anywhere.md sections 2 and 4). With `capturesUnnamedControls` such a control is kept, marked
     // `unnamed`, and only ever reaches the next-action path: it can never carry a value ghost.
+    // A list entry with nothing readable in it is not worth naming later either: it is an empty row.
+    if (isItem && label.length == 0) return nil;
     if ((isButton || isLink) && label.length == 0 && !(self.capturesUnnamedControls && [self isWorthNamingLater:node])) return nil;
 
     NSString *legend = @"", *heading = @"";
     if (!isLink) GHLegendAndHeading(entry, &legend, &heading);
-    if (!isButton && !isLink) {
+    if (!isAction) {
         NSString *everyName = [[naming.sources arrayByAddingObject:legend] componentsJoinedByString:@" "];
         if ([self isTextSensitive:everyName placeholder:node.placeholder identifier:node.identifier]) return nil;
         if ([self isCardFieldWithLabel:label legend:legend heading:heading]) return nil;
@@ -1086,7 +1108,7 @@ static NSString *GHUploadKindForText(NSString *text) {
     field.required = node.required || GHMatches(GHRequiredMarkPattern(), GHSquash(naming.rawLabel));
     if (!isLink) field.context = [self contextFromLegend:legend heading:heading label:label];
 
-    if (isButton || isLink) {
+    if (isAction) {
         field.locked = [self isLabelLocked:label];
         field.unnamed = label.length == 0;
         // Generic naming evidence the affordance layer reads as icon words, and the raw description a vision
@@ -1303,7 +1325,6 @@ static BOOL GHIsBrowserChrome(id<GHAXNode> node, NSString *role) {
         NSString *role = node.role;
         if (role.length == 0) continue; // dead element or a failed fetch: nothing to trust below it
         if ([GHAlwaysSkippedRoles() containsObject:role]) continue;
-        if (!entry.insideWebArea && [GHChromeRoles() containsObject:role]) continue;
         if (!entry.insideWebArea && GHIsBrowserChrome(node, role)) continue;
         if (GHIsSecure(node)) continue;
 
@@ -1352,6 +1373,10 @@ static BOOL GHIsBrowserChrome(id<GHAXNode> node, NSString *role) {
 
         if (entry.depth >= limits.maxDepth) { depthLimited = YES; continue; }
         NSArray<id<GHAXNode>> *children = node.children;
+        // A list keeps only its first rows. Nobody wants the 900th track, and the rest would eat the walk.
+        if (children.count > limits.maxListRows && [GHListContainerRoles() containsObject:role]) {
+            children = [children subarrayWithRange:NSMakeRange(0, limits.maxListRows)];
+        }
         NSUInteger index = 0;
         for (id<GHAXNode> child in children) {
             GHWalkEntry *next = [[GHWalkEntry alloc] init];
