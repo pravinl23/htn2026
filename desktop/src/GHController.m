@@ -1,5 +1,6 @@
 #import "GHController.h"
 #import "GHConversation.h"
+#import "GHVision.h"
 #import "GHCapture.h"
 #import "GHComboBoxDriver.h"
 #import "GHCore.h"
@@ -99,6 +100,10 @@ static const NSUInteger kUploadVerifyTries = 8;
     BOOL _stepFromGhostKey;  // the accept came from the Ghost key, which no app binds and nothing can take back
     NSString *_previousRoleBundleId;   // which app the last accepted role was in; another app forgets it
     NSString *_proposalBundleId;       // which app the live proposal belongs to (it is read after the app may have changed)
+    GHVision *_vision;
+    NSMutableDictionary<NSString *, NSString *> *_visionLabels;   // signature -> the name a model gave it
+    NSMutableSet<NSString *> *_visionLocked;                      // signatures a model called irreversible
+    BOOL _visionAsked;                                            // one attempt per page view, over and above GHVision's own rule
     NSString *_stickySignature;    // the proposal currently on screen: it wins near-ties so the ghost stops moving
     NSString *_cooldownSignature;  // just taken or just turned down: not offered again until _cooldownUntil
     CFAbsoluteTime _cooldownUntil;
@@ -420,6 +425,10 @@ static const NSUInteger kUploadVerifyTries = 8;
     _pageContextRead = NO;
     _conversation = nil;
     _conversationRead = NO;
+    [_visionLabels removeAllObjects];
+    [_visionLocked removeAllObjects];
+    _visionAsked = NO;
+    [_vision forgetPage];
     /*
      * What the user did last.
      *
@@ -557,6 +566,7 @@ static const NSUInteger kUploadVerifyTries = 8;
     _result = result;
     _origin = [origin copy];
     _orderedFields = result.fields ?: @[];
+    [self applyVisionLabelsTo:_orderedFields];
     NSMutableDictionary<NSString *, GHField *> *bySignature = [NSMutableDictionary dictionary];
     for (GHField *field in _orderedFields) bySignature[field.signature] = field;
     _fields = bySignature;
@@ -617,6 +627,7 @@ static const NSUInteger kUploadVerifyTries = 8;
     [self startQueuedDrafts];
     [self render];
     [self requestPredictionWithFactKeys:factKeys];
+    [self askVisionToNameTheUnnamed];
 
     NSString *summary = [NSString stringWithFormat:@"fields=%lu ghosts=%lu locked=%d source=%@", (unsigned long)_orderedFields.count,
                          (unsigned long)_walk.ghosts.count, _walk.ghosts.lastObject.locked, [self ghostSource]];
@@ -918,6 +929,84 @@ static BOOL GHLabelLooksLikeSearch(NSString *label) {
     });
     NSString *text = label ?: @"";
     return text.length > 0 && [regex firstMatchInString:text options:0 range:NSMakeRange(0, text.length)] != nil;
+}
+
+#pragma mark - the eyes (docs/anywhere.md section 4)
+
+/// Built on first use, pointed at the same local server as everything else. A test injects its own, with a
+/// stub transport and a stub screenshot, so the whole path can be exercised without a window server or a key.
+- (GHVision *)vision {
+    if (!_vision) self.vision = [[GHVision alloc] initWithBaseURLString:_store.serverURLString];
+    return _vision;
+}
+
+- (void)setVision:(GHVision *)vision {
+    _vision = vision;
+    _visionLabels = [NSMutableDictionary dictionary];
+    _visionLocked = [NSMutableSet set];
+}
+
+/// A name a model gave a control, put back on the freshly captured field. Capture rebuilds its fields on every
+/// rescan, so without this the answer would be thrown away a tenth of a second after it arrived.
+- (void)applyVisionLabelsTo:(NSArray<GHField *> *)fields {
+    if (_visionLabels.count == 0 && _visionLocked.count == 0) return;
+    for (GHField *field in fields) {
+        NSString *label = _visionLabels[field.signature];
+        if (label.length && field.label.length == 0) {
+            field.label = label;
+            field.unnamed = NO;
+        }
+        // A model may LOCK a control and may never unlock one: the capture's own lock always stands.
+        if ([_visionLocked containsObject:field.signature]) field.locked = YES;
+    }
+}
+
+/**
+ * Ask the model to name the controls nothing could name.
+ *
+ * Runs AFTER the ghosts are drawn, never before, and that ordering is the whole design. Measured against the
+ * live route: one call is about 2.7 s, and Ghost's entire decision budget is 2.5 s. On the critical path it
+ * would destroy the thing that makes Ghost feel like autocomplete. Off it, it costs nothing -- the heuristic
+ * ghost is already on screen and a name merely upgrades it on the next rescan.
+ *
+ * Everything expensive is already refused inside GHVision: one call per page view, a cache keyed by the page
+ * and the exact box geometry, at most 40 boxes, and nothing at all from a window with a sensitive field on
+ * screen. This adds one more refusal of its own, because a page that rescans ten times a second would
+ * otherwise queue ten requests before the first came back.
+ */
+- (void)askVisionToNameTheUnnamed {
+    if (_visionAsked || !_nextAction || !_store.serverURLString.length) return;
+    NSArray<NSString *> *unnamed = _nextAction.unnamedSignatures;
+    if (unnamed.count == 0) return;
+    NSArray<GHVisionBox *> *boxes = [GHVision boxesForFields:_orderedFields
+                                                     unnamed:unnamed
+                                           sensitiveOnScreen:_nextAction.lastSignals.sensitiveOnScreen];
+    if (boxes.count == 0) return;
+    _visionAsked = YES;
+    NSString *pageKey = _pageKey ?: @"";
+    NSUInteger epoch = _epoch;
+    CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
+    __weak GHController *weakSelf = self;
+    [[self vision] labelBoxes:boxes pageKey:pageKey completion:^(NSDictionary<NSString *, NSString *> *labels, NSSet<NSString *> *locked, NSString *reason) {
+        GHController *controller = weakSelf;
+        if (!controller || epoch != controller->_epoch) return;   // the page moved on; the answer is stale
+        double ms = (CFAbsoluteTimeGetCurrent() - started) * 1000.0;
+        if (labels.count == 0 && locked.count == 0) {
+            GHLog(@"vision: named nothing of %lu (%@) in %.0f ms", (unsigned long)boxes.count, reason ?: @"no answer", ms);
+            return;
+        }
+        // Counts only. A label is page text, and page text never reaches a log.
+        GHLog(@"vision: named %lu of %lu controls, %lu locked, in %.0f ms", (unsigned long)labels.count,
+              (unsigned long)boxes.count, (unsigned long)locked.count, ms);
+        [controller->_visionLabels addEntriesFromDictionary:labels];
+        [controller->_visionLocked unionSet:locked];
+        // The names have to reach a ranking to be worth anything, and a rescan is how anything reaches one.
+        if (controller->_running) [controller.accessibility setNeedsRescan:GHRescanReasonManual];
+        else if (controller.assumesActive && controller->_result) {
+            [controller applyVisionLabelsTo:controller->_orderedFields];
+            [controller render];
+        }
+    }];
 }
 
 /**

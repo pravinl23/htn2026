@@ -8,6 +8,7 @@
 #import "GHProfileStore.h"
 #import "GHWriter.h"
 #import "GHField.h"
+#import "GHVision.h"
 #include <sys/stat.h>
 
 #pragma mark - stub server
@@ -783,6 +784,68 @@ GH_TEST(controller_a_thread_on_screen_drafts_a_reply_into_the_box_below_it) {
     [rig ghostKey];
     GH_ASSERT_EQUAL_OBJECTS(compose.value, @"ya see you there");
     GH_ASSERT_EQUAL_INT(search.value.length, 0);
+}
+
+#pragma mark - the eyes
+
+/// A 1x1 image stands in for a screenshot: this never touches the screen and never needs the permission.
+static CGImageRef CtlPixelImage(void) {
+    CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGContextRef context = CGBitmapContextCreate(NULL, 8, 8, 8, 0, space, kCGImageAlphaPremultipliedLast);
+    CGColorSpaceRelease(space);
+    CGContextSetRGBFillColor(context, 0.2, 0.2, 0.2, 1);
+    CGContextFillRect(context, CGRectMake(0, 0, 8, 8));
+    CGImageRef image = CGBitmapContextCreateImage(context);
+    CGContextRelease(context);
+    return image;
+}
+
+/**
+ * The whole vision path through the controller, with no window server, no key and no network.
+ *
+ * Worth a test rather than a live run: measured against the real route, every app on the machine this was
+ * written on names all of its controls, so there was nothing for the model to name anywhere. The wiring still
+ * has to be right for the day an app does publish a nameless one.
+ *
+ * What it proves is the part that is easy to get wrong: capture rebuilds its fields on EVERY rescan, so a
+ * name that arrives asynchronously has to be remembered and put back, or it is thrown away a tenth of a
+ * second after it lands.
+ */
+GH_TEST(controller_a_name_from_the_model_survives_the_next_capture) {
+    [GHCtlStub reset];
+    GHRig *rig = [GHRig rigWithClient:StubClient([GHCore sharedCore], [[GHFormCache alloc] initWithPath:nil])];
+    rig.window = [GHFakeAXNode nodeWithRole:@"AXWindow" title:@"Player" frame:CGRectMake(0, 0, 900, 600)];
+    // An icon-only button: no title, no description, nothing anywhere in the tree to read.
+    GHFakeAXNode *glyph = [rig.window addChild:[GHFakeAXNode nodeWithRole:@"AXButton" title:nil frame:CGRectMake(420, 520, 36, 36)]];
+    // The live controller turns this on for its own capture; the rig injects one, so the test says so too.
+    rig.capture.capturesUnnamedControls = YES;
+
+    __block NSUInteger calls = 0;
+    GHVision *vision = [[GHVision alloc] initWithBaseURLString:@"http://127.0.0.1:8787"];
+    vision.screenshot = ^CGImageRef(CGRect rect) { return CtlPixelImage(); };
+    vision.transport = ^(NSURLRequest *request, void (^done)(NSData *, NSInteger)) {
+        calls++;
+        NSString *reply = [NSString stringWithFormat:@"{\"labels\":[{\"id\":\"%@\",\"label\":\"Full screen\",\"confidence\":0.9}]}",
+                           [rig.controller focusSignatureForNode:glyph]];
+        done([reply dataUsingEncoding:NSUTF8StringEncoding], 200);
+    };
+    rig.controller.vision = vision;
+
+    [rig rescan];
+    GH_ASSERT(GHTestWaitUntil(3.0, ^BOOL { return calls > 0; }));
+
+    // The name reaches the GHOST, which is the only place it is worth anything, and it is still there after
+    // the page has been captured again from scratch.
+    [rig rescanPage:@"page-1"];
+    NSString *signature = [rig.controller focusSignatureForNode:glyph];
+    GHGhost *ghost = [rig.controller.walk ghostWithSignature:signature];
+    GH_ASSERT(ghost != nil);
+    GH_ASSERT_EQUAL_OBJECTS(ghost.displayText, @"Full screen");
+
+    // One call per page view: rescanning does not ask again.
+    NSUInteger after = calls;
+    [rig rescanPage:@"page-1"];
+    GH_ASSERT_EQUAL_INT(calls, after);
 }
 
 #pragma mark - lifecycle

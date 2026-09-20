@@ -27,7 +27,7 @@
 #import "GHServerClient.h"
 #import "GHWalkState.h"
 
-@class GHCore, GHProfileStore, GHOverlayWindow, GHWriter, GHCapture, GHCaptureResult, GHField;
+@class GHCore, GHProfileStore, GHOverlayWindow, GHWriter, GHCapture, GHCaptureResult, GHField, GHVision;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -53,6 +53,9 @@ NSString *GHProposalDisplayText(GHField *field);
 @property (nonatomic, strong) GHEventTap *eventTap;
 @property (nonatomic, strong) GHWriter *writer;
 @property (nonatomic, strong, nullable) GHOverlayWindow *overlay;
+/// The eyes (docs/anywhere.md section 4): names the controls nothing in the tree could name. Built on first
+/// use; a test injects one with a stub transport and a stub screenshot.
+@property (nonatomic, strong, nullable) GHVision *vision;
 
 @property (nonatomic, readonly) GHWalkState *walk;
 @property (nonatomic, readonly) BOOL running;
