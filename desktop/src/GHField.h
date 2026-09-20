@@ -83,6 +83,8 @@ extern NSString *const GHUploadKindOther;        // "other": never answered
 @property (nonatomic) BOOL nearbyPrice;
 /// A small count drawn on the control (a cart count, an unread count). 0 = none.
 @property (nonatomic) NSUInteger badgeCount;
+/// This entry is waiting to be read. macOS asks apps to say so in the accessible name, for VoiceOver.
+@property (nonatomic) BOOL unread;
 /// Live element. Retained by the setter, released on dealloc. NULL in tests.
 @property (nonatomic, nullable) AXUIElementRef axElement;
 

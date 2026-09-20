@@ -153,8 +153,10 @@ static const CGFloat kCandidateOverlap = 8;
     }
     // The app's own cursor is the sequence signal: it says what comes next without Ghost having to have seen
     // this app, this window or this user before.
+    // Somebody waiting for an answer outranks everything else the screen offers.
+    for (GHField *field in result.fields) if (field.unread) { measured.hasUnreadItem = YES; break; }
     NSString *focusedSignature = nil;
-    if ([GHNextAction window:result hasAFocusedEmptyField:&focusedSignature]) {
+    if (!measured.hasUnreadItem && [GHNextAction window:result hasAFocusedEmptyField:&focusedSignature]) {
         // ...unless the app is ALREADY showing the answers under it. Then the next action is to take one of
         // them, not to type: nobody types a name they can see. Leaving `field` unboosted lets the list's own
         // first row win on its ordinary prior, which is what "pick, never generate" looks like in the rank.
@@ -263,6 +265,12 @@ static const CGFloat kCandidateOverlap = 8;
     if (!clickable && !(typeable && offerable)) return nil;
     // Never a box somebody has already written in: that is their text, and the cursor belongs where they left it.
     if (typeable && target.value.length > 0) return nil;
+    // And never the box the cursor is ALREADY in. Accepting it would move the cursor to where the cursor is,
+    // which is not an action. The focus signal is worth having because it says what the app thinks comes
+    // next; it is not worth offering back to the user as a thing to press. Without this, opening a new
+    // message in a chat app proposed the `To` field the app had just focused -- and the step after that,
+    // knowing who to write to, is the one thing Ghost cannot help with at all.
+    if (typeable && target.focused) return nil;
 
     GHNextProposal *proposal = [[GHNextProposal alloc] init];
     proposal.signature = signature;

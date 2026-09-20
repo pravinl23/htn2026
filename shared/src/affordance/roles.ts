@@ -30,6 +30,7 @@ export type AffordanceEvidence =
   | "list-item"         // the control is a member of a repeated list or grid
   | "price-nearby"      // a price-shaped string is rendered beside it
   | "badge-count"       // a small count is drawn on the icon
+  | "unread"            // the entry is waiting to be read
   | "path-pattern"      // the URL path pattern agrees with the role
   | "focused"           // the app itself has put the keyboard in this control
   | "kind";             // the candidate's own kind (a field is a field)
@@ -71,6 +72,8 @@ export interface AffordanceCandidate extends NextCandidate {
    * already said what happens next, and it is the one sequence signal that needs no history at all.
    */
   focused?: boolean;
+  /** This entry is waiting to be read: an unread row, an unopened message, a notification. */
+  unread?: boolean;
 }
 
 /** Page-level facts a role sometimes needs. Still nothing that identifies a site. */
@@ -324,6 +327,9 @@ export function classifyAffordance(candidate: AffordanceCandidate, context: Affo
   if (itemLike && (inList || listEntry)) {
     scores.add("primary-item", listItemWeight(candidate.list?.index ?? 0), "list-item");
   }
+  // Somebody is waiting for an answer. Strongest item evidence there is: it says which row, not merely that
+  // rows exist, and it is the one thing on a messaging screen Ghost can follow all the way through.
+  if (itemLike && candidate.unread === true) scores.add("primary-item", 0.8, "unread");
   // A price beside a link is a product tile even where the list detector found no list (a single featured item).
   if (itemLike && candidate.nearbyPrice === true) {
     scores.add("primary-item", 0.45, "price-nearby");

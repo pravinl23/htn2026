@@ -319,6 +319,40 @@ static NSString *GHFNV1a(NSString *text) {
     return [NSString stringWithFormat:@"%016llx", hash];
 }
 
+/// Worth asking whether it can be pressed: a leaf with a name and a box big enough to aim at. The size floor
+/// keeps the question off the thousands of small text runs that make up a page's prose.
+static const CGFloat kPressableLabelMinHeight = 18;
+static const CGFloat kPressableLabelMinWidth = 40;
+
+/**
+ * The entry is waiting to be read.
+ *
+ * macOS asks apps to say so in the accessible name, because that is how VoiceOver announces it: a row reads
+ * "Unread, <who>, <what>, <when>". Read from the name Ghost already has, so it costs nothing.
+ *
+ * NOT verified against a live unread row -- the inbox it was written against had none, every conversation
+ * offering "Mark as Unread" rather than "Mark as Read". It fails safe: no match means no boost, and the
+ * behaviour is exactly what it was before.
+ */
+static BOOL GHLooksUnread(NSString *text) {
+    static NSRegularExpression *regex;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        regex = [NSRegularExpression regularExpressionWithPattern:@"^\\s*(unread|new message)\\b|\\bunread\\b\\s*[,.]"
+                                                          options:NSRegularExpressionCaseInsensitive error:NULL];
+    });
+    NSString *name = GHSquash(text ?: @"");
+    return name.length > 0 && [regex firstMatchInString:name options:0 range:NSMakeRange(0, name.length)] != nil;
+}
+
+static BOOL GHCouldBeAPressableLabel(id<GHAXNode> node, NSString *role) {
+    if (![role isEqualToString:kRoleStaticText] && ![role isEqualToString:@"AXImage"]) return NO;
+    CGRect box = node.frame;
+    if (CGRectGetHeight(box) < kPressableLabelMinHeight || CGRectGetWidth(box) < kPressableLabelMinWidth) return NO;
+    if (GHSquash(node.title).length == 0 && GHSquash(node.axDescription).length == 0) return NO;
+    return node.pressable;
+}
+
 /// Kinds whose whole purpose is that you type into them (a select or a checkbox is a value too, but nobody
 /// types into one, and their AXValue settability says nothing useful).
 static BOOL GHIsTypeableKind(NSString *kind) {
@@ -1128,6 +1162,7 @@ static NSString *GHUploadKindForText(NSString *text) {
     if (!isLink) field.context = [self contextFromLegend:legend heading:heading label:label];
 
     if (isAction) {
+        field.unread = GHLooksUnread(naming.rawLabel) || GHLooksUnread(node.axDescription);
         field.locked = [self isLabelLocked:label];
         field.unnamed = label.length == 0;
         // Generic naming evidence the affordance layer reads as icon words, and the raw description a vision
@@ -1365,6 +1400,12 @@ static BOOL GHIsBrowserChrome(id<GHAXNode> node, NSString *role) {
         }
 
         NSString *kind = [GHCapture kindForRole:role subrole:node.subrole];
+        // A label that publishes AXPress is not a label, it is a row. Measured on a live Messages window:
+        // every conversation in the sidebar is an AXStaticText with an AXPress and a name, and no AXRow or
+        // AXCell exists anywhere in that app -- so without this a chat list is nine pieces of text and
+        // Ghost has nothing to offer but "new message", which is the one thing it cannot help with.
+        // The press check costs a round trip, so it is asked only of a named, list-sized leaf.
+        if (!kind && GHCouldBeAPressableLabel(node, role)) kind = GHKindItem;
         if ([role isEqualToString:kRoleButton] && GHIsFileUploadButton(node)) {
             [uploads addObject:entry]; // folded into one `file` field with its widget after the walk
             continue;

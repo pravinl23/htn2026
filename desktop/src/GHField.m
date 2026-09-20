@@ -84,6 +84,7 @@ NSString *const GHUploadKindOther = @"other";
     copy.listIndex = self.listIndex;
     copy.nearbyPrice = self.nearbyPrice;
     copy.badgeCount = self.badgeCount;
+    copy.unread = self.unread;
     copy.axElement = self.axElement;
     return copy;
 }
@@ -152,6 +153,7 @@ static NSNumber *GHFiniteNumber(CGFloat value) {
     json[@"locked"] = @(self.locked);
     if (item) json[@"ariaRole"] = @"listitem";
     if (self.focused) json[@"focused"] = @YES;
+    if (self.unread) json[@"unread"] = @YES;
     if (self.context.length) json[@"context"] = self.context;
     if (self.axDescription.length) json[@"description"] = self.axDescription;
     if (self.inputType.length) json[@"inputType"] = self.inputType;

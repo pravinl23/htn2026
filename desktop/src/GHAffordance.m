@@ -115,6 +115,7 @@ static uint32_t GHAffHash(NSString *text) {
     copy.isFullscreen = self.isFullscreen;
     copy.previousRole = self.previousRole;
     copy.focusedEmptyField = self.focusedEmptyField;
+    copy.hasUnreadItem = self.hasUnreadItem;
     copy.sensitiveOnScreen = self.sensitiveOnScreen;
     copy.visitedNodes = self.visitedNodes;
     copy.partial = self.partial;
@@ -133,6 +134,7 @@ static uint32_t GHAffHash(NSString *text) {
     if (self.isFullscreen) json[@"isFullscreen"] = @YES;
     if (self.previousRole.length) json[@"previousRole"] = self.previousRole;
     if (self.focusedEmptyField) json[@"focusedEmptyField"] = @YES;
+    if (self.hasUnreadItem) json[@"hasUnreadItem"] = @YES;
     return json;
 }
 

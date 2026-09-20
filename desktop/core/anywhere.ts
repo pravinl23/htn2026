@@ -40,6 +40,8 @@ export interface NextActionSignals extends PriorState {
   previousRole?: AffordanceRole;
   /** The app itself has put the keyboard in an empty box somebody types in. */
   focusedEmptyField?: boolean;
+  /** Something on screen is waiting to be read. */
+  hasUnreadItem?: boolean;
 }
 
 export interface NextActionOptions {
@@ -143,6 +145,7 @@ function asCandidate(raw: unknown): AffordanceCandidate | null {
   if (raw.insideMediaControls === true) candidate.insideMediaControls = true;
   if (raw.nearbyPrice === true) candidate.nearbyPrice = true;
   if (raw.focused === true) candidate.focused = true;
+  if (raw.unread === true) candidate.unread = true;
   const badge = count(raw.badgeCount);
   if (badge !== undefined && badge > 0) candidate.badgeCount = badge;
   if (isObject(raw.list)) {
@@ -188,7 +191,7 @@ function asSignals(json: string): NextActionSignals {
     const list = text(raw.mainListSignature, 120);
     if (list !== undefined) signals.mainListSignature = list;
   }
-  for (const key of ["hasMediaElement", "mediaPlaying", "isFullscreen", "atPageEnd", "hasQuery", "readingItem", "focusedEmptyField"] as const) {
+  for (const key of ["hasMediaElement", "mediaPlaying", "isFullscreen", "atPageEnd", "hasQuery", "readingItem", "focusedEmptyField", "hasUnreadItem"] as const) {
     const value = bool(raw[key]);
     if (value !== undefined) signals[key] = value;
   }

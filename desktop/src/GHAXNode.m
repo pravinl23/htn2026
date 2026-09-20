@@ -123,6 +123,8 @@ static BOOL GHAXIsElement(id object) {
     id<GHAXNode> _fetchedParent;
     BOOL _settableKnown;
     BOOL _settable;
+    BOOL _pressableKnown;
+    BOOL _pressable;
 }
 
 @synthesize lastError = _lastError;
@@ -219,6 +221,21 @@ static BOOL GHAXIsElement(id object) {
 - (BOOL)isFocused {
     id flag = [self slot:GHAXSlotFocused];
     return [flag isKindOfClass:[NSNumber class]] && [flag boolValue];
+}
+
+- (BOOL)pressable {
+    if (_pressableKnown) return _pressable;
+    _pressableKnown = YES;
+    _pressable = NO;
+    AXUIElementRef element = self.axElement;
+    CFArrayRef names = NULL;
+    if (element && AXUIElementCopyActionNames(element, &names) == kAXErrorSuccess && names) {
+        // Only whether AXPress is there. The rest of the list is not read: on a chat app the action names
+        // carry the other person's name ("Pin <someone>"), and none of that belongs anywhere near a capture.
+        _pressable = [(__bridge NSArray *)names containsObject:(__bridge NSString *)kAXPressAction];
+    }
+    if (names) CFRelease(names);
+    return _pressable;
 }
 
 /// Not part of the batch fetch: one call, made only when a caller actually needs the answer, and cached
@@ -447,6 +464,8 @@ static const NSUInteger GHDumpMaxValueLength = 8192;
     node.required = GHDumpFlag(raw[@"required"], NO);
     node.isFocused = GHDumpFlag(raw[@"focused"], NO);
     node.valueIsSettable = GHDumpFlag(raw[@"settable"], YES);
+    NSArray *actions = raw[@"actions"];
+    node.pressable = [actions isKindOfClass:[NSArray class]] && [actions containsObject:@"AXPress"];
 
     NSString *labelledBy = GHDumpString(raw[@"labelledBy"]);
     if (labelledBy) node.titleUIElement = [self staticText:labelledBy frame:CGRectZero];

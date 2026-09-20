@@ -26,6 +26,8 @@ export interface PriorState {
   readingItem?: boolean;
   /** The role of the thing the user took LAST. What follows it is a prior of its own -- see AFTER. */
   previousRole?: AffordanceRole;
+  /** Something on screen is waiting to be read: an unread row, a badge, a notification. */
+  hasUnreadItem?: boolean;
   /**
    * The app itself has put the keyboard in an empty box somebody types in.
    *
@@ -48,7 +50,7 @@ export const PRIOR_MIN = 0.55;
  * and a video that is already playing fullscreen (nagging someone who is watching is the wrong product).
  */
 export function priorsFor(kind: PageKind, state: PriorState = {}): RolePrior[] {
-  const priors = merge(merge(build(kind, state), after(state.previousRole)), focusedField(state));
+  const priors = merge(merge(merge(build(kind, state), after(state.previousRole)), focusedField(state)), unread(state));
   return priors
     .filter((p) => p.weight > 0)
     .map((p) => ({ role: p.role, weight: Math.min(PRIOR_MAX, Math.max(PRIOR_MIN, p.weight)) }))
@@ -71,8 +73,9 @@ export function priorsFor(kind: PageKind, state: PriorState = {}): RolePrior[] {
  * them. Where a place and a transition disagree, the stronger of the two wins.
  */
 const AFTER: Partial<Record<AffordanceRole, RolePrior[]>> = {
-  // You made a new, empty thing. It is empty because you are about to say who or what it is for.
-  compose: [{ role: "field", weight: 0.7 }, { role: "search", weight: 0.56 }],
+  // `compose` is deliberately absent. "You made a new message, now fill in the recipient" reads well and is
+  // useless: Ghost has no idea who you are writing to, so the step after it is one it cannot help with. A
+  // chain that ends in a shrug should not start.
   reply: [{ role: "field", weight: 0.7 }],
   // One field leads to the next, and a filled-in thing leads to the control that sends it.
   field: [{ role: "field", weight: 0.66 }, { role: "send", weight: 0.62 }, { role: "submit", weight: 0.6 }],
@@ -92,6 +95,16 @@ function after(previousRole: AffordanceRole | undefined): RolePrior[] {
 /** Where the app has put the cursor, filling that box IS the next action, in every kind of place. */
 function focusedField(state: PriorState): RolePrior[] {
   return state.focusedEmptyField === true ? [{ role: "field", weight: PRIOR_MAX }] : [];
+}
+
+/**
+ * Somebody is waiting for an answer. That outranks whatever else the screen offers, in any kind of place:
+ * an unread message, an unread mail, a notification badge. It is also the only thing on a messaging screen
+ * that Ghost can follow all the way through -- open it, read the thread, draft the reply -- because the one
+ * fact it needs, who the conversation is with, is written on the row.
+ */
+function unread(state: PriorState): RolePrior[] {
+  return state.hasUnreadItem === true ? [{ role: "primary-item", weight: PRIOR_MAX }] : [];
 }
 
 /** The stronger weight per role wins; neither list silences the other. */
@@ -121,7 +134,10 @@ function build(kind: PageKind, state: PriorState): RolePrior[] {
     case "mail":
       return state.readingItem === true
         ? [{ role: "reply", weight: 0.7 }, { role: "back", weight: 0.6 }, { role: "compose", weight: 0.55 }]
-        : [{ role: "primary-item", weight: 0.7 }, { role: "compose", weight: 0.62 }, { role: "search", weight: 0.57 }];
+        // `compose` sits at the floor on purpose: starting a new message is only useful to somebody who
+        // already knows who it is for, which is exactly what Ghost does not know. Reading the one that came
+        // in is the thing it can actually help with, so the item leads by a wide margin.
+        : [{ role: "primary-item", weight: 0.7 }, { role: "search", weight: 0.57 }, { role: "compose", weight: PRIOR_MIN }];
     case "form":
       // Terminal actions stay low here AND are withheld entirely by the walk gate until the form is ready
       // (docs/incremental.md section 2): the prior must never be what puts a cursor on Submit.

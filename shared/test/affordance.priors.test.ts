@@ -65,8 +65,28 @@ describe("reader, mail and form priors", () => {
   });
 
   it("proposes opening a message in a mailbox and replying inside one", () => {
-    expect(roles("mail")).toEqual(["primary-item", "compose", "search"]);
+    // `compose` sits at the floor, below search. Starting a new message is only useful to somebody who
+    // already knows who it is for, which is exactly what Ghost does not know: "new message" then "fill in
+    // the recipient" is a chain that ends in a shrug. Reading the one that came in is the thing it can help
+    // with, and it can follow that all the way through to a drafted reply.
+    expect(roles("mail")).toEqual(["primary-item", "search", "compose"]);
     expect(roles("mail", { readingItem: true })).toEqual(["reply", "back", "compose"]);
+  });
+
+  it("puts something waiting to be read above everything else, wherever it is", () => {
+    for (const kind of ["mail", "feed", "app", "unknown"] as const) {
+      const priors = priorsFor(kind, { hasUnreadItem: true });
+      expect(priors[0]?.role).toBe("primary-item");
+      expect(priorWeight(priors, "primary-item")).toBe(PRIOR_MAX);
+    }
+    // Even against the app's own cursor: somebody waiting beats an empty box.
+    const both = priorsFor("app", { hasUnreadItem: true, focusedEmptyField: true });
+    expect(priorWeight(both, "primary-item")).toBeGreaterThanOrEqual(priorWeight(both, "field"));
+  });
+
+  it("never chains out of compose, because Ghost cannot know the recipient", () => {
+    const after = priorsFor("app", { previousRole: "compose" });
+    expect(priorWeight(after, "field")).toBe(0);
   });
 
   it("keeps the terminal action of a form below the fields", () => {

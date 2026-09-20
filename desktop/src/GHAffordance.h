@@ -43,6 +43,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// compose window and drops the cursor in `To` has ALREADY said what happens next. Reaching for the search
 /// box in that moment is the guess that makes no sense to a person, and this is what stops it.
 @property (nonatomic) BOOL focusedEmptyField;
+/// Something on screen is waiting to be read: an unread row, an unopened message, a notification.
+@property (nonatomic) BOOL hasUnreadItem;
 /// A password (or any AXSecureTextField) is on screen in this window. Nothing may be screenshotted here:
 /// the vision fallback refuses the whole window, not just that control (docs/anywhere.md section 4).
 @property (nonatomic) BOOL sensitiveOnScreen;

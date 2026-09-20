@@ -716,6 +716,30 @@ GH_TEST(anywhere_an_unlocked_proposal_is_pressed_exactly_once_and_only_with_a_li
     GH_ASSERT_EQUAL_INT(actuator.presses, 1);
 }
 
+/// A chat app opening a new message puts the cursor in `To`, and Ghost used to offer that box back: press to
+/// move the cursor to where the cursor is. Worse, the step after it -- knowing who to write to -- is the one
+/// thing Ghost cannot help with at all, so the whole chain ended in a shrug.
+GH_TEST(anywhere_the_box_the_cursor_is_already_in_is_not_an_action) {
+    GHFakeAXNode *node = Node(@"AXTextField", @"To", CGRectMake(300, 40, 600, 28));
+    GHField *field = [GHField fieldWithSignature:@"ax|AXTextField|to|0" label:@"To" kind:GHKindText];
+    field.rect = node.frame;
+    field.focused = YES;
+
+    GHCaptureResult *result = [[GHCaptureResult alloc] init];
+    [result setValue:@[ field ] forKey:@"fields"];
+    [result setValue:@{ field.signature: node } forKey:@"nodes"];
+
+    GHNextAction *engine = [[GHNextAction alloc] initWithCore:[GHCore sharedCore] memory:nil];
+    GHNextProposal *proposal = [engine proposeForResult:result window:node signals:nil];
+    // Whatever the ranking says, a focused empty box is never handed back as something to press.
+    GH_ASSERT(proposal == nil || ![proposal.signature isEqualToString:field.signature]);
+
+    // The same box, NOT focused, is an ordinary offer again: putting the cursor there is a real action.
+    field.focused = NO;
+    GHNextProposal *unfocused = [engine proposeForResult:result window:node signals:nil];
+    (void)unfocused;   // the ranking decides whether it wins; the point is that it is no longer refused
+}
+
 /// "Pick, never generate." A box with the app's own answers listed under it does not want a cursor in it --
 /// nobody types a name they can see. Measured as the bug: a search box whose placeholder said "Go to file"
 /// got a ghost that said "Go to file", because a proposal's display text names its control and a search
