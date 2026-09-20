@@ -91,6 +91,13 @@ extern NSString *const GHRoleOutcomeReplaced;
 /// transfers to the next video, the next shop and the next feed.
 - (void)recordOutcome:(NSString *)outcome forProposal:(nullable GHNextProposal *)proposal;
 
+// ---------- pure, exposed for tests ----------
+/// An empty box somebody types in that the app has put the keyboard into. `outSignature` gets its signature.
++ (BOOL)window:(GHCaptureResult *)result hasAFocusedEmptyField:(NSString *_Nullable *_Nullable)outSignature;
+/// Is the app already showing a list of answers directly under that box (an autocomplete, a "Suggested"
+/// list, recent files)? Then the next action is to take one of them, not to type into the box.
++ (BOOL)result:(GHCaptureResult *)result showsCandidatesUnder:(NSString *)signature;
+
 @end
 
 NS_ASSUME_NONNULL_END

@@ -643,7 +643,12 @@ static const NSUInteger kUploadVerifyTries = 8;
     if (!proposal) return ghosts;
     GHField *field = _fields[proposal.signature];
     if (!field) return ghosts;
-    return [ghosts arrayByAddingObject:[proposal ghostWithDisplayText:field.label ?: @""]];
+    // A proposal's display text names the control, which is right for a button ("Play") and nonsense for a
+    // box you type in: a search field's name IS its placeholder, so the ghost read as "type Go to file" into
+    // a box that already said "Go to file". Ghost has no value for that field, so it says nothing. The ring
+    // and the cursor carry the whole message, which is "go here" -- and going here is the entire proposal.
+    BOOL typeable = [field.kind isEqualToString:GHKindText] || [field.kind isEqualToString:GHKindTextArea];
+    return [ghosts arrayByAddingObject:[proposal ghostWithDisplayText:typeable ? @"" : (field.label ?: @"")]];
 }
 
 /**

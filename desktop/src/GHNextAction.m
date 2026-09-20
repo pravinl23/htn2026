@@ -2,6 +2,7 @@
 #import "GHCore.h"
 #import "GHCapture.h"
 #import "GHField.h"
+#import "GHGeometry.h"
 #import "GHLog.h"
 #import "GHProfileStore.h"   // GHWritePrivateFile: the atomic 0600 write every Ghost file uses
 
@@ -12,6 +13,11 @@ NSString *const GHRoleOutcomeReplaced = @"replaced";
 /// A memory file bigger than this is not ours (the core caps the store at 400 entries).
 static const NSUInteger kMaxMemoryBytes = 256 * 1024;
 static const double kDefaultThreshold = 0.7;
+/// What counts as "the app is showing the answers under this box": at least two entries, starting no more
+/// than this far below it, and allowed to begin slightly above it (a menu that overlaps its own field).
+static const NSUInteger kCandidatesNeeded = 2;
+static const CGFloat kCandidateReach = 320;
+static const CGFloat kCandidateOverlap = 8;
 
 #pragma mark - GHNextProposal
 
@@ -147,7 +153,13 @@ static const double kDefaultThreshold = 0.7;
     }
     // The app's own cursor is the sequence signal: it says what comes next without Ghost having to have seen
     // this app, this window or this user before.
-    measured.focusedEmptyField = [GHNextAction window:result hasAFocusedEmptyField:nil];
+    NSString *focusedSignature = nil;
+    if ([GHNextAction window:result hasAFocusedEmptyField:&focusedSignature]) {
+        // ...unless the app is ALREADY showing the answers under it. Then the next action is to take one of
+        // them, not to type: nobody types a name they can see. Leaving `field` unboosted lets the list's own
+        // first row win on its ordinary prior, which is what "pick, never generate" looks like in the rank.
+        measured.focusedEmptyField = ![GHNextAction result:result showsCandidatesUnder:focusedSignature];
+    }
     _lastSignals = measured;
 
     NSArray<NSDictionary *> *candidates = [GHField candidateJSONObjectsForFields:result.fields];
@@ -187,6 +199,35 @@ static const double kDefaultThreshold = 0.7;
         if (![field.kind isEqualToString:GHKindText] && ![field.kind isEqualToString:GHKindTextArea]) continue;
         if (outSignature) *outSignature = field.signature;
         return YES;
+    }
+    return NO;
+}
+
+/**
+ * Is the app already showing a list of answers directly under this box?
+ *
+ * An autocomplete menu, a "Suggested" list, a recent-files list: every one of them is the app saying "here
+ * are the things you might mean". When that is on screen, typing is the long way round -- the answer is a
+ * row you can press, and Ghost's job is to pick one of them rather than to invent a string.
+ *
+ * Read entirely off the capture Ghost already has: entries that sit below the box, overlap its column, and
+ * start close enough underneath it to belong to it. No extra walk, no app knowledge, no list of sites.
+ */
++ (BOOL)result:(GHCaptureResult *)result showsCandidatesUnder:(NSString *)signature {
+    GHField *box = nil;
+    for (GHField *field in result.fields) if ([field.signature isEqualToString:signature ?: @""]) box = field;
+    if (!box || !GHRectIsUsable(box.rect)) return NO;
+    CGFloat bottom = CGRectGetMaxY(box.rect);
+    NSUInteger found = 0;
+    for (GHField *other in result.fields) {
+        if (![other.kind isEqualToString:GHKindItem] && ![other.kind isEqualToString:GHKindLink]) continue;
+        CGRect r = other.rect;
+        if (!GHRectIsUsable(r)) continue;
+        CGFloat top = CGRectGetMinY(r);
+        if (top < bottom - kCandidateOverlap || top > bottom + kCandidateReach) continue;
+        // A different column of the window is a different thing entirely (a sidebar beside a search box).
+        if (CGRectGetMaxX(r) <= CGRectGetMinX(box.rect) || CGRectGetMinX(r) >= CGRectGetMaxX(box.rect)) continue;
+        if (++found >= kCandidatesNeeded) return YES;
     }
     return NO;
 }

@@ -716,6 +716,43 @@ GH_TEST(anywhere_an_unlocked_proposal_is_pressed_exactly_once_and_only_with_a_li
     GH_ASSERT_EQUAL_INT(actuator.presses, 1);
 }
 
+/// "Pick, never generate." A box with the app's own answers listed under it does not want a cursor in it --
+/// nobody types a name they can see. Measured as the bug: a search box whose placeholder said "Go to file"
+/// got a ghost that said "Go to file", because a proposal's display text names its control and a search
+/// box's name IS its placeholder.
+GH_TEST(anywhere_a_box_with_the_answers_under_it_is_not_the_proposal) {
+    GHCaptureResult *result = [[GHCaptureResult alloc] init];
+    GHField *box = [GHField fieldWithSignature:@"ax|AXTextField|goto|0" label:@"Go to file" kind:GHKindText];
+    box.rect = CGRectMake(300, 100, 400, 32);
+    box.focused = YES;
+    NSMutableArray<GHField *> *fields = [NSMutableArray arrayWithObject:box];
+    for (NSUInteger i = 0; i < 3; i++) {
+        GHField *row = [GHField fieldWithSignature:[NSString stringWithFormat:@"ax|AXRow|r%lu|0", (unsigned long)i]
+                                             label:[NSString stringWithFormat:@"File %lu.ts", (unsigned long)i] kind:GHKindItem];
+        row.rect = CGRectMake(300, (CGFloat)(140 + i * 28), 400, 26);
+        [fields addObject:row];
+    }
+    [result setValue:fields forKey:@"fields"];
+    GH_ASSERT([GHNextAction result:result showsCandidatesUnder:box.signature]);
+
+    // A sidebar BESIDE the box is a different thing entirely, and so is a list far below it.
+    GHCaptureResult *beside = [[GHCaptureResult alloc] init];
+    NSMutableArray<GHField *> *other = [NSMutableArray arrayWithObject:box];
+    for (NSUInteger i = 0; i < 3; i++) {
+        GHField *row = [GHField fieldWithSignature:[NSString stringWithFormat:@"ax|AXRow|s%lu|0", (unsigned long)i]
+                                             label:@"Sidebar" kind:GHKindItem];
+        row.rect = CGRectMake(0, (CGFloat)(140 + i * 28), 280, 26);   // left of the box, no overlap
+        [other addObject:row];
+    }
+    [beside setValue:other forKey:@"fields"];
+    GH_ASSERT_FALSE([GHNextAction result:beside showsCandidatesUnder:box.signature]);
+
+    // And a box with nothing under it keeps the cursor: there is simply nothing to pick from.
+    GHCaptureResult *bare = [[GHCaptureResult alloc] init];
+    [bare setValue:@[ box ] forKey:@"fields"];
+    GH_ASSERT_FALSE([GHNextAction result:bare showsCandidatesUnder:box.signature]);
+}
+
 /// Most of the desktop does not implement AXPress: a Finder row, a Spotify tile, a Discord channel, anything
 /// custom-drawn. Before this, `press` was the only actuation Ghost had, and on all of those the accept did
 /// nothing at all -- and still reported ok, because kAXErrorCannotComplete was being counted as success.
