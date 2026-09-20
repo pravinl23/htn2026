@@ -23,6 +23,8 @@ static NSString *const kOfflineProvider = @"offline-heuristic";
 static NSString *const kDraftingText = @"Drafting...";
 static const NSUInteger kMaxFormsPerPage = 6;
 static const NSUInteger kMinFormFields = 2;
+/// How much of a window has to be fields before Ghost will fill it in. The same share `pageKind` uses.
+static const double kFormFieldShare = 0.25;
 static const NSUInteger kDraftMaxChars = 600;
 static const NSUInteger kReplyMaxChars = 200;   // a message is not an essay
 static const double kReplyConfidence = 0.72;   // a thread and an empty box under it is a clear enough place
@@ -595,7 +597,8 @@ static const NSUInteger kUploadVerifyTries = 8;
     if (accepted.count) options[@"accepted"] = accepted;
     if (_pageContext[@"company"].length) options[@"company"] = _pageContext[@"company"];
 
-    NSArray<NSDictionary *> *offline = _orderedFields.count ? [_core mapFields:_orderedFields factKeys:factKeys] : @[];
+    // Nothing is mapped to a profile fact outside a form, so no value ghost can appear in an ordinary app.
+    NSArray<NSDictionary *> *offline = (_orderedFields.count && [self windowLooksLikeAForm]) ? [_core mapFields:_orderedFields factKeys:factKeys] : @[];
     NSMutableArray<NSDictionary *> *answers = [NSMutableArray array];
     for (NSString *signature in _served) if (![_pinned containsObject:signature]) [answers addObject:_served[signature]];
     NSArray<NSDictionary *> *ghostObjects = @[];
@@ -854,13 +857,51 @@ static const NSUInteger kUploadVerifyTries = 8;
 
 #pragma mark - prediction: cache -> server, once per form
 
+/**
+ * A field somebody could actually fill IN, as opposed to a control that merely holds a value.
+ *
+ * A popup with nothing in it is a menu button, not a field. An app's "More options", "Filter" and "New from
+ * a template" menus are all AXPopUpButtons, and counting them made a chat client 43% form by field share --
+ * so Ghost asked a model to map the user's name and school onto its own menus, and put a ghost reading
+ * "Max" inside a model picker. A real form's select has options, or says they load lazily.
+ */
+static BOOL GHIsFillableField(GHField *field);
+
 static BOOL GHIsValueKind(NSString *kind) {
     return !([kind isEqualToString:GHKindButton] || [kind isEqualToString:GHKindLink] || [kind isEqualToString:GHKindItem] ||
              [kind isEqualToString:GHKindFile] || [kind isEqualToString:GHKindOther]);
 }
 
+/**
+ * Is this window a form somebody is filling in?
+ *
+ * A form is a window whose fields are the POINT, not a window that happens to contain a few. Counting them
+ * alone made every app with some dropdowns into a form to fill in from the user's profile: measured on a
+ * chat client with 67 controls, of which a handful were selects, Ghost asked the model to map the user's
+ * name and school onto its own menus and put a ghost reading "Max" inside a model picker.
+ *
+ * Same share as `pageKind`'s own form rule, and for the same reason. A job application is mostly fields; an
+ * app is mostly buttons.
+ */
+- (BOOL)windowLooksLikeAForm {
+    NSUInteger values = 0, actions = 0;
+    for (GHField *field in _orderedFields) {
+        if (GHIsFillableField(field)) values++;
+        else actions++;
+    }
+    if (values == 0) return NO;
+    return (double)values / (double)(values + actions) >= kFormFieldShare;
+}
+
+static BOOL GHIsFillableField(GHField *field) {
+    if (!GHIsValueKind(field.kind)) return NO;
+    if ([field.kind isEqualToString:GHKindSelect]) return field.options.count > 0 || field.lazyOptions;
+    return YES;
+}
+
 - (void)requestPredictionWithFactKeys:(NSArray<NSString *> *)factKeys {
     if (!_client || factKeys.count == 0 || !_result) return;
+    if (![self windowLooksLikeAForm]) return;
     NSUInteger valueFields = 0;
     for (GHField *field in _orderedFields) if (GHIsValueKind(field.kind)) valueFields++;
     // Not for a lone field without an offline ghost: that is a search box, not a form.
