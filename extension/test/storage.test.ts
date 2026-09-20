@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS, DEMO_PROFILE } from "@ghost/shared";
+import { DEFAULT_SETTINGS, DEMO_PROFILE, FACT_SCHEMA_VERSION } from "@ghost/shared";
 import type { Profile } from "@ghost/shared";
 import {
   PROFILE_KEY,
@@ -60,9 +60,17 @@ describe("storage with the in-memory fallback (no chrome global)", () => {
     await saveProfile(EDITED);
     expect(cb).toHaveBeenNthCalledWith(1, { settings: { ...DEFAULT_SETTINGS, showHud: false } });
     expect(cb).toHaveBeenNthCalledWith(2, { profile: EDITED });
+    // Saving the profile keeps the fact graph in step, and that is a change of its own: the graph comes
+    // back at the current schema, holding the facts that were just saved.
+    expect(cb).toHaveBeenNthCalledWith(3, {
+      facts: expect.objectContaining({
+        version: FACT_SCHEMA_VERSION,
+        facts: expect.objectContaining({ firstName: expect.objectContaining({ value: "Alex" }) }),
+      }),
+    });
     off();
     await saveSettings({ showHud: true });
-    expect(cb).toHaveBeenCalledTimes(2);
+    expect(cb).toHaveBeenCalledTimes(3);
   });
 });
 

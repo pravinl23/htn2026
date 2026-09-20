@@ -3,6 +3,8 @@
 //   --trust                       { "trusted": bool }
 //   --dump                        captured fields of the frontmost window: labels, kinds, options, rects, locked. NO values.
 //   --dump-tree [--depth 60]      raw AX tree; every value is reduced to its length
+//   --next                        what Ghost would PROPOSE here (docs/anywhere.md): page kind, ranked roles, the top
+//                                 row. Read-only: it never posts a key and never presses anything.
 //   --autotab N [--interval 450]  posts N real, untagged Tab presses through the event tap and records each step
 //   --frontmost "App"             bring an app forward first          --delay S   wait before looking
 //   --expect-field "First Name"   the page guard: a captured label must match this, or nothing is sent
@@ -37,6 +39,7 @@ NS_ASSUME_NONNULL_BEGIN
 extern NSString *const GHHarnessModeTrust;
 extern NSString *const GHHarnessModeDump;
 extern NSString *const GHHarnessModeDumpTree;
+extern NSString *const GHHarnessModeNext;
 extern NSString *const GHHarnessModeAutotab;
 extern NSString *const GHHarnessModeProbeComboBox;
 

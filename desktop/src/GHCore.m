@@ -213,6 +213,19 @@ BOOL GHCoreBundleMatchesPin(NSString *path, NSString *pinned) {
     return [parsed isKindOfClass:[NSDictionary class]] ? parsed : @{};
 }
 
+#pragma mark - the answer engine and the gate
+
+/// ISO-8601 with milliseconds, the format `Date.parse` in the core reads back exactly.
+static NSString *GHISODate(NSDate *when) {
+    static NSISO8601DateFormatter *formatter;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        formatter = [[NSISO8601DateFormatter alloc] init];
+        formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
+    });
+    return [formatter stringFromDate:when];
+}
+
 #pragma mark - typed wrappers
 
 - (NSDictionary<NSString *, id> *)demoProfile {
@@ -344,8 +357,66 @@ BOOL GHCoreBundleMatchesPin(NSString *path, NSString *pinned) {
     return [self isLockedAction:probe];
 }
 
+- (NSArray<NSDictionary<NSString *, id> *> *)proposeAnswersForFieldObjects:(NSArray<NSDictionary *> *)fields
+                                                                   profile:(NSDictionary *)profile
+                                                                   answers:(NSString *)answersJSON
+                                                                  settings:(NSDictionary *)settings {
+    NSString *fieldsJson = GHJSONString(fields), *profileJson = GHJSONString(profile), *settingsJson = GHJSONString(settings);
+    if (!fieldsJson || !profileJson || !settingsJson) return @[];
+    return [self arrayFrom:@"proposeAnswers" arguments:@[ fieldsJson, profileJson, answersJSON ?: @"", settingsJson ]];
+}
+
+- (NSDictionary<NSString *, id> *)recordCorrectionForFieldObject:(NSDictionary *)field
+                                                            value:(NSString *)value
+                                                          answers:(NSString *)answersJSON
+                                                               at:(NSDate *)when {
+    NSString *fieldJson = GHJSONString(field);
+    if (!fieldJson || ![value isKindOfClass:[NSString class]]) return @{};
+    return [self dictionaryFrom:@"recordCorrection"
+                      arguments:@[ fieldJson, value, answersJSON ?: @"", GHISODate(when ?: [NSDate date]) ]];
+}
+
+- (NSDictionary<NSString *, id> *)gateForFieldObjects:(NSArray<NSDictionary *> *)fields
+                                                ghosts:(NSArray<NSDictionary *> *)ghosts
+                                              accepted:(NSArray<NSString *> *)accepted {
+    NSString *fieldsJson = GHJSONString(fields), *ghostsJson = GHJSONString(ghosts ?: @[]);
+    NSString *optionsJson = GHJSONString(@{ @"accepted": accepted ?: @[] }) ?: @"{}";
+    if (!fieldsJson || !ghostsJson) return @{};
+    return [self dictionaryFrom:@"gateFor" arguments:@[ fieldsJson, ghostsJson, optionsJson ]];
+}
+
 - (BOOL)isPlaceholderValue:(NSString *)value label:(NSString *)label {
     return [self callBool:@"isPlaceholder" arguments:@[ value ?: @"", label ?: @"" ] fallback:NO];
+}
+
+#pragma mark - Ghost anywhere (docs/anywhere.md)
+
+- (NSDictionary<NSString *, id> *)nextActionForCandidates:(NSArray<NSDictionary *> *)candidates
+                                                   signals:(NSDictionary *)signals
+                                                    memory:(NSString *)memoryJSON
+                                                   options:(NSDictionary *)options {
+    NSString *candidatesJson = GHJSONString(candidates ?: @[]), *signalsJson = GHJSONString(signals ?: @{});
+    NSString *optionsJson = GHJSONString(options ?: @{}) ?: @"{}";
+    // No proposal at all beats one built from half an input (rule 4).
+    if (!candidatesJson || !signalsJson) return @{};
+    return [self dictionaryFrom:@"nextAction" arguments:@[ candidatesJson, signalsJson, memoryJSON ?: @"", optionsJson ]];
+}
+
+- (NSString *)roleMemoryByRecording:(NSString *)memoryJSON parts:(NSDictionary *)parts outcome:(NSString *)outcome {
+    NSString *partsJson = GHJSONString(parts ?: @{});
+    if (!partsJson) return memoryJSON;
+    NSString *updated = [self callString:@"recordRoleOutcome" arguments:@[ memoryJSON ?: @"", partsJson, outcome ?: @"" ]];
+    return updated ?: memoryJSON;
+}
+
+- (NSString *)emptyRoleMemoryJSON {
+    return [self callString:@"emptyRoleMemory" arguments:@[]];
+}
+
+- (BOOL)isCandidateLocked:(NSDictionary *)candidate role:(NSString *)role {
+    NSString *json = GHJSONString(candidate);
+    if (!json) return YES; // when in doubt, lock
+    return [self callBool:@"lockedForCandidate" arguments:@[ json, role ?: @"unknown" ] fallback:YES];
 }
 
 @end

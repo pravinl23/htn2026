@@ -134,6 +134,27 @@ GH_TEST(harness_request_defaults) {
     GH_ASSERT_EQUAL_OBJECTS(dump.mode, GHHarnessModeDump);
 }
 
+GH_TEST(harness_next_is_a_read_only_mode) {
+    // --next asks what Ghost WOULD propose. It carries no count and no key: the harness can only ever post Tab,
+    // and this mode does not even do that.
+    NSString *error = nil;
+    GHHarnessRequest *next = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--next", @"--frontmost", @"Safari" ] error:&error];
+    GH_ASSERT(next != nil);
+    GH_ASSERT(error == nil);
+    GH_ASSERT_EQUAL_OBJECTS(next.mode, GHHarnessModeNext);
+    GH_ASSERT_EQUAL_INT(next.count, 0);
+    GH_ASSERT_EQUAL_OBJECTS(next.frontmost, @"Safari");
+    // It pays for a capture plus the affordance walk, so its deadline is longer than a bare --trust.
+    GHHarnessRequest *trust = [GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--trust" ] error:NULL];
+    GH_ASSERT(next.deadline > trust.deadline);
+    // It survives the round trip to a running agent unchanged.
+    GHHarnessRequest *again = [GHHarnessRequest requestWithData:next.data error:NULL];
+    GH_ASSERT_EQUAL_OBJECTS(again.mode, GHHarnessModeNext);
+    GH_ASSERT_EQUAL_OBJECTS(again.frontmost, @"Safari");
+    // And it is still one mode at a time.
+    GH_ASSERT([GHHarnessRequest requestWithArguments:@[ @"Ghost", @"--next", @"--dump" ] error:NULL] == nil);
+}
+
 GH_TEST(harness_request_rejects_malformed_invocations) {
     NSArray<NSArray<NSString *> *> *bad = @[
         @[ @"--dump", @"--trust" ],                    // two modes

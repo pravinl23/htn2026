@@ -1,9 +1,15 @@
-// GHProfileStore: ~/Library/Application Support/Ghost/profile.json and settings.json.
+// GHProfileStore: ~/Library/Application Support/Ghost/profile.json, settings.json and answers.json.
 // Same shapes as the extension (`Profile`, `GhostSettings`), seeded with the fictional demo profile from
 // the core, created with mode 0600 (directory 0700), and watched for edits made in any editor.
 //
-// settings.json carries one desktop-only key on top of GhostSettings:
+// settings.json carries two desktop-only keys on top of GhostSettings:
 //   "pausedBundleIds": ["com.example.app", ...]   apps the user paused from the menu
+//   "answerProtectedWithDecline": true            answer EEO questions with the form's own "prefer not to
+//                                                 answer" option (docs/answers.md section 1); true by default
+//
+// answers.json is the LearnedAnswersSnapshot of shared/src/answers/store.ts: what the user answered themselves,
+// keyed by the question rather than by the site. It is written only by Ghost, it never leaves the machine, and a
+// missing, empty or corrupt file simply means "nothing learned yet" -- it never stops Ghost from proposing.
 #import <Foundation/Foundation.h>
 
 @class GHCore;
@@ -39,6 +45,7 @@ NSString *_Nullable GHUsableProfileFilePath(NSString *_Nullable raw, NSString *_
 @property (nonatomic, readonly, copy) NSString *directory;
 @property (nonatomic, readonly, copy) NSString *profilePath;
 @property (nonatomic, readonly, copy) NSString *settingsPath;
+@property (nonatomic, readonly, copy) NSString *answersPath;
 
 /// Creates the directory and seeds missing files. Existing files are never overwritten. Returns NO when
 /// the directory cannot be created (the store then serves in-memory defaults).
@@ -52,6 +59,18 @@ NSString *_Nullable GHUsableProfileFilePath(NSString *_Nullable raw, NSString *_
 
 /// Fact keys that have a value and do not look sensitive. Keys are all the server ever learns.
 - (NSArray<NSString *> *)usableFactKeys;
+
+// ---------- learned answers (docs/answers.md) ----------
+/// The answers.json snapshot as the core wants it: `{ max, answers: [...] }`. Never nil: a missing or corrupt
+/// file reads as an empty snapshot. Never logged, never sent anywhere.
+@property (atomic, readonly, copy) NSDictionary<NSString *, id> *answers;
+/// The same as a JSON string, ready for GHCore; "" when there is nothing learned.
+- (NSString *)answersJSON;
+/// Replaces the snapshot and writes answers.json atomically (0600). NO when it could not be written; the
+/// in-memory snapshot is updated either way, so the session keeps what it just learned.
+- (BOOL)saveAnswers:(NSDictionary<NSString *, id> *)answers error:(NSError *_Nullable *_Nullable)error;
+/// "Forget everything": empties the snapshot and the file.
+- (BOOL)forgetAllAnswers;
 
 @property (nonatomic, readonly) BOOL enabled;
 @property (nonatomic, readonly) double confidenceThreshold;

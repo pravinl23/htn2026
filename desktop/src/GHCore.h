@@ -112,6 +112,53 @@ BOOL GHCoreBundleMatchesPin(NSString *_Nullable path, NSString *_Nullable pinned
 /// True for "Select an option" style entries that stand for "nothing chosen yet".
 - (BOOL)isPlaceholderValue:(nullable NSString *)value label:(nullable NSString *)label;
 
+// ---------- the answer engine (docs/answers.md) and the gate (docs/incremental.md) ----------
+/// What Ghost would propose for each field: { signature, value, optionLabel?, confidence, source, class,
+/// reason, needsReview, questionKey }. `answersJSON` is the answers.json snapshot ("" = nothing learned).
+- (NSArray<NSDictionary<NSString *, id> *> *)proposeAnswersForFieldObjects:(NSArray<NSDictionary *> *)fields
+                                                                   profile:(NSDictionary *)profile
+                                                                   answers:(nullable NSString *)answersJSON
+                                                                  settings:(NSDictionary *)settings;
+
+/// The user answered a question themselves: learn it, keyed by the question rather than the site.
+/// Returns { answers: <new snapshot>, counter: <value-free counter name>, changed, class, refusal?, questionKey? },
+/// or an empty dictionary when the core is unavailable. `when` may be nil (now).
+- (NSDictionary<NSString *, id> *)recordCorrectionForFieldObject:(NSDictionary *)field
+                                                            value:(NSString *)value
+                                                          answers:(nullable NSString *)answersJSON
+                                                               at:(nullable NSDate *)when;
+
+/// { unmetRequired, terminalAllowed, reason?, firstUnmetLabel?, blockedTerminals, allowedTerminals }.
+/// `accepted` are the signatures the user has already taken in this walk.
+- (NSDictionary<NSString *, id> *)gateForFieldObjects:(NSArray<NSDictionary *> *)fields
+                                                ghosts:(NSArray<NSDictionary *> *)ghosts
+                                              accepted:(nullable NSArray<NSString *> *)accepted;
+
+// ---------- Ghost anywhere (docs/anywhere.md) ----------
+
+/// The next-action pass over what a window offers: affordances, the kind of place, its priors and role memory.
+/// `candidates` are `GHField -toCandidateJSONObject` dictionaries, `signals` a `GHPageSignals -toJSONObject`,
+/// `memoryJSON` the memory.json snapshot ("" = nothing learned), `options` may carry `threshold` and `limit`.
+/// Returns `{ pageKind, pageConfidence, pageEvidence, cartCount, threshold, proposals: [...], top, unnamed }`,
+/// or an empty dictionary when the core is unavailable. `top` is the one thing Ghost would propose, already
+/// gated; the caller still refuses to press anything `locked`.
+- (NSDictionary<NSString *, id> *)nextActionForCandidates:(NSArray<NSDictionary *> *)candidates
+                                                   signals:(NSDictionary *)signals
+                                                    memory:(nullable NSString *)memoryJSON
+                                                   options:(nullable NSDictionary *)options;
+
+/// One accept / dismissal / replacement folded into the role memory snapshot. Returns the NEW snapshot JSON,
+/// or the old one unchanged when the core refuses it. `parts` is `{ pageKind, role, previousRole? }`.
+- (nullable NSString *)roleMemoryByRecording:(nullable NSString *)memoryJSON
+                                        parts:(NSDictionary *)parts
+                                      outcome:(NSString *)outcome;
+
+/// An empty, well-formed role-memory snapshot (what a first run writes). nil when the core is unavailable.
+- (nullable NSString *)emptyRoleMemoryJSON;
+
+/// Rule 2 for a proposal: the candidate's own flag, its role, and the shared lock test. Fails CLOSED.
+- (BOOL)isCandidateLocked:(NSDictionary *)candidate role:(nullable NSString *)role;
+
 @end
 
 /// JSON helpers shared by the desktop modules. Both return nil instead of throwing.

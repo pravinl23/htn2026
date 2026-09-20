@@ -587,3 +587,41 @@ GH_TEST(overlay_model_upload_ghost_is_a_file_name_pill_and_progress_is_a_hud_chi
     only.status = @"Attached resume-alex-chen.pdf";
     GH_ASSERT_EQUAL_OBJECTS(Keys([GHOverlayModel modelWithInput:only layout:OneDisplay()].items), (@[ @"hud-status" ]));
 }
+
+#pragma mark - the guess marker (docs/answers.md section 3)
+
+GH_TEST(overlay_marks_a_guess_and_leaves_a_fact_alone) {
+    GHOverlayInput *input = FormInput(0);
+    NSMutableArray<GHOverlayEntry *> *entries = [input.entries mutableCopy];
+    GHOverlayEntry *guess = Entry(@"auth", @"select", @"No", CGRectMake(140, 480, 300, 40));
+    guess.guess = YES;
+    [entries addObject:guess];
+    input.entries = entries;
+
+    GHOverlayModel *model = [GHOverlayModel modelWithInput:input layout:OneDisplay()];
+    GHDrawItem *marked = [model itemWithKey:@"pill:auth" screen:0];
+    GH_ASSERT(marked != nil);
+    GH_ASSERT(marked.guess);
+    // A fact is drawn exactly as before: no badge, no underline.
+    GH_ASSERT_FALSE([model itemWithKey:@"text:first" screen:0].guess);
+    GH_ASSERT_FALSE([model itemWithKey:@"text:email" screen:0].guess);
+
+    // The marker is part of what the layer is: turning it off redraws, it does not reuse the old layer.
+    NSString *marker = marked.contentSignature;
+    guess.guess = NO;
+    GHOverlayModel *plain = [GHOverlayModel modelWithInput:input layout:OneDisplay()];
+    GH_ASSERT_FALSE([plain itemWithKey:@"pill:auth" screen:0].guess);
+    GH_ASSERT_FALSE([marker isEqualToString:[plain itemWithKey:@"pill:auth" screen:0].contentSignature]);
+
+    // Ghost text carries it too, and the layers accept it without complaint.
+    GHOverlayEntry *guessedText = Entry(@"why2", @"text", @"a guessed draft", CGRectMake(140, 540, 300, 40));
+    guessedText.guess = YES;
+    input.entries = @[ guessedText ];
+    input.currentIndex = 0;
+    GHOverlayModel *textModel = [GHOverlayModel modelWithInput:input layout:OneDisplay()];
+    GHDrawItem *item = [textModel itemWithKey:@"text:why2" screen:0];
+    GH_ASSERT(item != nil && item.guess);
+    GHGhostTextLayer *layer = [[GHGhostTextLayer alloc] init];
+    [layer applyItem:item glide:NO reduceMotion:YES];
+    GH_ASSERT(layer.sublayers.count >= 2);   // the label plus the dotted rule
+}

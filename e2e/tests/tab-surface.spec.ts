@@ -10,7 +10,8 @@
 //   3. a page that flips `data-ghost-tab="active"` at runtime: Ghost hands the key back within one rescan and
 //      takes it up again when the page gives it up.
 // Localhost only, headless, no keys.
-import type { Page, Route } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { scrollToForm } from "../apply";
 import { DEMO_URL, E2E_SERVER_URL, HOST, expect, test } from "../fixtures";
 
 const NEXT_HOST = "#ghost-next-host";
@@ -24,20 +25,30 @@ interface ProbeWindow {
 }
 
 /**
- * Serves approach B's own page with the opt-out meta in its head, without editing the demo (that file belongs
- * to the workflow stream). This is exactly the one-line change docs/compare-approaches.md asks them for.
+ * Gives approach B's own page the opt-out meta in its head, without editing the demo (that file belongs to
+ * the workflow stream). This is exactly the one-line change docs/compare-approaches.md asks them for.
+ *
+ * The meta is written at document start, before any page script and long before the content script has
+ * finished reading storage, so Ghost sees it on its first look. It is NOT served through `page.route`:
+ * a fulfilled document puts the page in an address space Chrome then refuses to let reach 127.0.0.1,
+ * which would break the page's own calls to the prediction server rather than testing anything of ours.
  */
 async function serveWithOptOut(page: Page): Promise<void> {
-  await page.route(
-    (url) => url.pathname === WORKFLOW_PATH,
-    async (route: Route) => {
-      const response = await route.fetch();
-      const body = await response.text();
-      const patched = body.replace("<head>", `<head>\n    <meta name="ghost-tab" content="off">`);
-      if (patched === body) throw new Error("could not inject the opt-out meta into the workflow page");
-      await route.fulfill({ response, body: patched });
-    },
-  );
+  await page.addInitScript(() => {
+    const write = (): boolean => {
+      if (!document.head || document.querySelector('meta[name="ghost-tab"]')) return document.head !== null;
+      const meta = document.createElement("meta");
+      meta.setAttribute("name", "ghost-tab");
+      meta.setAttribute("content", "off");
+      document.head.appendChild(meta);
+      return true;
+    };
+    if (write()) return;
+    const observer = new MutationObserver(() => {
+      if (write()) observer.disconnect();
+    });
+    observer.observe(document.documentElement ?? document, { childList: true, subtree: true });
+  });
 }
 
 /** A page-world Tab handler with approach B's exact contract (demo/public/workflow/index.html:125). */
@@ -104,6 +115,7 @@ test.describe("a page that declares it owns Tab", () => {
     const host = page.locator(HOST);
     await expect(host).toHaveAttribute("data-ghost-state", "ready", { timeout: 20_000 });
     expect(Number(await host.getAttribute("data-ghost-count"))).toBeGreaterThan(1);
+    await scrollToForm(page); // the form starts below the fold, where the first Tab only jumps to it
 
     await page.keyboard.press("Tab");
     await expect(host).toHaveAttribute("data-ghost-accepted", "1");
@@ -117,6 +129,7 @@ test.describe("a page that declares it owns Tab", () => {
     await expect(host).toHaveAttribute("data-ghost-state", "ready", { timeout: 20_000 });
     const before = Number(await host.getAttribute("data-ghost-count"));
     expect(before, "Ghost has plenty to say on this page").toBeGreaterThan(1);
+    await scrollToForm(page);
 
     // The page declares its own surface active. Ghost drops every ghost on the next rescan.
     await declareTabSurface(page, "active");

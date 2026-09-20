@@ -55,6 +55,43 @@ static NSDictionary *GHReadJSONDictionary(NSString *path) {
     return [parsed isKindOfClass:[NSDictionary class]] ? parsed : nil;
 }
 
+#pragma mark - learned answers
+
+/// The cap of shared/src/answers/store.ts (MAX_LEARNED_ANSWERS). A file that claims more is trimmed.
+static const NSUInteger kMaxLearnedAnswers = 500;
+
+static NSDictionary *GHEmptyAnswers(void) {
+    return @{ @"max": @(kMaxLearnedAnswers), @"answers": @[] };
+}
+
+/// One learned answer, checked exactly as shared/src/answers/store.ts `isLearnedAnswer` does: anything that is
+/// not the right shape is dropped rather than handed to the core. Values are never inspected or logged.
+static BOOL GHIsLearnedAnswer(id entry) {
+    if (![entry isKindOfClass:[NSDictionary class]]) return NO;
+    NSDictionary *a = entry;
+    for (NSString *key in @[ @"signature", @"textSignature", @"label", @"kind", @"value", @"updatedAt" ]) {
+        if (![a[key] isKindOfClass:[NSString class]]) return NO;
+    }
+    if ([a[@"signature"] length] == 0) return NO;
+    if (![a[@"count"] isKindOfClass:[NSNumber class]]) return NO;
+    if (![a[@"origins"] isKindOfClass:[NSArray class]]) return NO;
+    for (id origin in a[@"origins"]) if (![origin isKindOfClass:[NSString class]]) return NO;
+    return [@[ @"ordinary", @"protected", @"declaration" ] containsObject:a[@"class"] ?: @""];
+}
+
+/// A LearnedAnswersSnapshot with every malformed entry dropped. Missing, corrupt or the wrong type all read as
+/// "nothing learned yet": a broken file must never stop Ghost from proposing an answer (docs/answers.md 1).
+static NSDictionary *GHCleanAnswers(NSDictionary *raw) {
+    if (![raw isKindOfClass:[NSDictionary class]]) return GHEmptyAnswers();
+    NSMutableArray *answers = [NSMutableArray array];
+    NSArray *entries = [raw[@"answers"] isKindOfClass:[NSArray class]] ? raw[@"answers"] : @[];
+    for (id entry in entries) if (GHIsLearnedAnswer(entry)) [answers addObject:entry];
+    if (answers.count > kMaxLearnedAnswers) [answers removeObjectsInRange:NSMakeRange(0, answers.count - kMaxLearnedAnswers)];
+    NSNumber *max = [raw[@"max"] isKindOfClass:[NSNumber class]] ? raw[@"max"] : nil;
+    NSUInteger cap = max && max.doubleValue >= 1 ? (NSUInteger)MIN((double)kMaxLearnedAnswers, max.doubleValue) : kMaxLearnedAnswers;
+    return @{ @"max": @(cap), @"answers": answers };
+}
+
 #pragma mark - validation
 
 NSString *const GHProfileResumePathKey = @"resumePath";
@@ -118,7 +155,8 @@ static NSDictionary *GHCleanProfile(NSDictionary *raw) {
 
 static NSDictionary *GHFallbackSettings(void) {
     // Same values as DEFAULT_SETTINGS in shared/src/types.ts, for the case where the core did not load.
-    return @{ @"enabled": @YES, @"confidenceThreshold": @0.7, @"serverUrl": @"http://localhost:8787", @"showHud": @YES, @"learningEnabled": @NO };
+    return @{ @"enabled": @YES, @"confidenceThreshold": @0.7, @"serverUrl": @"http://localhost:8787", @"showHud": @YES,
+              @"learningEnabled": @NO, @"answerProtectedWithDecline": @YES };
 }
 
 static BOOL GHIsPlainHTTPURL(NSString *string) {
@@ -129,7 +167,7 @@ static BOOL GHIsPlainHTTPURL(NSString *string) {
 
 static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) {
     NSMutableDictionary *settings = [defaults mutableCopy];
-    for (NSString *key in @[ @"enabled", @"showHud", @"learningEnabled" ]) {
+    for (NSString *key in @[ @"enabled", @"showHud", @"learningEnabled", @"answerProtectedWithDecline" ]) {
         if ([raw[key] isKindOfClass:[NSNumber class]]) settings[key] = @([raw[key] boolValue]);
     }
     NSNumber *threshold = raw[@"confidenceThreshold"];
@@ -154,6 +192,7 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
 @interface GHProfileStore ()
 @property (atomic, readwrite, copy) NSDictionary<NSString *, id> *profile;
 @property (atomic, readwrite, copy) NSDictionary<NSString *, id> *settings;
+@property (atomic, readwrite, copy) NSDictionary<NSString *, id> *answers;
 @end
 
 @implementation GHProfileStore {
@@ -179,11 +218,13 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
     _directory = [directory copy];
     _profilePath = [[directory stringByAppendingPathComponent:@"profile.json"] copy];
     _settingsPath = [[directory stringByAppendingPathComponent:@"settings.json"] copy];
+    _answersPath = [[directory stringByAppendingPathComponent:@"answers.json"] copy];
     _sources = [NSMutableArray array];
     NSDictionary *coreDefaults = [core defaultSettings];
     _defaultSettings = coreDefaults.count ? GHCleanSettings(coreDefaults, GHFallbackSettings()) : GHCleanSettings(@{}, GHFallbackSettings());
     _profile = @{ @"facts": @{}, @"pastAnswers": @[] };
     _settings = _defaultSettings;
+    _answers = GHEmptyAnswers();
     return self;
 }
 
@@ -212,8 +253,9 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
         GHWritePrivateFile(self.settingsPath, GHPrettyJSON(_defaultSettings), NULL);
     }
     // Whatever an editor or an older build left world-readable is tightened; the content is untouched.
+    // answers.json is NOT seeded: an absent file is exactly "nothing learned yet".
     chmod(self.directory.fileSystemRepresentation, 0700);
-    for (NSString *path in @[ self.profilePath, self.settingsPath ]) chmod(path.fileSystemRepresentation, 0600);
+    for (NSString *path in @[ self.profilePath, self.settingsPath, self.answersPath ]) chmod(path.fileSystemRepresentation, 0600);
     [self reloadNotifying:NO];
     return YES;
 }
@@ -238,6 +280,10 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
     } else if ([NSFileManager.defaultManager fileExistsAtPath:self.settingsPath]) {
         GHLog(@"store: settings.json is not valid JSON; keeping the previous settings");
     }
+    // A corrupt or truncated answers.json is never fatal and never blocks a proposal: it reads as an empty
+    // snapshot, and the next correction rewrites the file. The log says how many, never what.
+    NSDictionary *cleanAnswers = GHCleanAnswers(GHReadJSONDictionary(self.answersPath));
+    if (![cleanAnswers isEqualToDictionary:self.answers]) { self.answers = cleanAnswers; changed = YES; }
     if (changed && notify) {
         GHLog(@"store: reloaded (facts=%lu, enabled=%d)", (unsigned long)[self.profile[@"facts"] count], self.enabled);
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -245,6 +291,35 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
         });
     }
     return changed;
+}
+
+#pragma mark - learned answers
+
+- (NSString *)answersJSON {
+    NSDictionary *snapshot = self.answers;
+    if ([snapshot[@"answers"] count] == 0) return @"";
+    NSData *data = [NSJSONSerialization isValidJSONObject:snapshot]
+        ? [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:NULL] : nil;
+    return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"" : @"";
+}
+
+- (BOOL)saveAnswers:(NSDictionary<NSString *, id> *)answers error:(NSError **)error {
+    NSDictionary *clean = GHCleanAnswers(answers);
+    // In memory first: a disk that refuses the write must not lose what the user just taught Ghost.
+    self.answers = clean;
+    NSData *data = GHPrettyJSON(clean);
+    if (!data) {
+        if (error) *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSPropertyListWriteInvalidError userInfo:nil];
+        return NO;
+    }
+    BOOL ok = GHWritePrivateFile(self.answersPath, data, error);
+    // Counts only: never a question, never an answer.
+    GHLog(@"store: answers.json %@ (%lu learned)", ok ? @"written" : @"could NOT be written", (unsigned long)[clean[@"answers"] count]);
+    return ok;
+}
+
+- (BOOL)forgetAllAnswers {
+    return [self saveAnswers:GHEmptyAnswers() error:NULL];
 }
 
 #pragma mark - reads

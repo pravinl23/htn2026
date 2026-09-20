@@ -215,7 +215,12 @@ export function buildLabelBody(model: string, req: LabelRequest): Record<string,
   return responsesBody({
     model,
     instructions: LABEL_INSTRUCTIONS,
-    state: { image: { width: view.width, height: view.height }, boxes: req.boxes.map((box) => boxState(box, view)), context: req.context },
+    // Only the two hint fields the model can use. `mediaControls` is for the affordance classifier in code and stays here.
+    state: {
+      image: { width: view.width, height: view.height },
+      boxes: req.boxes.map((box) => boxState(box, view)),
+      context: { ...(req.context.app ? { app: req.context.app } : {}), ...(req.context.nearbyText ? { nearbyText: req.context.nearbyText } : {}) },
+    },
     image: req.image,
     schemaName: "ghost_vision_labels",
     schema: LABEL_SCHEMA,

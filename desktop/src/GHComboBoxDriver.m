@@ -140,6 +140,78 @@ GHOptionMatch GHMatchOption(NSArray<NSString *> *options, NSString *answer) {
     return (GHOptionMatch){ best, bestScore };
 }
 
+/// `probeText` of shared/src/answers/classify.ts: lowercase, every run of non-alphanumerics becomes one space.
+/// "I don't wish to answer" and "I do not want to answer" both come out as plain words.
+static NSString *GHProbeText(NSString *text) {
+    NSString *s = GHReplace((text ?: @"").lowercaseString, @"[^a-z0-9]+", @" ", NO);
+    return [GHReplace(s, @"\\s+", @" ", NO) stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+
+/// Every wording of DECLINE_OPTION in shared/src/answers/classify.ts, in one alternation over probe text.
+static NSString *GHDeclinePattern(void) {
+    return @"\\bprefer not to (say|answer|disclose|respond|identify|self identify|specify|state|provide)\\b"
+            "|\\bdecline to (self identify|identify|answer|state|disclose|respond|provide|specify)\\b"
+            "|\\b(do not|don t|dont|does not) (wish|want|choose|prefer) to (answer|disclose|identify|self identify|provide|say|specify|state)\\b"
+            "|\\bwish not to (answer|disclose|identify|self identify)\\b"
+            "|\\bchoose not to (disclose|answer|identify|self identify|provide|say)\\b"
+            "|\\b(would )?rather not (say|answer|disclose)\\b"
+            "|\\bnot disclosed?\\b"
+            "|\\bno answer\\b";
+}
+
+GHOptionMatch GHMatchDeclineOption(NSArray<NSString *> *options, NSString *answer) {
+    (void)answer;   // declining is the same answer however the caller spelled it
+    GHOptionMatch none = { -1, 0 };
+    for (NSUInteger i = 0; i < options.count; i++) {
+        NSString *trimmed = [options[i] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (trimmed.length == 0 || GHMatches(trimmed, @"^(select|choose|please|--)")) continue;
+        if (GHMatches(GHProbeText(trimmed), GHDeclinePattern())) return (GHOptionMatch){ (NSInteger)i, 1 };
+    }
+    return none;
+}
+
+/// NEUTRAL_OPTIONS of shared/src/answers/propose.ts, best rank first. "Other" answers the question; declining
+/// merely ends it, so it ranks last.
+static NSArray<NSString *> *GHNeutralPatterns(void) {
+    static NSArray<NSString *> *patterns;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        patterns = @[ @"^other\\b|^something else\\b|^not listed\\b|^none of these apply\\b",
+                      @"^none of the (above|below|these|listed)\\b|^none$|^no other\\b",
+                      @"^n a$|^not applicable\\b|^does not apply\\b",
+                      @"\\bprefer not to\\b|\\bdecline to\\b|\\bdo not wish to\\b|\\bdon t wish to\\b|\\brather not say\\b",
+                      @"^no preference\\b|^unsure\\b|^not sure\\b|^i don t know\\b|^undecided\\b" ];
+    });
+    return patterns;
+}
+
+/// DECLARATION_OPTION of shared/src/answers/propose.ts: an option that states something legal rather than
+/// answering a question. Never picked as "the neutral one".
+static NSString *GHDeclarationOptionPattern(void) {
+    return @"\\bi (certify|agree|consent|authori[sz]e|acknowledge|declare|attest|understand)\\b|\\bunder penalt\\w+\\b";
+}
+
+GHOptionMatch GHMatchNeutralOption(NSArray<NSString *> *options, NSString *answer) {
+    (void)answer;   // the neutral option is the same answer whatever was wanted
+    GHOptionMatch none = { -1, 0 };
+    NSArray<NSString *> *patterns = GHNeutralPatterns();
+    NSInteger bestIndex = -1;
+    NSUInteger bestRank = patterns.count;
+    for (NSUInteger i = 0; i < options.count; i++) {
+        NSString *trimmed = [options[i] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (trimmed.length == 0 || GHMatches(trimmed, @"^(select|choose|please|--)")) continue;
+        NSString *probe = GHProbeText(trimmed);
+        if (GHMatches(probe, GHDeclarationOptionPattern())) continue;
+        for (NSUInteger rank = 0; rank < patterns.count; rank++) {
+            if (!GHMatches(probe, patterns[rank])) continue;
+            if (rank < bestRank) { bestRank = rank; bestIndex = (NSInteger)i; }
+            break;
+        }
+    }
+    if (bestIndex < 0) return none;
+    return (GHOptionMatch){ bestIndex, 1 };
+}
+
 #pragma mark - result
 
 @interface GHComboBoxResult ()
@@ -151,6 +223,7 @@ GHOptionMatch GHMatchOption(NSArray<NSString *> *options, NSString *answer) {
 @property (nonatomic, readwrite) BOOL typed;
 @property (nonatomic, readwrite) BOOL pressedEscape;
 @property (nonatomic, readwrite) BOOL clearedTyping;
+@property (nonatomic, readwrite) BOOL tookNeutral;
 @property (nonatomic, readwrite) NSTimeInterval elapsed;
 @end
 
@@ -252,6 +325,10 @@ static BOOL GHSameText(NSString *a, NSString *b) {
     pid_t _pid;
     BOOL _typed;
     BOOL _openedByPress;
+    BOOL _declining;
+    BOOL _neutralFallback;
+    BOOL _tookNeutral;
+    BOOL _reopened;
     NSTimeInterval _started;
 }
 
@@ -266,12 +343,15 @@ static BOOL GHSameText(NSString *a, NSString *b) {
         _listTimeout = 1.5;
         _openTimeout = 0.7;
         _verifyDelay = 0.15;
+        _verifyAttempts = 6;
         _keyStepDelay = 0.06;
         _after = ^(NSTimeInterval delay, dispatch_block_t block) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), block);
         };
         _clock = ^NSTimeInterval { return NSProcessInfo.processInfo.systemUptime; };
         self.matcher = nil;
+        self.declineMatcher = nil;
+        self.neutralMatcher = nil;
         self.isHighlighted = nil;
     }
     return self;
@@ -280,6 +360,16 @@ static BOOL GHSameText(NSString *a, NSString *b) {
 - (void)setMatcher:(GHOptionMatcher)matcher {
     if (matcher) { _matcher = [matcher copy]; return; }
     _matcher = ^GHOptionMatch(NSArray<NSString *> *options, NSString *answer) { return GHMatchOption(options, answer); };
+}
+
+- (void)setDeclineMatcher:(GHOptionMatcher)matcher {
+    if (matcher) { _declineMatcher = [matcher copy]; return; }
+    _declineMatcher = ^GHOptionMatch(NSArray<NSString *> *options, NSString *answer) { return GHMatchDeclineOption(options, answer); };
+}
+
+- (void)setNeutralMatcher:(GHOptionMatcher)matcher {
+    if (matcher) { _neutralMatcher = [matcher copy]; return; }
+    _neutralMatcher = ^GHOptionMatch(NSArray<NSString *> *options, NSString *answer) { return GHMatchNeutralOption(options, answer); };
 }
 
 - (void)setIsHighlighted:(BOOL (^)(id<GHAXNode>))isHighlighted {
@@ -546,6 +636,21 @@ static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget 
 }
 
 - (void)chooseAnswer:(NSString *)answer inComboBox:(id<GHAXNode>)comboBox completion:(void (^)(GHComboBoxResult *))completion {
+    [self chooseAnswer:answer inComboBox:comboBox decline:NO neutralFallback:NO completion:completion];
+}
+
+- (void)chooseAnswer:(NSString *)answer
+          inComboBox:(id<GHAXNode>)comboBox
+             decline:(BOOL)decline
+          completion:(void (^)(GHComboBoxResult *))completion {
+    [self chooseAnswer:answer inComboBox:comboBox decline:decline neutralFallback:NO completion:completion];
+}
+
+- (void)chooseAnswer:(NSString *)answer
+          inComboBox:(id<GHAXNode>)comboBox
+             decline:(BOOL)decline
+     neutralFallback:(BOOL)neutralFallback
+          completion:(void (^)(GHComboBoxResult *))completion {
     NSString *label = GHLogLabel(comboBox.title.length ? comboBox.title : comboBox.axDescription);
     void (^refuse)(GHComboBoxOutcome, NSString *) = ^(GHComboBoxOutcome outcome, NSString *reason) {
         GHLog(@"combobox: label=%@ refused (%@)", label, reason);
@@ -566,8 +671,9 @@ static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget 
     id<GHAXNode> combo = comboBox ? [self.actuator refreshedNode:comboBox] : nil;
     if (!combo) { refuse(GHComboBoxOutcomeSkipped, GHComboBoxReasonGone); return; }
     if (![GHComboBoxDriver isComboBox:combo]) { refuse(GHComboBoxOutcomeSkipped, GHComboBoxReasonUnsupported); return; }
-    // EEO / demographic questions are never answered, whatever the caller asks for.
-    if ([GHComboBoxDriver isDemographicComboBox:combo]) { refuse(GHComboBoxOutcomeSkipped, GHComboBoxReasonDemographic); return; }
+    // A demographic question is only ever DECLINED. Anything else the caller may want there is refused,
+    // whatever it asks for (docs/answers.md section 7).
+    if (!decline && [GHComboBoxDriver isDemographicComboBox:combo]) { refuse(GHComboBoxOutcomeSkipped, GHComboBoxReasonDemographic); return; }
     if ([self looksSensitive:combo]) { refuse(GHComboBoxOutcomeSkipped, GHComboBoxReasonSensitive); return; }
     if (!combo.enabled) { refuse(GHComboBoxOutcomeSkipped, GHComboBoxReasonDisabled); return; }
     if (combo.value.length > 0 || [GHComboBoxDriver shownTextsForComboBox:combo typed:nil].count > 0) { refuse(GHComboBoxOutcomeSkipped, GHComboBoxReasonHasValue); return; }
@@ -588,6 +694,10 @@ static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget 
     _pid = pid;
     _typed = NO;
     _openedByPress = NO;
+    _reopened = NO;
+    _declining = decline;
+    _neutralFallback = neutralFallback && !decline;
+    _tookNeutral = NO;
     _started = self.clock();
 
     [self.actuator focusNode:combo];
@@ -622,7 +732,14 @@ static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget 
     self.after(self.pollInterval, ^{ [self waitForOpenedListUntil:deadline generation:generation]; });
 }
 
+/**
+ * A decline is not a literal answer: the option that means "prefer not to answer" is worded differently on
+ * every site, so typing the core's wording would filter a type-ahead list down to nothing (or, worse, leave
+ * an EEO answer sitting in the field). A declining run therefore only ever PRESSES the control open and picks
+ * from what the page itself offers; if nothing opens, the field is left exactly as it was.
+ */
 - (void)typeAnswer {
+    if (_declining) { [self abandon:GHComboBoxReasonNoList]; return; }
     GHKeyBurstResult *burst = [self.poster postBurst:@[ [GHKeyStroke text:_answer] ] guard:^BOOL(GHKeyStroke *stroke, pid_t frontmost, id<GHAXNode> focused) {
         return [focused isSameNode:self->_combo] && [self mayPostTo:frontmost];
     } lastCheck:[self mayStillPost]];
@@ -662,26 +779,105 @@ static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget 
 - (void)pickFrom:(NSArray<id<GHAXNode>> *)options {
     NSArray<NSString *> *texts = [self textsOf:options];
     _optionCount = texts.count;
-    GHOptionMatch match = self.matcher(texts, _answer);
+    GHOptionMatch match = _declining ? self.declineMatcher(texts, _answer) : self.matcher(texts, _answer);
+    BOOL neutral = NO;
+    if ((match.index < 0 || (NSUInteger)match.index >= texts.count || match.score < self.threshold) && _neutralFallback) {
+        // The answer is not among the options. An ORDINARY question still gets an answer: whatever this list
+        // itself calls the neutral choice (docs/answers.md section 3). It is tried before any typing, because a
+        // list that offers "Other" is a fixed set of choices -- typing a word it does not have would only filter
+        // it down to nothing. A list with no neutral option falls through to the old path untouched.
+        GHOptionMatch fallback = self.neutralMatcher(texts, _answer);
+        if (fallback.index >= 0 && (NSUInteger)fallback.index < texts.count && fallback.score >= self.threshold) {
+            match = fallback;
+            neutral = YES;
+        }
+    }
     if (match.index < 0 || (NSUInteger)match.index >= texts.count || match.score < self.threshold) {
         // A menu opened by a press shows everything it has; a type-ahead control only shows what was typed. If
         // nothing here clears the threshold and nothing has been typed yet, let the page filter once, then judge
         // again. Never a second time, and never a guess: the threshold still decides.
-        if (_openedByPress && !_typed) { [self typeAnswer]; return; }
+        // A declining run never types (see -typeAnswer): a list with no way to decline is simply left alone.
+        if (_openedByPress && !_typed && !_declining) { [self typeAnswer]; return; }
         [self abandon:GHComboBoxReasonNoMatchingOption];
         return;
     }
+    _tookNeutral = neutral;
     _chosenText = texts[(NSUInteger)match.index];
     _score = match.score;
     id<GHAXNode> option = options[(NSUInteger)match.index];
     if (![self.actuator pressNode:option]) { [self selectWithKeysStep:0]; return; }
+    NSUInteger generation = _generation;
     [self later:self.verifyDelay do:^{
         if ([self verified]) { [self finish:GHComboBoxOutcomeChosen reason:nil method:GHComboBoxMethodPress escaped:NO cleared:NO]; return; }
-        // The press did nothing visible: the list is still open, try the keyboard. A list that closed on something
-        // else cannot be undone here.
-        if ([self currentList]) [self selectWithKeysStep:0];
-        else [self finish:GHComboBoxOutcomeFailed reason:GHComboBoxReasonNotVerified method:GHComboBoxMethodPress escaped:NO cleared:NO];
+        // The press did nothing visible and the list is still open: the keyboard, at once. Waiting would only
+        // delay a control that is never going to answer a press.
+        if ([self currentList]) { [self selectWithKeysStep:0]; return; }
+        // The list closed with nothing showing yet. That is either a page whose accessibility tree lags its own
+        // update, or a react-select whose option row answers a real mouse press and not a synthesized one. Look a
+        // few more times, and only then open the menu once more and take the same keyboard path -- once per run,
+        // and never while something IS showing: a press that chose the wrong option gets no second choice.
+        [self verifyAttempt:1 generation:generation then:^(BOOL ok) {
+            if (ok) { [self finish:GHComboBoxOutcomeChosen reason:nil method:GHComboBoxMethodPress escaped:NO cleared:NO]; return; }
+            if ([self currentList]) { [self selectWithKeysStep:0]; return; }
+            if (!self->_reopened && [self showsNothing]) { [self reopenForKeys]; return; }
+            [self failNotVerified];
+        }];
     }];
+}
+
+/// Nothing at all is showing in the combobox: no value of its own, and no chosen-value text beside it.
+- (BOOL)showsNothing {
+    id<GHAXNode> combo = [self.actuator refreshedNode:_combo];
+    if (!combo) return NO;
+    if (GHTrimmed(combo.value).length > 0) return NO;
+    return [GHComboBoxDriver shownTextsForComboBox:combo typed:_answer].count == 0;
+}
+
+/// Wait `verifyDelay`, then look for the chosen text up to `verifyAttempts` times, `verifyDelay` apart, stopping
+/// the moment it is there. One look raced a page that updates its accessibility tree a beat after itself -- the
+/// same lesson the upload check learned on the live form.
+- (void)verifyThen:(void (^)(BOOL ok))done {
+    NSUInteger generation = _generation;
+    [self later:self.verifyDelay do:^{ [self verifyAttempt:0 generation:generation then:done]; }];
+}
+
+- (void)verifyAttempt:(NSUInteger)attempt generation:(NSUInteger)generation then:(void (^)(BOOL ok))done {
+    if (generation != _generation || !_running) return;
+    if ([self verified]) { done(YES); return; }
+    NSUInteger attempts = MAX((NSUInteger)1, self.verifyAttempts);
+    if (attempt + 1 >= attempts) { done(NO); return; }
+    // -later:do: carries the generation and stops the run itself if the user or another app took over.
+    [self later:self.verifyDelay do:^{ [self verifyAttempt:attempt + 1 generation:generation then:done]; }];
+}
+
+/// Focus the control, press it open once more, and hand the open list to the keyboard path. Nothing is typed and
+/// nothing else is pressed, so a control that will not re-open is left exactly as the press found it.
+- (void)reopenForKeys {
+    _reopened = YES;
+    NSUInteger generation = _generation;
+    id<GHAXNode> combo = [self.actuator refreshedNode:_combo];
+    if (!combo) { [self failNotVerified]; return; }
+    [self.actuator focusNode:combo];
+    [self later:self.focusSettleDelay do:^{
+        id<GHAXNode> fresh = [self.actuator refreshedNode:self->_combo];
+        if (!fresh || ![[self.state focusedElement] isSameNode:self->_combo] || ![self.actuator pressNode:fresh]) {
+            [self failNotVerified];
+            return;
+        }
+        [self waitForReopenedListUntil:self.clock() + self.openTimeout generation:generation];
+    }];
+}
+
+- (void)waitForReopenedListUntil:(NSTimeInterval)deadline generation:(NSUInteger)generation {
+    if (generation != _generation || !_running || ![self stillSafe]) return;
+    id<GHAXNode> list = [self currentList];
+    if (list && [GHComboBoxDriver optionsInList:list].count > 0) { [self selectWithKeysStep:0]; return; }
+    if (self.clock() >= deadline) { [self failNotVerified]; return; }
+    self.after(self.pollInterval, ^{ [self waitForReopenedListUntil:deadline generation:generation]; });
+}
+
+- (void)failNotVerified {
+    [self finish:GHComboBoxOutcomeFailed reason:GHComboBoxReasonNotVerified method:GHComboBoxMethodPress escaped:NO cleared:NO];
 }
 
 - (NSInteger)indexOfChosenIn:(NSArray<NSString *> *)texts {
@@ -719,8 +915,7 @@ static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget 
             return [self chosenOptionIsHighlightedNow] && [focused isSameNode:self->_combo] && [self mayPostTo:frontmost];
         } lastCheck:[self mayStillPost]];
         if (!burst.ok) { [self finish:GHComboBoxOutcomeFailed reason:[self reasonForBurst:burst fallback:GHComboBoxReasonFocusChanged] method:GHComboBoxMethodKeys escaped:NO cleared:NO]; return; }
-        [self later:self.verifyDelay do:^{
-            BOOL ok = [self verified];
+        [self verifyThen:^(BOOL ok) {
             [self finish:ok ? GHComboBoxOutcomeChosen : GHComboBoxOutcomeFailed reason:ok ? nil : GHComboBoxReasonNotVerified method:GHComboBoxMethodKeys escaped:NO cleared:NO];
         }];
         return;
@@ -827,6 +1022,7 @@ static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget 
     result.typed = _typed;
     result.pressedEscape = escaped;
     result.clearedTyping = cleared;
+    result.tookNeutral = _tookNeutral;
     result.elapsed = self.clock() - _started;
     _running = NO;
     atomic_store(&_active, false);
@@ -837,6 +1033,7 @@ static NSArray<id<GHAXNode>> *GHOptionsInList(id<GHAXNode> list, GHAXWalkBudget 
     GHLog(@"combobox: label=%@ %@ reason=%@ method=%@ options=%lu score=%.2f escape=%d cleared=%d %.0f ms", _label,
           outcome == GHComboBoxOutcomeChosen ? @"chosen" : (outcome == GHComboBoxOutcomeSkipped ? @"skipped" : @"failed"), reason ?: @"-", method,
           (unsigned long)_optionCount, _score, escaped, cleared, result.elapsed * 1000.0);
+    if (_tookNeutral && outcome == GHComboBoxOutcomeChosen) GHLog(@"combobox: label=%@ took the list's own neutral option", _label);
     if (completion) completion(result);
 }
 

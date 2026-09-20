@@ -10,7 +10,11 @@
 //             with the path, verify the panel closed and the page names the file.
 //   check     AXPress only when the state differs. A box is only ever ticked.
 //   radio     AXPress the option's radio button only when it is not already chosen.
-//   click     NEVER. Locked targets are not pressed by Ghost; -focusLockedNode: only moves focus there.
+//   click     Locked targets are NEVER pressed; -focusLockedNode: only moves focus there. An UNLOCKED click ghost
+//             is a next-action proposal (docs/anywhere.md) and is pressed with AXPress -- but only when a caller
+//             gave this writer an `isNodeLocked` check and that check, asked again about the live element, says
+//             the control is reversible. A typeable control (a search box) is focused instead: the cursor going
+//             there IS the action, and a click ghost never carries a value to write.
 //
 // Keys: the typing fallback and every driver post through GHKeyPoster, which re-reads the frontmost app and the
 // focused element before each chunk. A driver sequence in flight aborts on any untagged key (-noteUserKeyEvent).
@@ -38,6 +42,7 @@ extern NSString *const GHWriteMethodTyping;        // synthetic key events
 extern NSString *const GHWriteMethodPress;         // AXPress
 extern NSString *const GHWriteMethodOpenPanel;     // GHOpenPanelDriver
 extern NSString *const GHWriteMethodComboBox;      // GHComboBoxDriver
+extern NSString *const GHWriteMethodFocus;         // the cursor was put in a text box; nothing was pressed
 
 // Refusals (nothing was touched).
 extern NSString *const GHWriteReasonLocked;
@@ -139,6 +144,11 @@ extern NSString *const GHWriteReasonComboBoxPrefix;   // "combobox-"
 /// refuses AXSecureTextField by itself; with no block set every other node counts as NOT checked and is
 /// refused too, so a writer that was wired up wrong cannot write anywhere.
 @property (nonatomic, copy, nullable) BOOL (^isNodeSensitive)(id<GHAXNode> node);
+/// docs/anywhere.md: a next-action proposal is an UNLOCKED `click` ghost on a plainly reversible control (play,
+/// fullscreen, open an item). This block re-reads the live element right before the press and answers whether it
+/// is irreversible after all. With no block set EVERY click ghost is refused, which is what the form walk wants:
+/// its only click ghost is the locked Submit, and Ghost never presses that.
+@property (nonatomic, copy, nullable) BOOL (^isNodeLocked)(id<GHAXNode> node);
 /// Runs `block` after `delay` seconds. Default: the main queue. Tests run it inline.
 @property (nonatomic, copy) void (^after)(NSTimeInterval delay, dispatch_block_t block);
 /// Seconds between a write and its read-back (web views apply and sometimes revert asynchronously).

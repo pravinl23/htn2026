@@ -1,3 +1,7 @@
+import { kindsForFact } from "./facts/defs";
+import { matchFieldToFacts, isPersonalCategory } from "./facts/match";
+import { OTHER_PARTY, OTHER_PARTY_SECTION, bareText, normalizeText } from "./facts/text";
+import type { Fact, FactGraph } from "./facts/types";
 import { NEEDS_TEXT, NONE, type CapturedField, type FieldAssignment, type FieldKind } from "./types";
 
 type Kinds = readonly FieldKind[];
@@ -30,6 +34,8 @@ const WHEN: Kinds = ["text", "number", "month", "date", "select"];
 const HINT_PENALTY = 0.08;
 const DOUBTFUL = 0.6;
 const UNKNOWN = 0.6;
+/** The default confidence gate: under it, a graph match is not a mapping, it is a maybe. */
+const GRAPH_FLOOR = 0.7;
 
 const AUTOCOMPLETE_TO_FACT: Record<string, string> = {
   "given-name": "firstName",
@@ -226,12 +232,7 @@ const RULE_BY_KEY = new Map(RULES.map((rule) => [rule.key, rule]));
 const PERSONAL = new Set(["firstName", "lastName", "fullName", "email", "phone", "linkedin", "github", "website", "location", "city", "province", "country"]);
 const PLACE = new Set(["location", "city", "province", "country"]);
 
-// Labels about someone or something other than the applicant.
-const OTHER_PARTY =
-  /\b(references?|referees?|referrer|referred|emergency|next of kin|manager|supervisor|recruiter|interviewer|parent|guardian|spouse|partner|mother|father|sibling|child|dependent|beneficiary|friend|colleague|co ?worker|employer|company|organi[sz]ation|business|vendor|landlord|doctor|physician|attorney|contact person|recipient|their|his|her)('?s)?\b/;
-// Section headings are matched from their start: the nearest heading is often a job title, which may say anything.
-const OTHER_PARTY_SECTION =
-  /^(your |add |my |\d+ )?((professional|personal|character|employment|work) )?(references?|referees?|emergency contacts?|next of kin|referrals?|referred by|employee referral|parents?|guardians?|spouse|dependents?|beneficiar(y|ies)|co ?applicant)\b/;
+// OTHER_PARTY and OTHER_PARTY_SECTION live in ./facts/text: the graph matcher applies the same test.
 const ELSEWHERE_SECTION =
   /^(your |add |my |\d+ )?((work|professional|employment|relevant|previous|prior|past) )?(experience|employment|work history|education|educational background|academic background|certifications?|projects?|positions?)\b/;
 const DEMOGRAPHIC =
@@ -252,22 +253,12 @@ const CLOSED_QUESTION =
 const CONSENT = /agree|consent|terms|privacy|acknowledge|certify|subscribe|newsletter|marketing/;
 
 export function normalize(text: string | undefined): string {
-  return (text ?? "")
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .toLowerCase()
-    .replace(/[_\-./:*]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return normalizeText(text);
 }
 
 /** "Name (first and last) - required" reads as "name", so anchored patterns can match a decorated label. */
 function bare(text: string): string {
-  return text
-    .replace(/\([^)]*\)|\[[^\]]*\]/g, " ")
-    .replace(/\b(required|optional)\b/g, " ")
-    .replace(/[^a-z0-9&' ]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return bareText(text);
 }
 
 interface Probe {
@@ -299,12 +290,35 @@ function isDemographic(probe: Probe): boolean {
   return [probe.label, ...probe.hints].some((text) => DEMOGRAPHIC.test(text)) || DEMOGRAPHIC_SECTION.test(probe.context);
 }
 
-/** True when this fact is the applicant's, but the field is about someone or somewhere else. */
-function isAboutSomethingElse(key: string, probe: Probe): boolean {
-  if (key === "email" && [probe.label, ...probe.hints, probe.context].some((text) => NOT_MY_INBOX.test(text))) return true;
-  if (!PERSONAL.has(key)) return false;
+/**
+ * What a fact is, as far as "is this field even about the user?" is concerned. Derived from the rule table
+ * for a résumé key and from the category for a graph fact, so both go through one test.
+ */
+interface FactShape {
+  /** The user's own detail: a label about a reference or an emergency contact must not take it. */
+  personal: boolean;
+  /** A place or a name, which an experience or education section re-asks about somewhere else. */
+  elsewhereProne: boolean;
+  /** An inbox: a newsletter box or a login is not the user's email field. */
+  inbox: boolean;
+}
+
+function shapeOfKey(key: string): FactShape {
+  return { personal: PERSONAL.has(key), elsewhereProne: PLACE.has(key) || key === "fullName", inbox: key === "email" };
+}
+
+function shapeOfFact(fact: Fact): FactShape {
+  const personal = isPersonalCategory(fact.category);
+  const kinds = fact.kinds ?? kindsForFact(fact.value, fact.category);
+  return { personal, elsewhereProne: personal && fact.category !== "links", inbox: kinds.includes("email") };
+}
+
+/** True when this fact is the user's, but the field is about someone or somewhere else. */
+function isAboutSomethingElse(shape: FactShape, probe: Probe): boolean {
+  if (shape.inbox && [probe.label, ...probe.hints, probe.context].some((text) => NOT_MY_INBOX.test(text))) return true;
+  if (!shape.personal) return false;
   if ([probe.label, ...probe.idents].some((text) => OTHER_PARTY.test(text)) || OTHER_PARTY_SECTION.test(probe.context)) return true;
-  return (PLACE.has(key) || key === "fullName") && ELSEWHERE_SECTION.test(probe.context);
+  return shape.elsewhereProne && ELSEWHERE_SECTION.test(probe.context);
 }
 
 // Words an identifier may carry besides the fact itself: "job_application[first_name]", "user_email_confirm", "urls[LinkedIn]".
@@ -368,8 +382,41 @@ function fromInputType(field: CapturedField, probe: Probe, usable: Usable): Fiel
   return assignment(field, key, unreadable ? 0.8 : DOUBTFUL);
 }
 
-/** Deterministic label-keyword mapping. Used by the server heuristic provider and the offline fallback. */
-export function mapFieldToFact(field: CapturedField, factKeys: string[]): FieldAssignment {
+/**
+ * The graph pass: any fact, matched by what it calls itself. This is what makes a shipping form, a support
+ * ticket or a conference signup work without a line of new code — storing the fact is the whole change.
+ *
+ * A key the rule table already covers is left to the rule table: those regexes carry the vetoes and doubts
+ * the adversarial corpus bought (shared/test/heuristic.realworld.test.ts), which a label comparison would
+ * only lose. Everything else is matched from the graph.
+ */
+function fromGraph(field: CapturedField, probe: Probe, graph: FactGraph): FieldAssignment | null {
+  // GRAPH_FLOOR, not the matcher's default: a label the matcher is unsure about ("Last employer",
+  // "Company legal name") must leave the field alone rather than name a fact nobody can act on.
+  for (const match of matchFieldToFacts(field, graph, { min: GRAPH_FLOOR, limit: 3 })) {
+    const fact = graph.facts[match.key];
+    if (!fact) continue;
+    if (RULE_BY_KEY.has(fact.key)) return null; // the tuned rule for this key has the final say
+    if (isAboutSomethingElse(shapeOfFact(fact), probe)) continue;
+    return assignment(field, fact.key, match.confidence);
+  }
+  return null;
+}
+
+/** Higher confidence wins; the rule table wins a tie, because it is the more specific statement. */
+function better(rules: FieldAssignment | null, graph: FieldAssignment | null): FieldAssignment | null {
+  if (!rules) return graph;
+  if (!graph) return rules;
+  return graph.confidence > rules.confidence ? graph : rules;
+}
+
+/**
+ * Deterministic label-keyword mapping. Used by the server heuristic provider and the offline fallback.
+ *
+ * `factKeys` is what the caller is offering. Passing the fact graph as well offers everything in it, so
+ * one new fact teaches every form at once; without a graph the behaviour is exactly what it always was.
+ */
+export function mapFieldToFact(field: CapturedField, factKeys: string[], graph?: FactGraph): FieldAssignment {
   if (field.kind === "button" || field.kind === "link" || field.kind === "file" || field.kind === "other") {
     return assignment(field, NONE, 0.99);
   }
@@ -380,12 +427,16 @@ export function mapFieldToFact(field: CapturedField, factKeys: string[]): FieldA
   if (isSearchBox(field, probe)) return assignment(field, NONE, 0.95);
 
   const usable: Usable = (key) =>
-    factKeys.includes(key) && (RULE_BY_KEY.get(key)?.kinds.includes(field.kind) ?? true) && !isAboutSomethingElse(key, probe);
+    (factKeys.includes(key) || graph?.facts[key] !== undefined) &&
+    (RULE_BY_KEY.get(key)?.kinds.includes(field.kind) ?? true) &&
+    !isAboutSomethingElse(shapeOfKey(key), probe);
 
+  const fromFacts = graph ? fromGraph(field, probe, graph) : null;
   const structural = fromAutocomplete(field, usable);
-  if (structural) return structural;
+  // A deliberate none (a login field) stands: no fact belongs in it, whatever its label says.
+  if (structural && (structural.factKey === NONE || !fromFacts || fromFacts.confidence <= structural.confidence)) return structural;
   if (field.kind === "textarea") return mapFreeText(field, probe.label, 0.8);
-  const mapped = fromRules(field, probe, usable) ?? fromInputType(field, probe, usable);
+  const mapped = better(fromRules(field, probe, usable) ?? fromInputType(field, probe, usable), fromFacts);
   if (mapped) return mapped;
   if (field.kind === "text" && asksForProse(probe.label)) return mapFreeText(field, probe.label, 0.75);
   return assignment(field, NONE, UNKNOWN);
@@ -419,6 +470,6 @@ function dropLooseDuplicates(assignments: FieldAssignment[]): FieldAssignment[] 
   return assignments.map((a) => (isFact(a) && a.confidence < 0.85 && standard.has(a.factKey) ? { ...a, factKey: NONE, confidence: UNKNOWN } : a));
 }
 
-export function mapFormHeuristically(fields: CapturedField[], factKeys: string[]): FieldAssignment[] {
-  return dropLooseDuplicates(dropLoneEmail(fields.map((f) => mapFieldToFact(f, factKeys))));
+export function mapFormHeuristically(fields: CapturedField[], factKeys: string[], graph?: FactGraph): FieldAssignment[] {
+  return dropLooseDuplicates(dropLoneEmail(fields.map((f) => mapFieldToFact(f, factKeys, graph))));
 }

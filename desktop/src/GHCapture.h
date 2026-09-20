@@ -56,6 +56,9 @@ typedef NS_ENUM(NSInteger, GHCaptureStop) {
 @property (nonatomic, readonly) NSTimeInterval elapsed;
 @property (nonatomic, readonly) CGRect windowFrame;
 @property (nonatomic, readonly) BOOL sawWebArea;
+/// The node the walk started from (the focused window). docs/anywhere.md: GHAffordance reads it again to
+/// measure the page, so a native window gets the same hints a web page does.
+@property (nonatomic, readonly, strong, nullable) id<GHAXNode> windowNode;
 /// First web area met by the walk (GHAccessibility reads its origin for the cache key). nil in native windows.
 @property (nonatomic, readonly, strong, nullable) id<GHAXNode> webAreaNode;
 /// Hash of the value-field signatures: the cache key part that identifies "this form".
@@ -94,6 +97,13 @@ typedef NS_ENUM(NSInteger, GHCaptureStop) {
 /// merely is not on screen. Its rect stays empty until something scrolls it into view, and an empty rect is never
 /// on screen, so it still can never be written to or drawn.
 @property (nonatomic) BOOL treatsFramelessWebNodesAsScrolledOut;
+
+/// docs/anywhere.md: a button or link with NO readable name anywhere in the tree (a player's fullscreen glyph, a
+/// cart icon, a kebab) is dropped by default, because the form walk can do nothing with it. With YES such a
+/// control is kept when it is drawn at a clickable size, marked `unnamed`, and carries its AXDescription and DOM
+/// class tokens so the affordance layer can read icon words and the vision fallback can name the rest. An
+/// unnamed control never gets a value ghost: the core needs a label to map a fact to a field.
+@property (nonatomic) BOOL capturesUnnamedControls;
 
 /// `window` is normally the focused AXWindow. Any node works (tests pass a web area or a group).
 - (GHCaptureResult *)captureWindow:(id<GHAXNode>)window;

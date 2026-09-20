@@ -89,7 +89,9 @@
 @property (nonatomic, weak) GHCBWorld *world;
 @end
 
-typedef NS_ENUM(NSInteger, GHCBPress) { GHCBPressSelects, GHCBPressIgnored, GHCBPressFails, GHCBPressSelectsOther };
+/// GHCBPressClosesOnly is what the REAL react-select on the live Greenhouse form does: a synthesized press on an
+/// option row dismisses the menu and chooses nothing at all (the row answers a real mouse press).
+typedef NS_ENUM(NSInteger, GHCBPress) { GHCBPressSelects, GHCBPressIgnored, GHCBPressFails, GHCBPressSelectsOther, GHCBPressClosesOnly };
 
 /// A react-select combobox inside a flat form group, as on the real Greenhouse page.
 @interface GHCBWorld : NSObject
@@ -113,11 +115,16 @@ typedef NS_ENUM(NSInteger, GHCBPress) { GHCBPressSelects, GHCBPressIgnored, GHCB
 @property (nonatomic) BOOL webkitOptions;
 /// react-select opens its menu when the combo box itself is pressed, with no keystroke at all.
 @property (nonatomic) BOOL pressOpens;
+/// How many times a press may open the menu (0 = as often as asked). 1 is a control that never comes back.
+@property (nonatomic) NSUInteger maxPressOpens;
+/// How many verification looks pass before the chosen text appears beside the control: a page whose accessibility
+/// tree catches up after it has already chosen.
+@property (nonatomic) NSUInteger chosenTextLagLooks;
 @property (nonatomic) GHCBPress press;
 @property (nonatomic, copy) void (^afterPost)(GHKeyStroke *stroke);
 
 // What happened.
-@property (nonatomic) NSUInteger presses, escapes, returnsWithoutList, selections;
+@property (nonatomic) NSUInteger presses, escapes, returnsWithoutList, selections, pressOpensDone;
 @property (nonatomic, copy) NSString *selected;
 
 - (instancetype)initWithContainer:(GHCBNode *)container combo:(GHFakeAXNode *)combo;
@@ -147,13 +154,19 @@ static BOOL CBIsInside(id<GHAXNode> node, id<GHAXNode> ancestor) {
     [super pressNode:node];
     GHCBWorld *world = self.world;
     world.presses++;
-    if (world.pressOpens && node == world.combo && !world.menu) { [world openMenu]; return YES; }
+    if (world.pressOpens && node == world.combo && !world.menu) {
+        if (world.maxPressOpens > 0 && world.pressOpensDone >= world.maxPressOpens) return YES;
+        world.pressOpensDone++;
+        [world openMenu];
+        return YES;
+    }
     if (!world.menu || !CBIsInside(node, world.menu)) return YES;
     switch (world.press) {
         case GHCBPressSelects: [world choose:[GHComboBoxDriver textOfOption:node]]; return YES;
         case GHCBPressIgnored: return YES;
         case GHCBPressFails: return NO;
         case GHCBPressSelectsOther: [world choose:@"Something else"]; return YES;
+        case GHCBPressClosesOnly: [world closeMenu]; return YES;
     }
     return YES;
 }
@@ -296,8 +309,12 @@ static GHFakeAXNode *CBNode(NSString *role, NSString *title) {
     self.selected = text;
     [self closeMenu];
     self.combo.value = @"";
-    self.shownText.value = text;
     self.logText.value = [NSString stringWithFormat:@"option %@, selected.", text];
+    if (self.chosenTextLagLooks == 0) { self.shownText.value = text; return; }
+    // The page has chosen; its accessibility tree says so only a few looks later.
+    GHFakeAXNode *shown = self.shownText;
+    shown.value = @"";
+    self.driver.after(self.driver.verifyDelay * (self.chosenTextLagLooks + 0.5), ^{ shown.value = text; });
 }
 
 - (void)react:(GHKeyStroke *)stroke {
@@ -595,6 +612,168 @@ GH_TEST(combobox_press_that_does_nothing_falls_back_to_arrows_and_return) {
     GHComboBoxResult *result = [world answer:@"Referral"];
     GH_ASSERT_MSG(result.chosen, @"%@", result);
     GH_ASSERT_EQUAL_OBJECTS(world.poster.postedNames, (@[ @"text", @"down", @"down", @"down", @"return" ]));
+}
+
+// What the LIVE Greenhouse form did on 2026-09-19: the menu opened on a press, the option matched 1.00, the press
+// on the row closed the menu and chose NOTHING, and the run reported combobox-not-verified for all five remaining
+// questions. The row answers a real mouse press; a synthesized one only dismisses the menu. So: open it again and
+// use the keyboard, which is the path a person without a mouse takes anyway.
+GH_TEST(combobox_press_that_only_closes_the_menu_reopens_it_and_uses_the_keyboard) {
+    GHCBNode *window = CBGreenhouseWindow();
+    GHFakeAXNode *authorized = CBComboTitled(window, @"Are you legally authorized to work in the United States for any employer?");
+    GHCBWorld *world = [[GHCBWorld alloc] initWithContainer:(GHCBNode *)authorized.parent combo:authorized];
+    world.options = @[ @"Yes", @"No" ];
+    world.filters = NO;
+    world.pressOpens = YES;       // react-select opens on a press, so nothing is ever typed here
+    world.webkitOptions = YES;    // rows are AXStaticText marked only by their DOM class
+    world.press = GHCBPressClosesOnly;
+
+    GHComboBoxResult *result = [world answer:@"No"];
+    GH_ASSERT_MSG(result.chosen, @"%@", result);
+    GH_ASSERT_EQUAL_OBJECTS(result.method, GHComboBoxMethodKeys);
+    GH_ASSERT_EQUAL_OBJECTS(world.selected, @"No");
+    GH_ASSERT_EQUAL_OBJECTS(world.shownText.value, @"No");
+    GH_ASSERT_FALSE(result.typed);
+    // Nothing is typed and no Escape is posted: open, arrow, Return.
+    GH_ASSERT_EQUAL_OBJECTS(world.poster.postedNames, (@[ @"down", @"return" ]));
+    GH_ASSERT_EQUAL_INT(world.presses, 3);   // open, the option, open again
+    GH_ASSERT_EQUAL_INT(world.selections, 1);
+    GH_ASSERT_EQUAL_INT(world.escapes, 0);
+}
+
+// The same for a decline on a demographic question: the option is chosen by MEANING and still nothing is typed.
+GH_TEST(combobox_decline_survives_a_press_that_only_closes_the_menu) {
+    GHCBWorld *world = [GHCBWorld syntheticWorldWithLabel:@"Gender"];
+    world.options = @[ @"Male", @"Female", @"Decline To Self Identify" ];
+    world.filters = NO;
+    world.pressOpens = YES;
+    world.webkitOptions = YES;
+    world.press = GHCBPressClosesOnly;
+
+    __block GHComboBoxResult *result = nil;
+    [world.driver chooseAnswer:@"Prefer not to say" inComboBox:world.combo decline:YES completion:^(GHComboBoxResult *r) { result = r; }];
+    [world.clock runUntil:^BOOL { return result != nil; }];
+    GH_ASSERT_MSG(result.chosen, @"%@", result);
+    GH_ASSERT_EQUAL_OBJECTS(world.selected, @"Decline To Self Identify");   // the form's own wording, never ours
+    GH_ASSERT_FALSE(result.typed);
+    GH_ASSERT_EQUAL_OBJECTS(world.poster.postedNames, (@[ @"down", @"down", @"return" ]));
+}
+
+// A press that DID choose, on a page whose accessibility tree catches up a few looks later: no second choice, no
+// re-open, and the run still reports the press as the method.
+GH_TEST(combobox_press_is_verified_when_the_page_catches_up_late) {
+    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    world.pressOpens = YES;
+    world.webkitOptions = YES;
+    world.filters = NO;
+    world.chosenTextLagLooks = 3;   // the page chose, but says so only after three more looks
+    GHComboBoxResult *result = [world answer:@"LinkedIn"];
+    GH_ASSERT_MSG(result.chosen, @"%@", result);
+    GH_ASSERT_EQUAL_OBJECTS(result.method, GHComboBoxMethodPress);
+    GH_ASSERT_EQUAL_INT(world.presses, 2);     // open, the option: never a third
+    GH_ASSERT_EQUAL_INT(world.selections, 1);
+}
+
+// A press that chose the WRONG option is never answered with a second choice, however long the run looks.
+GH_TEST(combobox_press_that_picks_something_else_is_never_reopened) {
+    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    world.pressOpens = YES;
+    world.webkitOptions = YES;
+    world.filters = NO;
+    world.press = GHCBPressSelectsOther;
+    GHComboBoxResult *result = [world answer:@"LinkedIn"];
+    GH_ASSERT(result.stopsWalk);
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonNotVerified);
+    GH_ASSERT_EQUAL_INT(world.presses, 2);
+    GH_ASSERT_EQUAL_INT(world.selections, 1);
+    GH_ASSERT_EQUAL_OBJECTS(world.selected, @"Something else");
+}
+
+// A control that will not open a second time is left exactly as the press found it: nothing typed, nothing chosen.
+GH_TEST(combobox_that_will_not_reopen_is_left_alone) {
+    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    world.pressOpens = YES;
+    world.webkitOptions = YES;
+    world.filters = NO;
+    world.press = GHCBPressClosesOnly;
+    world.maxPressOpens = 1;   // the menu never comes back
+    GHComboBoxResult *result = [world answer:@"LinkedIn"];
+    GH_ASSERT_FALSE(result.chosen);
+    GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonNotVerified);
+    GH_ASSERT_EQUAL_INT(world.selections, 0);
+    GH_ASSERT_EQUAL_OBJECTS(world.poster.postedNames, @[]);
+    GH_ASSERT_EQUAL_OBJECTS(world.shownText.value, @"Select...");
+}
+
+GH_TEST(combobox_neutral_matcher_ranks_the_least_committing_option_first) {
+    // "Other" answers the question; declining merely ends it, so it ranks after the three that answer.
+    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption((@[ @"LinkedIn", @"Prefer not to say", @"Other" ]), @"").index, 2);
+    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption((@[ @"None of the above", @"N/A" ]), @"").index, 0);
+    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption((@[ @"Yes", @"No", @"Not applicable" ]), @"").index, 2);
+    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption((@[ @"Select...", @"Other" ]), @"").index, 1);   // never a placeholder
+    GH_ASSERT_NEAR(GHMatchNeutralOption((@[ @"Other" ]), @"").score, 1.0, 1e-9);
+    // A legal statement is not a neutral answer, and a list of real claims has no neutral option at all.
+    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption((@[ @"I certify that none of the above apply" ]), @"").index, -1);
+    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption((@[ @"Yes", @"No" ]), @"").index, -1);
+    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption(@[], @"").index, -1);
+    // The exact list the LIVE Greenhouse "How did you hear" control showed on 2026-09-19.
+    NSArray<NSString *> *live = @[ @"LinkedIn", @"Indeed", @"A friend", @"TikTok", @"Instagram", @"Twitter", @"Meetup/Event", @"Other" ];
+    GH_ASSERT_EQUAL_INT(GHMatchNeutralOption(live, @"Hack the North").index, 7);
+    GH_ASSERT_EQUAL_INT(GHMatchOption(live, @"Hack the North").index, -1);   // the fact itself is not on the list
+}
+
+// docs/answers.md section 3: an ORDINARY question whose profile fact is not among the options is still answered,
+// with whatever the list itself calls the neutral choice. Live: "Hack the North" against eight named sources.
+GH_TEST(combobox_answer_that_is_not_on_the_list_takes_the_lists_own_neutral_option) {
+    GHCBWorld *world = [GHCBWorld syntheticWorld];
+    world.options = @[ @"LinkedIn", @"Indeed", @"A friend", @"TikTok", @"Instagram", @"Twitter", @"Meetup/Event", @"Other" ];
+    world.filters = NO;
+    world.pressOpens = YES;
+    world.webkitOptions = YES;
+
+    __block GHComboBoxResult *result = nil;
+    [world.driver chooseAnswer:@"Hack the North" inComboBox:world.combo decline:NO neutralFallback:YES completion:^(GHComboBoxResult *r) { result = r; }];
+    [world.clock runUntil:^BOOL { return result != nil; }];
+    GH_ASSERT_MSG(result.chosen, @"%@", result);
+    GH_ASSERT(result.tookNeutral);
+    GH_ASSERT_EQUAL_OBJECTS(world.selected, @"Other");
+    GH_ASSERT_FALSE(result.typed);   // nothing is typed: a word the list does not have would filter it to nothing
+}
+
+GH_TEST(combobox_neutral_fallback_never_beats_a_real_match_and_never_invents_one) {
+    // A real match still wins: the fallback only ever runs when the matcher found nothing.
+    GHCBWorld *match = [GHCBWorld syntheticWorld];
+    match.options = @[ @"LinkedIn", @"Other" ];
+    match.filters = NO;
+    match.pressOpens = YES;
+    __block GHComboBoxResult *chosen = nil;
+    [match.driver chooseAnswer:@"LinkedIn" inComboBox:match.combo decline:NO neutralFallback:YES completion:^(GHComboBoxResult *r) { chosen = r; }];
+    [match.clock runUntil:^BOOL { return chosen != nil; }];
+    GH_ASSERT(chosen.chosen);
+    GH_ASSERT_FALSE(chosen.tookNeutral);
+    GH_ASSERT_EQUAL_OBJECTS(match.selected, @"LinkedIn");
+
+    // A list with no neutral option is left exactly as it was: a declaration's Yes/No is never "answered" for it.
+    GHCBWorld *none = [GHCBWorld syntheticWorldWithLabel:@"Are you legally authorized to work in the United States for any employer?"];
+    none.options = @[ @"Yes", @"No" ];
+    none.filters = NO;
+    none.pressOpens = YES;
+    __block GHComboBoxResult *skipped = nil;
+    [none.driver chooseAnswer:@"Maybe" inComboBox:none.combo decline:NO neutralFallback:YES completion:^(GHComboBoxResult *r) { skipped = r; }];
+    [none.clock runUntil:^BOOL { return skipped != nil; }];
+    GH_ASSERT(skipped.skipsField);
+    GH_ASSERT_EQUAL_OBJECTS(skipped.reason, GHComboBoxReasonNoMatchingOption);
+    GH_ASSERT_EQUAL_INT(none.selections, 0);
+    GH_ASSERT_FALSE(skipped.tookNeutral);
+
+    // Without the flag nothing changes: the field is skipped, as it was before the fallback existed.
+    GHCBWorld *off = [GHCBWorld syntheticWorld];
+    off.options = @[ @"LinkedIn", @"Other" ];
+    off.filters = NO;
+    off.pressOpens = YES;
+    GHComboBoxResult *left = [off answer:@"Hack the North"];
+    GH_ASSERT(left.skipsField);
+    GH_ASSERT_EQUAL_INT(off.selections, 0);
 }
 
 GH_TEST(combobox_return_only_while_the_list_is_open_and_the_choice_highlighted) {
@@ -1017,4 +1196,29 @@ GH_TEST(combobox_eeo_and_work_authorization_are_never_even_pressed_open) {
         GH_ASSERT_EQUAL_OBJECTS(result.reason, GHComboBoxReasonDemographic);
         GH_ASSERT_MSG(CBTouchedNothing(world), @"%@ was touched", title);
     }
+}
+
+#pragma mark - declining (docs/answers.md section 1)
+
+GH_TEST(combobox_decline_matcher_knows_every_ats_wording) {
+    // The wordings shared/src/answers/classify.ts DECLINE_OPTION covers. Greenhouse alone ships three of them.
+    NSArray<NSString *> *declines = @[ @"Decline To Self Identify", @"I don't wish to answer", @"I do not want to answer",
+                                       @"Prefer not to say", @"Prefer not to disclose", @"I decline to answer",
+                                       @"I choose not to disclose", @"Would rather not say", @"Not disclosed", @"No answer",
+                                       @"I don’t wish to answer" ];
+    for (NSString *decline in declines) {
+        NSArray<NSString *> *options = @[ @"Male", @"Female", decline ];
+        GHOptionMatch match = GHMatchDeclineOption(options, @"anything at all");
+        GH_ASSERT_MSG(match.index == 2, @"%@ should be recognised as a decline", decline);
+        GH_ASSERT_MSG(match.score >= GHComboBoxMatchThreshold, @"%@ should be certain", decline);
+    }
+    // No way to decline: nothing is picked, and nothing is guessed at.
+    GHOptionMatch none = GHMatchDeclineOption(@[ @"Male", @"Female", @"Non-binary" ], @"I don't wish to answer");
+    GH_ASSERT_EQUAL_INT(none.index, -1);
+    GH_ASSERT_EQUAL_INT(GHMatchDeclineOption(@[], @"x").index, -1);
+    // A question ABOUT declining is not an option that declines it.
+    GH_ASSERT_EQUAL_INT(GHMatchDeclineOption(@[ @"Yes", @"No", @"Select..." ], @"x").index, -1);
+    // The first way out wins, and a placeholder is never one.
+    GHOptionMatch first = GHMatchDeclineOption(@[ @"Select...", @"Prefer not to say", @"Decline To Self Identify" ], @"x");
+    GH_ASSERT_EQUAL_INT(first.index, 1);
 }

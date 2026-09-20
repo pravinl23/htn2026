@@ -128,6 +128,17 @@ describe("POST /v1/vision/label: the Responses API request", () => {
       { id: "b3", x: TRASH.x, y: TRASH.y, width: TRASH.width, height: TRASH.height, centerX: 392, centerY: 60 },
     ]);
     expect(state.context).toEqual({ app: "Mail", nearbyText: ["To: team", "Subject: Q3 invoices"] });
+  });
+
+  it("keeps context.mediaControls out of the prompt: it is for the affordance classifier in code", async () => {
+    const { post, calls } = appWith(answering({ labels: [{ id: "b1", label: "Play", role: "button", irreversible: false, confidence: 0.9 }] }));
+    const { json } = await post("/v1/vision/label", { image: TOOLBAR.dataUrl, boxes: [SEND], context: { app: "Mail", mediaControls: true } });
+    expect(stateOf(calls[0]).context).toEqual({ app: "Mail" });
+    // Without the hint a lone "Play" stays unknown; with it, the classifier believes the player is there.
+    expect(json.labels?.[0]?.affordance).toBe("play");
+    const bad = await post("/v1/vision/label", { image: TOOLBAR.dataUrl, boxes: [SEND], context: { mediaControls: "yes" } });
+    expect(bad.status).toBe(400);
+    expect(String(bad.json.error)).toMatch(/mediaControls must be a boolean/);
     expect(JSON.stringify(calls[0]?.body)).not.toContain("AXButton-secret");
   });
 
@@ -168,9 +179,10 @@ describe("POST /v1/vision/label: the reply is validated in code", () => {
     expect(json).toMatchObject({ provider: "openai", model: DEFAULT_VISION_MODEL, calibrated: false });
     expect(json.latencyMs).toEqual(expect.any(Number));
     expect(json.labels).toEqual([
-      { id: "send", label: "Send", role: "button", irreversible: true, sensitive: false, confidence: 0.97 },
-      { id: "cancel", label: "Cancel", role: "button", irreversible: false, sensitive: false, confidence: 0.95 },
-      { id: "trash", label: "Delete", role: "button", irreversible: true, sensitive: false, confidence: 0.81 },
+      { id: "send", label: "Send", role: "button", affordance: "send", irreversible: true, sensitive: false, confidence: 0.97 },
+      // "Cancel" and "Delete" have no affordance role in the shared taxonomy; "Delete" is irreversible, which is what matters.
+      { id: "cancel", label: "Cancel", role: "button", affordance: "unknown", irreversible: false, sensitive: false, confidence: 0.95 },
+      { id: "trash", label: "Delete", role: "button", affordance: "unknown", irreversible: true, sensitive: false, confidence: 0.81 },
     ]);
   });
 
@@ -197,9 +209,9 @@ describe("POST /v1/vision/label: the reply is validated in code", () => {
     const { status, json } = await post("/v1/vision/label", labelBody());
     expect(status).toBe(200);
     expect(json.labels).toEqual([
-      { id: "send", label: "Send", role: "button", irreversible: true, sensitive: false, confidence: 0.9 },
-      { id: "cancel", label: null, role: "other", irreversible: false, sensitive: false, confidence: 0 },
-      { id: "trash", label: null, role: "other", irreversible: false, sensitive: false, confidence: 0 },
+      { id: "send", label: "Send", role: "button", affordance: "send", irreversible: true, sensitive: false, confidence: 0.9 },
+      { id: "cancel", label: null, role: "other", affordance: "unknown", irreversible: false, sensitive: false, confidence: 0 },
+      { id: "trash", label: null, role: "other", affordance: "unknown", irreversible: false, sensitive: false, confidence: 0 },
     ]);
     expect(lines[0]).toContain("answered=1");
   });
@@ -343,7 +355,13 @@ describe("availability, budget, timeout and retries", () => {
     expect(third.status).toBe(429);
     expect(third.json).toEqual({ error: "vision budget exhausted", limit: 2 });
     expect(calls).toHaveLength(2);
-    expect(await (await app.request("/v1/vision")).json()).toEqual({ available: true, provider: "openai", model: DEFAULT_VISION_MODEL, budget: { limit: 2, used: 2, remaining: 0 } });
+    expect(await (await app.request("/v1/vision")).json()).toEqual({
+      available: true,
+      provider: "openai",
+      model: DEFAULT_VISION_MODEL,
+      budget: { limit: 2, used: 2, remaining: 0 },
+      cache: { enabled: true, entries: 0, hits: 0, misses: 0 },
+    });
   });
 
   it("a zero budget switches vision off (429) before any call", async () => {
@@ -397,8 +415,20 @@ describe("availability, budget, timeout and retries", () => {
     await post("/v1/vision/label", labelBody({ context: { app: "Mail", nearbyText: ["Quarterly numbers"] } }));
     expect(lines).toHaveLength(1);
     const line = lines[0] ?? "";
-    expect(line).toMatch(/^\[ghost\] openai \/v1\/vision\/label \d+ms model=gpt-5\.6-luna calibrated=false cache=miss image=png 480x120 bytes=\d+ boxes=3 attempts=1 answered=3 locked=\d droppedText=0$/);
+    expect(line).toMatch(
+      /^\[ghost\] openai \/v1\/vision\/label \d+ms model=gpt-5\.6-luna calibrated=false cache=miss image=png 480x120 bytes=\d+ boxes=3 attempts=1 tokens=812\/64 answered=3 locked=\d droppedText=0$/,
+    );
     for (const secret of ["Northwind", "Quarterly", "Mail", FAKE_KEY, TOOLBAR.dataUrl.slice(30, 60)]) expect(line).not.toContain(secret);
+  });
+
+  it("logs what OpenAI billed, counts only, and copes with a reply that has no usage block", async () => {
+    const withReasoning = appWith(() => responsesJson(goodLabels(), { usage: { input_tokens: 900, output_tokens: 500, output_tokens_details: { reasoning_tokens: 320 } } }));
+    await withReasoning.post("/v1/vision/label", labelBody());
+    expect(withReasoning.lines[0]).toContain("tokens=900/500+320r");
+
+    const noUsage = appWith(() => Response.json({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(goodLabels()) }] }] }));
+    await noUsage.post("/v1/vision/label", labelBody());
+    expect(noUsage.lines[0]).toContain("attempts=1 answered=3");
   });
 });
 
@@ -482,7 +512,7 @@ describe("a tiny generated image round-trips through validation", () => {
     const dot = new Raster(1, 1, [0, 0, 0]).dataUrl();
     const { status, json } = await post("/v1/vision/label", { image: dot, boxes: [{ id: "only", x: 0, y: 0, width: 1, height: 1 }] });
     expect(status).toBe(200);
-    expect(json.labels).toEqual([{ id: "only", label: "Dot", role: "other", irreversible: false, sensitive: false, confidence: 0.5 }]);
+    expect(json.labels).toEqual([{ id: "only", label: "Dot", role: "other", affordance: "unknown", irreversible: false, sensitive: false, confidence: 0.5 }]);
     expect(stateOf(calls[0]).image).toEqual({ width: 1, height: 1 });
   });
 });
@@ -519,9 +549,9 @@ describe("review regressions: locks and sensitivity read the model's full label"
     );
     const { json } = await post("/v1/vision/label", labelBody());
     expect(json.labels).toEqual([
-      { id: "send", label: "Save your changes to the shared folder a", role: "button", irreversible: true, sensitive: false, confidence: 0.97 },
-      { id: "cancel", label: "Enter the 6 digits we texted you as your", role: "field", irreversible: false, sensitive: true, confidence: 0.95 },
-      { id: "trash", label: null, role: "button", irreversible: true, sensitive: false, confidence: 0 },
+      { id: "send", label: "Save your changes to the shared folder a", role: "button", affordance: "save", irreversible: true, sensitive: false, confidence: 0.97 },
+      { id: "cancel", label: "Enter the 6 digits we texted you as your", role: "field", affordance: "field", irreversible: false, sensitive: true, confidence: 0.95 },
+      { id: "trash", label: null, role: "button", affordance: "unknown", irreversible: true, sensitive: false, confidence: 0 },
     ]);
   });
 

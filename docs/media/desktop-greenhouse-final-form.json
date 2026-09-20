@@ -1,93 +1,111 @@
 {
-  "_readme": [
-    "Independent check of the live Safari run (ghostctl dump-tree, values reduced to their length).",
-    "Written after one guarded autotab walk (--expect-field \"First Name\") over https://job-boards.greenhouse.io/viamrobotics/jobs/6185046004.",
-    "No field value is in this file: only how many characters each field holds, and the attached file name.",
-    "\"How did you hear about this opportunity at Viam?\" is 0 characters ON PURPOSE: Ghost now reads all eight options of that react-select menu, none of them matches the fictional profile's referral source, so it closes the menu and leaves the field alone rather than guessing.",
-    "EEO/demographic questions and the US work-authorization question are never answered.",
-    "Nothing was submitted: the walk ends parked on the locked \"Submit application\"."
-  ],
   "browser": "Safari",
-  "expectFieldGuard": "First Name",
-  "attachedFile": "resume-alex-chen.pdf",
+  "url": "https://job-boards.greenhouse.io/viamrobotics/jobs/6185046004",
+  "capturedAt": null,
+  "visitedNodes": 394,
+  "truncated": false,
+  "note": "Labels and value LENGTHS only - never a value. A select's chosen option is reported as the presence of the page's own select__single-value node, which dump-tree does not enter.",
+  "selectSingleValueNodes": 7,
+  "selectPlaceholderNodes": 0,
   "fields": [
     {
-      "role": "AXTextField",
       "label": "First Name",
-      "characters": 4
+      "kind": "text",
+      "valueLength": 4
     },
     {
-      "role": "AXTextField",
       "label": "Last Name",
-      "characters": 4
+      "kind": "text",
+      "valueLength": 4
     },
     {
-      "role": "AXTextField",
       "label": "Email",
-      "characters": 25
+      "kind": "text",
+      "valueLength": 25
     },
     {
-      "role": "AXComboBox",
       "label": "Country",
-      "characters": 0
+      "kind": "select",
+      "hasChosenOption": true
     },
     {
-      "role": "AXTextField",
       "label": "Phone",
-      "characters": 15
+      "kind": "text",
+      "valueLength": 15
     },
     {
-      "role": "AXButton",
-      "label": "Remove file"
+      "label": "Resume/CV",
+      "kind": "file",
+      "controls": [
+        "Remove file"
+      ],
+      "attached": true
     },
     {
-      "role": "AXTextField",
+      "label": "Cover Letter",
+      "kind": "file",
+      "controls": [
+        "Attach",
+        "Dropbox",
+        "Enter manually",
+        "Google Drive"
+      ],
+      "attached": false
+    },
+    {
       "label": "LinkedIn Profile",
-      "characters": 36
+      "kind": "text",
+      "valueLength": 36
     },
     {
-      "role": "AXTextField",
       "label": "Github",
-      "characters": 31
+      "kind": "text",
+      "valueLength": 31
     },
     {
-      "role": "AXTextField",
       "label": "Website",
-      "characters": 20
+      "kind": "text",
+      "valueLength": 20
     },
     {
-      "role": "AXComboBox",
       "label": "How did you hear about this opportunity at Viam?",
-      "characters": 0
+      "kind": "select",
+      "hasChosenOption": true
     },
     {
-      "role": "AXComboBox",
       "label": "Are you legally authorized to work in the United States for any employer?",
-      "characters": 0
+      "kind": "select",
+      "hasChosenOption": true
     },
     {
-      "role": "AXComboBox",
       "label": "Gender",
-      "characters": 0
+      "kind": "select",
+      "hasChosenOption": true
     },
     {
-      "role": "AXComboBox",
       "label": "Are you Hispanic/Latino?",
-      "characters": 0
+      "kind": "select",
+      "hasChosenOption": true
     },
     {
-      "role": "AXComboBox",
       "label": "Veteran Status",
-      "characters": 0
+      "kind": "select",
+      "hasChosenOption": true
     },
     {
-      "role": "AXComboBox",
       "label": "Disability Status",
-      "characters": 0
+      "kind": "select",
+      "hasChosenOption": true
     },
     {
-      "role": "AXButton",
-      "label": "Submit application"
+      "label": "Submit application",
+      "kind": "button",
+      "pressed": false
     }
+  ],
+  "notes": [
+    "Country was already chosen by the page when it loaded (IP geolocation); Ghost refused to touch it (combobox-has-value) because it never overwrites a value.",
+    "Cover Letter is untouched: the demo profile has no coverLetterPath fact, so no ghost was made for it.",
+    "Submit application was never pressed: the harness refuses to Tab past a locked ghost."
   ]
 }

@@ -29,10 +29,15 @@ export const ESSAYS = ["whyNorthwind", "project"] as const;
 /** What no walk may touch: the file input, the consent box and the sensitive payroll trap. */
 export const NEVER_FILLED: Record<string, string | boolean> = { resume: "", consent: false, sin: "", payrollPassword: "" };
 export const PROFILE_FIELDS = Object.keys(EXPECTED).length;
-/** 14 profile fields plus the locked Submit. */
-export const OFFLINE_GHOSTS = PROFILE_FIELDS + 1;
+/**
+ * 14 profile fields. The locked Submit is NOT among them: the privacy box and (offline) the essay are
+ * required and still empty, so the gate withholds every terminal action (docs/incremental.md).
+ */
+export const OFFLINE_GHOSTS = PROFILE_FIELDS;
 /** With a text provider both essay textareas get a draft as well. */
 export const SERVER_GHOSTS = OFFLINE_GHOSTS + ESSAYS.length;
+/** What a person types into the essay when Ghost has no draft for it. */
+export const MY_ESSAY = "Robots that ship, and a team that reviews carefully.";
 
 export type FormValues = Record<string, string | boolean>;
 export interface DemoWindow {
@@ -154,11 +159,45 @@ export async function expectNotSubmitted(page: Page): Promise<void> {
   await expect(page.locator("[data-testid=form-errors]")).toBeHidden();
 }
 
+/**
+ * The required answers Ghost will not give for you: agreeing to the privacy policy is the user's own act,
+ * and without a text provider so is the essay. Until they are answered the gate withholds the Submit ghost;
+ * this answers them the way a person would and takes the one Tab that then parks on Submit.
+ */
+export async function finishRequired(page: Page, essay: string = MY_ESSAY): Promise<void> {
+  const host = page.locator(HOST);
+  await expect(host, "no Submit ghost while a required field is empty").toHaveAttribute("data-ghost-gate", "blocked");
+  if ((await page.locator("#why-northwind").inputValue()) === "") await page.locator("#why-northwind").fill(essay);
+  await page.locator("#consent").check();
+  await expect(host).toHaveAttribute("data-ghost-gate", "allowed");
+  await expect(host).toHaveAttribute("data-ghost-count", "1");
+  await page.keyboard.press("Tab");
+}
+
+/**
+ * The end of the walk: the locked Submit is the only ghost left and the ghost CURSOR rests on it.
+ *
+ * It used to assert DOM focus as well. Tab is the page's again at a locked action - Tab only ever accepts a
+ * value for the field that has focus, and a locked button is neither (docs/accept-key.md section 1) - so
+ * focus is wherever the page's own Tab left it, and the cursor is what "parked" means. What matters is
+ * unchanged and asserted harder: the chip names Enter, because no key accepts an irreversible action
+ * (CLAUDE.md rule 2), and `expectNotSubmitted` still proves Ghost never pressed it.
+ */
 export async function expectParkedOnSubmit(page: Page): Promise<void> {
   const host = page.locator(HOST);
   await expect(host).toHaveAttribute("data-ghost-current-locked", "true");
   await expect(host).toHaveAttribute("data-ghost-count", "1");
-  await expect(page.locator(SUBMIT)).toBeFocused();
+  await expect(host).toHaveAttribute("data-ghost-key-hint", "Enter");
+  await expect(host).toHaveAttribute("data-ghost-cursor", /^\d+,\d+$/);
+  await expect.poll(() => cursorRestsOn(page, SUBMIT)).toBe(true);
+}
+
+/** The shadow root is closed (it holds profile values), so the host reports where the ghost cursor rests. */
+export async function cursorRestsOn(page: Page, selector: string): Promise<boolean> {
+  const [at, box] = await Promise.all([page.locator(HOST).getAttribute("data-ghost-cursor"), page.locator(selector).boundingBox()]);
+  const [x, y] = (at ?? "").split(",").map(Number);
+  if (x === undefined || y === undefined || !box) return false;
+  return x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height;
 }
 
 /** Anything the content script or the page complains about. The content script logs with a "[ghost]" prefix. */

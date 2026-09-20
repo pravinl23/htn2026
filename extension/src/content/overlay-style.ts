@@ -8,6 +8,7 @@ export const OVERLAY_CSS = `
 .layer {
   --accent: 124 92 255;
   --lock: 245 165 36;
+  --guess: 214 150 20;
   position: absolute; inset: 0; overflow: hidden; pointer-events: none;
   font-family: ${SANS}; -webkit-font-smoothing: antialiased;
 }
@@ -50,6 +51,28 @@ export const OVERLAY_CSS = `
 }
 .ghost[data-mode="pill"] .label { text-overflow: ellipsis; }
 .ghost[data-mode="pill"][data-status="pending"] .label { opacity: .7; }
+
+/* A guess (docs/answers.md section 3): dotted, chipped, and hold-Tab stops at it. */
+.ghost[data-guess="true"] .label {
+  text-decoration: underline dotted rgb(var(--guess) / .85);
+  text-decoration-thickness: 1.5px; text-underline-offset: 3px;
+}
+/*
+ * A long-shot (docs/always-propose.md): the same guess, dimmer, with its reason in the HUD. It is still a
+ * proposal -- one key to take, one key to ignore -- which is the whole point: the threshold changes how a
+ * ghost LOOKS, never whether it is there.
+ */
+.ghost[data-tier="long-shot"] { opacity: .38; }
+.ghost[data-tier="long-shot"][data-status="current"] { opacity: .72; }
+.ghost[data-tier="long-shot"] .label { text-decoration-color: rgb(var(--guess) / .6); }
+.ghost[data-tier="long-shot"] .chip { opacity: .85; }
+.chip {
+  display: none; flex: 0 0 auto; margin-left: 8px; padding: 2px 6px 1px;
+  font: 600 10px/1.35 ${SANS}; letter-spacing: .02em; text-transform: none; text-indent: 0; white-space: nowrap;
+  color: #6a4a05; background: rgb(var(--guess) / .22); border: 1px solid rgb(var(--guess) / .55); border-radius: 999px;
+}
+.ghost[data-guess="true"] .chip { display: inline-block; }
+.ghost[data-mode="multiline"] .chip { position: absolute; right: 8px; top: 7px; margin: 0; }
 
 .keycap {
   display: none; flex: 0 0 auto; margin-left: 8px; padding: 3px 6px 2px;
@@ -115,7 +138,7 @@ export const OVERLAY_CSS = `
   flex-direction: column; align-items: flex-end; gap: 6px;
 }
 .hud[data-visible="true"] { display: flex; }
-.hud-main, .hud-error, .hud-text {
+.hud-main, .hud-error, .hud-gate, .hud-text, .hud-why {
   display: flex; align-items: center; gap: 12px; padding: 7px 12px; border-radius: 11px;
   box-sizing: border-box; max-width: 100%; overflow: hidden; white-space: nowrap;
   font: 500 11px/1.2 ${MONO}; color: rgba(255,255,255,.92);
@@ -123,7 +146,11 @@ export const OVERLAY_CSS = `
   -webkit-backdrop-filter: blur(10px) saturate(1.4); backdrop-filter: blur(10px) saturate(1.4);
   box-shadow: 0 12px 32px -12px rgba(10,6,40,.65);
 }
-.hud-main[hidden], .hud-error[hidden], .hud-text[hidden] { display: none; }
+.hud-main[hidden], .hud-error[hidden], .hud-gate[hidden], .hud-text[hidden], .hud-why[hidden] { display: none; }
+/* Why there is no Submit ghost yet: "2 required fields still empty: Country". */
+.hud-gate { color: #ffdf9e; border-color: rgb(var(--guess) / .5); max-width: 340px; }
+/* Why this long shot is the best Ghost has here (docs/always-propose.md): the reason, in the user's words. */
+.hud-why { color: #e6dcc6; border-color: rgb(var(--guess) / .35); max-width: 360px; white-space: normal; }
 .hud-text { padding: 5px 12px; color: rgba(255,255,255,.8); }
 .hud-error { color: #ffb4b4; border-color: rgba(255,120,120,.4); max-width: 320px; }
 .hud .brand { display: flex; align-items: center; gap: 6px; font: 700 11px/1.2 ${SANS}; letter-spacing: .02em; }

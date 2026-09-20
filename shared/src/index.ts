@@ -1,6 +1,7 @@
 export * from "./types";
 export * from "./decision";
 export * from "./profile";
+export * from "./facts";
 export * from "./sensitive";
 export * from "./locks";
 export * from "./heuristic";
@@ -9,4 +10,9 @@ export * from "./trace";
 export * from "./loop";
 export * from "./memory";
 export * from "./answers";
+export * from "./form";
 export * from "./workflow";
+export * from "./affordance";
+export * from "./coldstart";
+export * from "./keys";
+export * from "./knowledge";

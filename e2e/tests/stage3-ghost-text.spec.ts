@@ -3,7 +3,7 @@
 import type { Page } from "@playwright/test";
 import {
   EXPECTED, NEVER_FILLED, OFFLINE_GHOSTS, SERVER_GHOSTS, TEXT_ROUTE,
-  collectComplaints, expectFormState, expectGhosts, expectNotSubmitted, expectParkedOnSubmit, gotoForm, hostState, openForm, readFormState, walk,
+  collectComplaints, expectFormState, expectGhosts, expectNotSubmitted, expectParkedOnSubmit, finishRequired, gotoForm, hostState, openForm, readFormState, walk,
 } from "../apply";
 import { E2E_SERVER_URL, HOST, expect, readGhostText, readHud, serverCalls, test } from "../fixtures";
 
@@ -122,13 +122,14 @@ test.describe("stage 3: free-text drafts as ghost text", () => {
     await page.waitForTimeout(700); // video only
 
     const { presses, drafts } = await walkReadingDrafts(page);
-    expect(presses).toBe(SERVER_GHOSTS - 1);
+    expect(presses).toBe(SERVER_GHOSTS);
     expect(Object.keys(drafts).sort()).toEqual(ESSAY_FIELDS.map((field) => field.key).sort());
     expect(drafts.whyNorthwind).not.toBe(drafts.project);
 
     // The page's own state holds exactly what the ghost showed: the native-setter path works for a long multi-line value too.
     await expectFormState(page, { ...EXPECTED, ...NEVER_FILLED, ...drafts });
     for (const field of ESSAY_FIELDS) await expect(page.locator(`#${field.id}`)).toHaveValue(drafts[field.key] ?? "");
+    await finishRequired(page); // both essays are drafted, so only the privacy box was still missing
     await expectParkedOnSubmit(page);
     for (let i = 0; i < 3; i++) await page.keyboard.press("Tab");
     await expectParkedOnSubmit(page);
@@ -149,9 +150,10 @@ test.describe("stage 3: free-text drafts as ghost text", () => {
     expect(await readGhostText(page, "why-northwind")).toBeNull();
     await expect(page.locator("#why-northwind")).not.toHaveAttribute("data-ghost-hint", /.*/);
 
-    expect(await walk(page)).toBe(SERVER_GHOSTS - 2);
+    expect(await walk(page)).toBe(SERVER_GHOSTS - 1);
     await expectFormState(page, { ...EXPECTED, ...NEVER_FILLED, whyNorthwind: mine });
     expect(String((await readFormState(page)).project)).toContain(COMPANY);
+    await finishRequired(page);
     await expectParkedOnSubmit(page);
     await expectNotSubmitted(page);
   });
@@ -164,9 +166,10 @@ test.describe("stage 3: free-text drafts as ghost text", () => {
     await expectGhosts(page, SERVER_GHOSTS - 1);
     expect(await readGhostText(page, "why-northwind")).toBeNull();
 
-    expect(await walk(page)).toBe(SERVER_GHOSTS - 2);
+    expect(await walk(page)).toBe(SERVER_GHOSTS - 1);
     await expectFormState(page, { ...EXPECTED, ...NEVER_FILLED, whyNorthwind: "" });
     expect(String((await readFormState(page)).project)).toContain(COMPANY);
+    await finishRequired(page); // the escaped essay is required too: the user writes it themselves
     await expectParkedOnSubmit(page);
     await expectNotSubmitted(page);
   });

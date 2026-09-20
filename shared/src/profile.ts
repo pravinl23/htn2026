@@ -1,3 +1,5 @@
+import { profileToGraph } from "./facts/migrate";
+import type { FactGraph } from "./facts/types";
 import type { Profile } from "./types";
 
 /** Fictional demo profile. Never put real personal data in the repo. */
@@ -56,3 +58,10 @@ export const FACT_DESCRIPTIONS: Record<string, string> = {
   "requiresSponsorship.CA": "requires visa sponsorship in Canada (yes/no)",
   referralSource: "how the applicant heard about the company",
 };
+
+/**
+ * The same demo profile as a fact graph: the résumé keys keep their names and gain a category, a label
+ * and the phrasings a form might use, so the mapper can match them the way it matches any other fact.
+ * The 19 keys are now one corner of an open graph, not the whole of what Ghost knows.
+ */
+export const DEMO_FACT_GRAPH: FactGraph = profileToGraph(DEMO_PROFILE, { kind: "user" }, "2026-01-01T00:00:00.000Z");

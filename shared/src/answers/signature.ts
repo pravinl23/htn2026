@@ -24,7 +24,11 @@ export interface SignatureOptions {
 }
 
 // "(required)", a trailing asterisk and "select one" are chrome, not part of the question.
-const BOILERPLATE = /\((?:\s*(?:required|optional|select one|choose one|check all that apply|if applicable)\s*)\)|\b(?:required|optional)\b|\*/gi;
+const BOILERPLATE = /[([{](?:\s*(?:required|optional|required field|select one|choose one|check all that apply|if applicable)\s*)[)\]}]|\*/gi;
+// A MARKER-shaped "required"/"optional" only, exactly as `../form/required.ts` reads one: the whole label,
+// or after a separator at the end. A bare word in the sentence is part of the question -- "Travel required?"
+// and "Travel optional?" are opposite questions and must never hash alike (docs/answers.md section 4).
+const REQUIRED_MARKER = /[-–—:·|,]\s*(?:required|optional|obligatoire|facultatif)\s*[.!]?\s*$|^\s*(?:required|optional|obligatoire|facultatif)\s*$/i;
 // A trailing "at <Company>": the first word after "at" must be capitalized, so "at our office" survives.
 const TRAILING_COMPANY = /\s+at\s+(?:[A-Z0-9][\w&.'’-]*)(?:\s+(?:[A-Z0-9][\w&.'’-]*|of|the|and|for|&))*\s*[?.!:]*\s*$/;
 // "Viam - How did you hear about us?": a short leading label in front of a question.
@@ -58,6 +62,7 @@ export function normalizeQuestion(raw: string | undefined, opts: SignatureOption
   let text = (raw ?? "").replace(/[‘’‛]/g, "'").replace(/[“”«»]/g, '"');
   if (opts.company) text = stripCompanyName(text, opts.company);
   text = text.replace(BOILERPLATE, " ").replace(/\s+/g, " ").trim();
+  text = text.replace(REQUIRED_MARKER, " ").replace(/\s+/g, " ").trim();
   text = stripLeadingLabel(text);
   text = text.replace(TRAILING_COMPANY, " ");
   text = canonicalizeCountries(text);

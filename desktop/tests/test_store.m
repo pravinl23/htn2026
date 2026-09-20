@@ -232,3 +232,66 @@ GH_TEST(store_example_profile_is_the_demo_profile_plus_the_fictional_resume) {
     GH_ASSERT(store.profile[@"_readme"] == nil);
     GH_ASSERT_FALSE([[store usableFactKeys] containsObject:@"_readme"]);
 }
+
+#pragma mark - answers.json (docs/answers.md)
+
+GH_TEST(store_answers_start_empty_and_are_never_seeded) {
+    GHProfileStore *store = FreshStore();
+    // Nothing learned yet is an ABSENT file, not an empty one: Ghost writes it the first time it learns.
+    GH_ASSERT_FALSE([NSFileManager.defaultManager fileExistsAtPath:store.answersPath]);
+    GH_ASSERT_EQUAL_INT([store.answers[@"answers"] count], 0);
+    GH_ASSERT_EQUAL_OBJECTS([store answersJSON], @"");
+    GH_ASSERT([store.answersPath hasSuffix:@"/answers.json"]);
+}
+
+GH_TEST(store_answers_round_trip_keeps_0600_and_survives_a_reload) {
+    GHProfileStore *store = FreshStore();
+    NSDictionary *answer = @{ @"signature": @"choice:gender#abc", @"textSignature": @"gender", @"label": @"Gender",
+                              @"kind": @"select", @"value": @"Decline To Self Identify", @"count": @1,
+                              @"updatedAt": @"2026-01-01T00:00:00.000Z", @"origins": @[ @"app://x" ], @"class": @"protected" };
+    GH_ASSERT([store saveAnswers:@{ @"max": @500, @"answers": @[ answer ] } error:NULL]);
+    GH_ASSERT_EQUAL_INT(ModeOf(store.answersPath), 0600);
+    GH_ASSERT_EQUAL_INT([store.answers[@"answers"] count], 1);
+    GH_ASSERT([[store answersJSON] containsString:@"choice:gender#abc"]);
+
+    GHProfileStore *reopened = [[GHProfileStore alloc] initWithDirectory:store.directory core:StoreCore()];
+    [reopened prepare];
+    GH_ASSERT_EQUAL_INT([reopened.answers[@"answers"] count], 1);
+    GH_ASSERT_EQUAL_OBJECTS(reopened.answers[@"answers"][0][@"label"], @"Gender");
+
+    GH_ASSERT([store forgetAllAnswers]);
+    GH_ASSERT_EQUAL_INT([store.answers[@"answers"] count], 0);
+    GH_ASSERT_EQUAL_OBJECTS([store answersJSON], @"");
+}
+
+GH_TEST(store_answers_tolerate_a_missing_corrupt_or_half_written_file) {
+    GHProfileStore *store = FreshStore();
+    // A file that is not JSON at all, one that is the wrong shape, and one whose entries are half there:
+    // every one of them reads as "nothing learned yet" rather than stopping Ghost from proposing.
+    NSArray<NSString *> *broken = @[ @"", @"{", @"[]", @"null", @"{\"answers\": \"lots\"}",
+                                     @"{\"answers\": [1, \"two\", {\"signature\": \"\"}, {\"signature\": \"s\"}]}" ];
+    for (NSString *text in broken) {
+        [text writeToFile:store.answersPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        [store reload];
+        GH_ASSERT_MSG([store.answers[@"answers"] count] == 0, @"%@ should read as nothing learned", text);
+        GH_ASSERT_EQUAL_OBJECTS([store answersJSON], @"");
+    }
+    // One good entry beside the rubbish survives; the rubbish does not.
+    NSString *mixed = @"{\"max\": 500, \"answers\": [{\"signature\": \"s\"}, {\"signature\": \"good\", \"textSignature\": \"t\","
+                       "\"label\": \"Q\", \"kind\": \"select\", \"value\": \"v\", \"count\": 1,"
+                       "\"updatedAt\": \"2026-01-01T00:00:00.000Z\", \"origins\": [], \"class\": \"ordinary\"}]}";
+    [mixed writeToFile:store.answersPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    [store reload];
+    GH_ASSERT_EQUAL_INT([store.answers[@"answers"] count], 1);
+    GH_ASSERT_EQUAL_OBJECTS(store.answers[@"answers"][0][@"signature"], @"good");
+}
+
+GH_TEST(store_settings_carry_the_answer_policy_knob) {
+    GHProfileStore *store = FreshStore();
+    GH_ASSERT_EQUAL_OBJECTS(store.settings[@"answerProtectedWithDecline"], @YES);   // on by default
+    GH_ASSERT([store updateSettings:@{ @"answerProtectedWithDecline": @NO } error:NULL]);
+    GH_ASSERT_EQUAL_OBJECTS(store.settings[@"answerProtectedWithDecline"], @NO);
+    // Rubbish in the file behaves exactly like the default (on), never like an accidental "off".
+    [store updateSettings:@{ @"answerProtectedWithDecline": @"maybe" } error:NULL];
+    GH_ASSERT_EQUAL_OBJECTS(store.settings[@"answerProtectedWithDecline"], @YES);
+}

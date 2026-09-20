@@ -8,6 +8,7 @@ import { NEXT_HOST_ID, startNextAction } from "../src/content/nextAction";
 import type { NextActionHandle } from "../src/content/nextAction";
 import { Overlay } from "../src/content/overlay";
 import { ghostOptedOut, pageOwnsTab, tabSurfaceActive } from "../src/content/tabSurface";
+import { TAB_KEYS } from "./keys-port";
 
 const FORM = `
   <form id="form">
@@ -34,6 +35,8 @@ function startController(): GhostController {
     getProfile: () => DEMO_PROFILE,
     getSettings: () => settings,
     isUserEvent: () => true, // jsdom cannot mint trusted events
+    // Tab, pinned: this file is about the walk, not about which key an origin takes (docs/accept-key.md).
+    keys: TAB_KEYS,
   });
   controller.start();
   return controller;

@@ -426,7 +426,24 @@ GH_TEST(capture_output_feeds_the_real_core) {
     GH_ASSERT(byLabel[@"Will you require sponsorship?"] == nil); // already answered on the page
     GH_ASSERT_EQUAL_OBJECTS(byLabel[@"How did you hear about us?"][@"value"], @"Hack the North");
     GH_ASSERT(byLabel[@"I agree to the terms"] == nil);          // consent is the user's to give
-    NSDictionary *last = ghosts.lastObject;
+
+    // "Last name *" is required and still empty, so the Submit ghost is withheld and the walk ends on the last
+    // question instead (docs/incremental.md). The gate says exactly why.
+    GH_ASSERT(byLabel[@"Submit application"] == nil);
+    NSArray<NSDictionary *> *fieldObjects = [GHField JSONObjectsForFields:result.fields];
+    NSDictionary *gate = [core gateForFieldObjects:fieldObjects ghosts:ghosts accepted:@[]];
+    GH_ASSERT_EQUAL_OBJECTS(gate[@"terminalAllowed"], @NO);
+    GH_ASSERT_EQUAL_OBJECTS(gate[@"firstUnmetLabel"], @"Last name");   // the marker is stripped for the HUD
+    GH_ASSERT([gate[@"reason"] containsString:@"required field"]);
+
+    // The user takes the ghost for it: the gate opens and the parked Submit is proposed, last and locked.
+    GHField *lastName = FieldLabelled(result, @"Last name");
+    NSDictionary *opened = [core gateForFieldObjects:fieldObjects ghosts:ghosts accepted:@[ lastName.signature ]];
+    GH_ASSERT_EQUAL_OBJECTS(opened[@"terminalAllowed"], @YES);
+    NSArray<NSDictionary *> *withSubmit = [core ghostsForFields:result.fields assignments:assignments profile:profile
+                                                       settings:[core defaultSettings] source:@"offline"
+                                                        options:@{ @"accepted": @[ lastName.signature ] }];
+    NSDictionary *last = withSubmit.lastObject;
     GH_ASSERT_EQUAL_OBJECTS(last[@"signature"], FieldLabelled(result, @"Submit application").signature);
     GH_ASSERT_EQUAL_OBJECTS(last[@"locked"], @YES);
 }

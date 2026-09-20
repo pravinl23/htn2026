@@ -61,6 +61,7 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
 
 @implementation GHGhostTextLayer {
     CATextLayer *_label;
+    CALayer *_guess;
 }
 
 - (void)applyItem:(GHDrawItem *)item glide:(BOOL)glide reduceMotion:(BOOL)reduceMotion {
@@ -99,7 +100,21 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
         _label.frame = CGRectMake(dx + item.padLeft, y, width, line);
         _label.mask = nil;
     }
+    [self markGuess:item font:font shown:shown];
     [self pulse:item.streaming && !reduceMotion];
+}
+
+/// A guess is always visibly a guess (docs/answers.md section 3): a dotted amber rule under the words, as
+/// wide as the text itself so it reads as "check this", not as a spelling error on the whole field.
+- (void)markGuess:(GHDrawItem *)item font:(NSFont *)font shown:(NSString *)shown {
+    [_guess removeFromSuperlayer];
+    _guess = nil;
+    if (!item.guess || shown.length == 0) return;
+    CGFloat textWidth = MIN(GHTextSize(GHAttributed(shown, font, GHGhostTextColor(), 0)).width, _label.frame.size.width);
+    if (textWidth <= 1) return;
+    _guess = GHMakeGuessUnderline(textWidth, item.scale);
+    _guess.position = CGPointMake(_label.frame.origin.x, MAX(0, _label.frame.origin.y - 2));
+    [self addSublayer:_guess];
 }
 
 /// Text that does not fit a text area fades out toward the bottom instead of being cut mid-line.
@@ -135,6 +150,7 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
 @implementation GHPillLayer {
     CATextLayer *_label;
     CALayer *_keycap;
+    CALayer *_guess;
 }
 
 - (void)applyItem:(GHDrawItem *)item glide:(BOOL)glide reduceMotion:(BOOL)reduceMotion {
@@ -143,7 +159,8 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
     NSFont *font = [NSFont systemFontOfSize:item.fontSize weight:NSFontWeightMedium];
     CGColorRef ink = GHColor(88, 86, 104, item.streaming ? 0.7 : 0.95);
     NSAttributedString *text = GHAttributed(item.text ?: @"", font, ink, 0);  // for measuring only
-    CGFloat tail = item.showsKeycap ? kCapGap + kCap.width + kCapTrail : kPad;
+    CGFloat guessRoom = item.guess ? kCapGap + GHGuessChipSize.width : 0;
+    CGFloat tail = (item.showsKeycap ? kCapGap + kCap.width + kCapTrail : kPad) + guessRoom;
     CGFloat labelWidth = MIN(GHTextSize(text).width + 1, MAX(0, item.frame.size.width - kPad - tail));
     CGRect frame = GHAnchoredFrame(item.frame, CGSizeMake(kPad + labelWidth + tail, kHeight), item.anchor, item.scale);
     GHSetLayerFrame(self, frame, NO);
@@ -170,11 +187,20 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
     CGFloat line = GHLineHeight(font);
     _label.frame = CGRectMake(kPad, GHSnap((kHeight - line) / 2, item.scale), labelWidth, line);
 
+    [_guess removeFromSuperlayer];
+    _guess = nil;
+    CGFloat after = kPad + labelWidth;
+    if (item.guess) {
+        _guess = GHMakeGuessChip(item.scale);
+        _guess.position = CGPointMake(after + kCapGap, (kHeight - GHGuessChipSize.height) / 2);
+        [self addSublayer:_guess];
+        after += kCapGap + GHGuessChipSize.width;
+    }
     [_keycap removeFromSuperlayer];
     _keycap = nil;
     if (item.showsKeycap) {
         _keycap = GHMakeKeycap(@"Tab", kCap, item.scale);
-        _keycap.position = CGPointMake(kPad + labelWidth + kCapGap, (kHeight - kCap.height) / 2);
+        _keycap.position = CGPointMake(after + kCapGap, (kHeight - kCap.height) / 2);
         [self addSublayer:_keycap];
     }
 }

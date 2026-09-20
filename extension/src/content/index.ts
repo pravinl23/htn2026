@@ -1,12 +1,14 @@
 // Content script entry: capture -> predict -> controller -> overlay + execute.
+import { LearnedAnswerStore } from "@ghost/shared";
 import type { FormPredictRequest, GhostSettings, Profile } from "@ghost/shared";
 import { ghostEvents } from "../lib/events";
 import { readCachedForm, saveCachedForm } from "../lib/formCache";
 import { isGhostMessage, isServerResult, parseFormPrediction } from "../lib/messages";
 import type { FormPrediction, GhostMessage, ServerResult } from "../lib/messages";
-import { getMetrics, getProfile, getSettings, onStorageChanged } from "../lib/storage";
+import { getLearnedAnswers, getMetrics, getProfile, getSettings, onStorageChanged } from "../lib/storage";
 import { GhostController } from "./controller";
 import { DraftScheduler, openTextPort } from "./freeText";
+import { createKeyPort } from "./keysPort";
 import { Learner } from "./learning";
 import { LearnToast } from "./learnToast";
 import { startLoopContent } from "./loopContent";
@@ -25,6 +27,8 @@ const LOADED_FLAG = "__ghostContentLoaded";
 interface Session {
   profile: Profile;
   settings: GhostSettings;
+  /** Answers the user gave before (docs/answers.md). Local only: it is never sent anywhere. */
+  answers: LearnedAnswerStore;
   overlay: Overlay;
   controller: GhostController;
   running: boolean;
@@ -102,6 +106,7 @@ function startSubscribers(session: Session, ledger: ServedLedger): () => void {
     getSettings: () => session.settings,
     getProfile: () => session.profile,
     served: ledger.get,
+    company: () => session.controller.company(),
     toast: (request) => toast.show(request),
   });
   const reporter = new MetricsReporter({
@@ -121,12 +126,16 @@ function startSubscribers(session: Session, ledger: ServedLedger): () => void {
 }
 
 async function boot(): Promise<void> {
-  const [profile, settings] = await Promise.all([getProfile(), getSettings()]);
+  // Which key accepts here (docs/accept-key.md). Loaded before the first ghost so an origin already watched
+  // keeps its verdict across page loads instead of being probed again from scratch.
+  const keys = createKeyPort();
+  const [profile, settings, answers] = await Promise.all([getProfile(), getSettings(), getLearnedAnswers(), keys.load()]);
   const overlay = new Overlay();
   const ledger = createServedLedger();
   const session: Session = {
     profile,
     settings,
+    answers,
     overlay,
     running: false,
     controller: new GhostController({
@@ -134,14 +143,18 @@ async function boot(): Promise<void> {
       getProfile: () => session.profile,
       // One HUD per tab: frames keep their ghosts but leave the status chip to the top document.
       getSettings: () => (isTopFrame() ? session.settings : { ...session.settings, showHud: false }),
+      getAnswers: () => session.answers,
       predictForm: observePredictions(createFormPredictor({ readCache: readCachedForm, saveCache: saveCachedForm, askServer: askWorker }), ledger),
       // Essay drafts stream through the worker too, one `ghost:text` port per field, at most three at a time.
       drafts: new DraftScheduler({ open: openTextPort }),
+      keys,
     }),
   };
   onStorageChanged((changes) => {
     if (changes.profile) session.profile = changes.profile;
     if (changes.settings) session.settings = changes.settings;
+    if (changes.answers) session.answers = changes.answers;
+    if (changes.keys) keys.adopt(changes.keys);
     apply(session);
   });
   listenForToggle(session);
@@ -152,7 +165,20 @@ async function boot(): Promise<void> {
   });
   apply(session);
   startLoopContent({ overlay, isEnabled: () => session.running, pauseGhosts: (paused) => (paused ? session.controller.stop() : void (session.running && session.controller.start())) }); // loop sheet + executor (docs/loops.md 3.4, 3.5)
-  startNextAction({ formGhosts: () => session.controller.state.ghosts.length, isEnabled: () => session.running, getSettings: () => session.settings }); // click ghosts beyond forms (docs/loops.md 2)
+  startNextAction({ formGhosts: walkOwnsTab, isEnabled: () => session.running, getSettings: () => session.settings }); // click ghosts beyond forms (docs/loops.md 2)
+
+  /**
+   * What the next-action layer means by "the form walk has ghosts": ghosts that OWN Tab, so it stays quiet
+   * rather than fighting the walk for the key. Only a field ghost can own Tab now (docs/accept-key.md section
+   * 1: Tab accepts a value for the focused field, the Ghost key accepts everything else), and since
+   * docs/always-propose.md a page the walk found nothing to fill on still gets one click ghost - the last
+   * resort that only moves to the first control. Counting that one would leave the next-action layer silent on
+   * every page in the browser, which is the opposite of what both documents ask for: the remembered click is
+   * the better proposal there, and it does not need Tab to be offered.
+   */
+  function walkOwnsTab(): number {
+    return session.controller.state.ghosts.filter((ghost) => ghost.action !== "click").length;
+  }
 }
 
 /** The extension was reloaded or updated under us: hand the page back and let a fresh injection claim it. */

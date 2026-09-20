@@ -1,11 +1,14 @@
 // Opt-in learning (settings.learningEnabled, off by default). What the user types into a field Ghost
 // recognizes becomes a profile fact; what they write (or accept) in an essay field becomes a past answer.
 // Every rule here errs toward learning nothing: a wrong fact turns into wrong ghosts on every later form.
-import { FACT_DESCRIPTIONS, isSensitive, mapFormHeuristically, NEEDS_TEXT, NONE } from "@ghost/shared";
-import type { CapturedField, FieldAssignment, FieldKind, GhostSettings, PastAnswer, Profile } from "@ghost/shared";
+import { answerCounterName, FACT_DESCRIPTIONS, isSensitive, mapFormHeuristically, NEEDS_TEXT, NONE, questionSignature, staysOnThisMachine } from "@ghost/shared";
+import type {
+  CapturedField, FieldAssignment, FieldKind, Ghost, GhostSettings, LearnedAnswer, LearnedAnswerStore, LearnResult,
+  PastAnswer, Profile,
+} from "@ghost/shared";
 import type { GhostEmitter } from "../lib/events";
 import type { ServedAssignment } from "../lib/messages";
-import { updateProfile } from "../lib/storage";
+import { addAnswerCounters, getProfile, updateLearnedAnswers, updateProfile } from "../lib/storage";
 import { captureFields, isElementSensitive } from "./capture";
 import type { ToastRequest } from "./learnToast";
 
@@ -20,6 +23,11 @@ const FACT_KEY = /^[A-Za-z][\w.-]{0,63}$/;
 /** Facts come from what is TYPED. A select's or radio's value is the site's own code, not the user's words. */
 const TYPED_KINDS: ReadonlySet<FieldKind> = new Set<FieldKind>(["text", "email", "tel", "url", "number", "date", "month"]);
 const PROSE_KINDS: ReadonlySet<FieldKind> = new Set<FieldKind>(["text", "textarea"]);
+/** Every field that can carry an answer the user gave (docs/answers.md section 4). Buttons and files cannot. */
+const ANSWERABLE_KINDS: ReadonlySet<FieldKind> = new Set<FieldKind>([
+  "text", "email", "tel", "url", "number", "date", "month", "textarea", "select", "radio", "checkbox",
+]);
+export const ANSWER_TOAST = "Ghost will remember this answer";
 
 export type LearnDecision =
   | { kind: "fact"; key: string; value: string }
@@ -85,6 +93,13 @@ export function factValueFor(key: string, raw: string): string | null {
   return ISO_DATE.test(value) ? value : null;
 }
 
+/** The profile already answers this question with the same thing, so the user typing it is not a correction. */
+function knownFact(profile: Profile, factKey: string, value: string): boolean {
+  if (factKey === NONE || factKey === NEEDS_TEXT) return false;
+  const known = profile.facts[factKey]?.trim() ?? "";
+  return known !== "" && sameValue(known, value);
+}
+
 function fieldLooksSensitive(field: CapturedField): boolean {
   const { label, name, id, placeholder, autocomplete, inputType, context } = field;
   return isSensitive({ label, name, id, placeholder, autocomplete, inputType }) || isSensitive({ label: context });
@@ -119,6 +134,10 @@ function decideAnswer(field: CapturedField, raw: string): LearnDecision | null {
   const question = field.label.trim().slice(0, MAX_QUESTION_CHARS);
   const answer = raw.trim().slice(0, MAX_ANSWER_CHARS);
   if (!PROSE_KINDS.has(field.kind) || !question || answer.length < MIN_ANSWER_CHARS) return null;
+  // `profile.pastAnswers` is the one learned thing that LEAVES the machine: it rides in the /v1/ghost-text
+  // body to help the next draft. A protected or declaration answer must never end up there (docs/answers.md
+  // section 7), so it is not kept as a past answer at all. The learned-answer store still keeps it, locally.
+  if (staysOnThisMachine(field)) return null;
   return { kind: "answer", question, answer };
 }
 
@@ -145,6 +164,14 @@ export interface LearnerDeps {
   capture?: () => CapturedField[];
   isSensitiveElement?: (el: Element) => boolean;
   update?: typeof updateProfile;
+  /** Read-modify-write of the learned answers (`ghost.answers`). Local only: nothing here leaves the machine. */
+  updateAnswers?: typeof updateLearnedAnswers;
+  /** The profile as storage holds it right now (another tab may have edited it). Defaults to `getProfile`. */
+  latestProfile?: () => Promise<Profile>;
+  /** Value-free answer counters (docs/answers.md section 6). */
+  counters?: (deltas: Record<string, number>) => void;
+  /** The company this page is for, so a question keeps the same signature on the next site. */
+  company?: () => string | undefined;
   origin?: () => string;
   now?: () => Date;
   debounceMs?: number;
@@ -160,6 +187,8 @@ interface Pending {
 
 export class Learner {
   private readonly pending = new Map<string, Pending>();
+  /** The ghost that was on a field when the user answered it: `answer.corrected` says whether it was a guess. */
+  private readonly lastGhost = new Map<string, Ghost>();
   private unsubscribe: Array<() => void> = [];
 
   constructor(private readonly deps: LearnerDeps) {}
@@ -173,10 +202,29 @@ export class Learner {
       events.on("user:input", ({ field, value, el }) => this.consider(field, value, el)),
       // An accepted draft is an answer the user chose; if they edit it afterwards, that edit replaces it.
       events.on("ghost:accepted", ({ ghost, field }) => {
+        this.countProposal(ghost, true);
         if (ghost.source === "llm" && ghost.action === "fill") this.consider(field, ghost.value ?? "", null);
+      }),
+      // Escaped or typed over: the proposal was shown and not taken. Numbers only, never a label or a value.
+      events.on("ghost:dismissed", ({ ghost }) => {
+        this.lastGhost.set(ghost.signature, ghost);
+        if (ghost.source !== "llm") this.countProposal(ghost, false);
       }),
       () => win.removeEventListener("pagehide", this.onPageHide),
     ];
+  }
+
+  // ---------- section 6: value-free counters ----------
+
+  private countProposal(ghost: Ghost, accepted: boolean): void {
+    const cls = ghost.answerClass;
+    const source = ghost.answerSource;
+    if (!cls || !source) return; // not an answer-engine ghost: the ordinary metrics already count it
+    this.count(answerCounterName({ event: "answer.proposed", class: cls, source, accepted, confidenceBucket: 0 }));
+  }
+
+  private count(name: string): void {
+    (this.deps.counters ?? ((deltas) => void addAnswerCounters(deltas).catch(() => undefined)))({ [name]: 1 });
   }
 
   stop(): void {
@@ -196,7 +244,7 @@ export class Learner {
 
   /** Debounced per field: an edit, a blur, a return to fix a typo and another blur is ONE lesson. */
   private consider(field: CapturedField, value: string, el: HTMLElement | null): void {
-    if (!this.deps.getSettings().learningEnabled || !(TYPED_KINDS.has(field.kind) || PROSE_KINDS.has(field.kind))) return;
+    if (!this.deps.getSettings().learningEnabled || !ANSWERABLE_KINDS.has(field.kind)) return;
     const waiting = this.pending.get(field.signature);
     if (waiting) clearTimeout(waiting.timer);
     const entry: Pending = { field, value, el, timer: setTimeout(() => this.fire(field.signature), this.deps.debounceMs ?? LEARN_DEBOUNCE_MS) };
@@ -212,12 +260,62 @@ export class Learner {
   private async commit({ field, value, el }: Pending): Promise<void> {
     if (!this.deps.getSettings().learningEnabled) return;
     if (el?.isConnected && (this.deps.isSensitiveElement ?? isElementSensitive)(el)) return;
+    // The profile is the better home for a value Ghost recognizes; its toast wins when both fire.
     const mapping = this.mappingFor(field);
+    const toasted = await this.learnProfile(field, value, mapping);
+    await this.rememberAnswer(field, value, mapping, !toasted);
+  }
+
+  /** The Stage 4 path: a typed value in a recognized field becomes a fact, an essay becomes a past answer. */
+  private async learnProfile(field: CapturedField, value: string, mapping: FieldAssignment | null): Promise<boolean> {
+    if (!TYPED_KINDS.has(field.kind) && !PROSE_KINDS.has(field.kind)) return false;
     const decide = (profile: Profile): LearnDecision | null => decideLearning({ field, value, mapping, profile, enabled: true });
     const first = decide(this.deps.getProfile());
-    if (!first) return;
-    if (first.kind === "fact") await this.learnFact(decide);
-    else await this.learnAnswer(first);
+    if (!first) return false;
+    return first.kind === "fact" ? this.learnFact(decide) : this.learnAnswer(first);
+  }
+
+  /**
+   * docs/answers.md section 4: what the user actually answered, keyed by a site-independent question
+   * signature. It beats a guess and a profile fact for that question everywhere afterwards, and it never
+   * leaves this machine. The store itself refuses an empty value, a sensitive field and anything secret.
+   */
+  private async rememberAnswer(field: CapturedField, value: string, mapping: FieldAssignment | null, withToast: boolean): Promise<void> {
+    // Against what storage holds NOW, not the page's copy: the profile may have been edited in another tab.
+    if (mapping && knownFact(await (this.deps.latestProfile ?? getProfile)(), mapping.factKey, value)) return;
+    const update = this.deps.updateAnswers ?? updateLearnedAnswers;
+    const company = this.deps.company?.();
+    const input = {
+      field,
+      value,
+      ...(optionLabelFor(field, value) ? { optionLabel: optionLabelFor(field, value) as string } : {}),
+      origin: (this.deps.origin ?? (() => location.origin))(),
+      now: (this.deps.now ?? (() => new Date()))().getTime(),
+      ...(company ? { company } : {}),
+    };
+    const signature = questionSignature(field, company ? { company } : {});
+    let learned: LearnedAnswer | null = null;
+    let previous: LearnedAnswer | null = null;
+    let changed = "refused" as LearnResult["changed"];
+    await update((store) => {
+      previous = store.getBySignature(signature);
+      const result = store.add(input);
+      learned = result.answer;
+      changed = result.changed;
+      return result.answer !== null;
+    });
+    const saved = learned as LearnedAnswer | null;
+    if (!saved) return;
+    const was = previous as LearnedAnswer | null;
+    const ghost = this.lastGhost.get(field.signature);
+    this.lastGhost.delete(field.signature);
+    this.count(answerCounterName({
+      event: "answer.corrected", class: saved.class, hadGhost: ghost !== undefined, wasGuess: ghost?.guess === true,
+    }));
+    // Saying it again is the same answer, not a new lesson: the count goes up, the chip stays away.
+    if (withToast && (changed as LearnResult["changed"]) !== "repeated") {
+      this.deps.toast?.({ text: ANSWER_TOAST, onUndo: () => void update((store) => undoLearnedAnswer(store, saved, was)) });
+    }
   }
 
   /** The heuristic sees the whole form (a lone email box is a login, not a fact), over every key it knows. */
@@ -229,7 +327,8 @@ export class Learner {
     return pickMapping(offline, this.deps.served?.(field.signature));
   }
 
-  private async learnFact(decide: (profile: Profile) => LearnDecision | null): Promise<void> {
+  /** True when a toast was shown for it. */
+  private async learnFact(decide: (profile: Profile) => LearnDecision | null): Promise<boolean> {
     const update = this.deps.update ?? updateProfile;
     let learned: { key: string; value: string; previous: string | undefined } | null = null;
     await update((profile) => {
@@ -239,10 +338,12 @@ export class Learner {
       return { ...profile, facts: { ...profile.facts, [decision.key]: decision.value } };
     });
     const done = learned as { key: string; value: string; previous: string | undefined } | null;
-    if (done) this.deps.toast?.({ text: `Ghost learned: ${done.key}`, onUndo: () => void update((p) => undoFact(p, done)) });
+    if (!done) return false;
+    this.deps.toast?.({ text: `Ghost learned: ${done.key}`, onUndo: () => void update((p) => undoFact(p, done)) });
+    return true;
   }
 
-  private async learnAnswer(decision: Extract<LearnDecision, { kind: "answer" }>): Promise<void> {
+  private async learnAnswer(decision: Extract<LearnDecision, { kind: "answer" }>): Promise<boolean> {
     const update = this.deps.update ?? updateProfile;
     const entry: PastAnswer = {
       question: decision.question,
@@ -256,10 +357,43 @@ export class Learner {
       if (replaced?.answer === entry.answer) return null; // nothing new: no write, no toast
       return { ...profile, pastAnswers: mergePastAnswer(profile.pastAnswers, entry) };
     });
-    if (saved) this.deps.toast?.({ text: "Ghost saved this answer", onUndo: () => void update((p) => undoAnswer(p, entry, replaced)) });
+    if (!saved) return false;
+    this.deps.toast?.({ text: "Ghost saved this answer", onUndo: () => void update((p) => undoAnswer(p, entry, replaced)) });
+    return true;
   }
 
   private readonly onPageHide = (): void => void this.flush().catch(() => undefined);
+}
+
+/**
+ * The visible option text behind a chosen value, so the same answer can be matched on a site that spells
+ * its options differently. A checkbox has no options: "true"/"false" is the whole answer.
+ */
+export function optionLabelFor(field: CapturedField, value: string): string | undefined {
+  const options = field.options;
+  if (!options || options.length === 0) return undefined;
+  const hit = options.find((o) => o.value === value) ?? options.find((o) => o.label === value);
+  return hit?.label;
+}
+
+/**
+ * Undo of a remembered answer: only while the store still holds exactly what was just written, so a
+ * correction made since (another tab, the options page) is never rolled back. The answer it replaced comes
+ * back as a fresh entry; its count starts again, which is the honest thing to say about an undone lesson.
+ */
+export function undoLearnedAnswer(store: LearnedAnswerStore, learned: LearnedAnswer, previous: LearnedAnswer | null): boolean {
+  const now = store.getBySignature(learned.signature);
+  if (!now || now.value !== learned.value || now.updatedAt !== learned.updatedAt) return false;
+  store.forget(learned.signature);
+  if (!previous) return true;
+  store.add({
+    field: { label: previous.label, kind: previous.kind },
+    value: previous.value,
+    ...(previous.optionLabel ? { optionLabel: previous.optionLabel } : {}),
+    ...(previous.origins[0] ? { origin: previous.origins[0] } : {}),
+    class: previous.class,
+  });
+  return true;
 }
 
 /** Only while the fact still holds what was learned: an edit made since (options page, another tab) stays. */

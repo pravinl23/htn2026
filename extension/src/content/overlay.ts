@@ -1,3 +1,4 @@
+import { TAB_HINT } from "@ghost/shared";
 import type { Ghost } from "@ghost/shared";
 import { jumpLabel } from "./jump";
 import type { JumpHint } from "./jump";
@@ -19,6 +20,17 @@ export interface OverlayState {
   accepted?: number;
   /** Mirrored to `data-ghost-error` and shown in the HUD. Undefined leaves it alone, null or "" clears it. */
   error?: string | null;
+  /**
+   * The walk gate (docs/incremental.md): whether a terminal action had to be withheld, how many required
+   * fields are still empty, and the sentence the HUD shows. Mirrored to `data-ghost-gate`/`data-ghost-unmet`.
+   */
+  gate?: { blocked: boolean; unmet: number; reason?: string };
+  /**
+   * Which key accepts the current ghost (docs/accept-key.md). `hint` is what every keycap shows and what the
+   * HUD names for this site; `probing` means Tab has not been watched here yet, so it is still the page's.
+   * Mirrored to `data-ghost-key` / `data-ghost-key-hint`.
+   */
+  key?: { key: "tab" | "ghost-key"; hint: string; reason: string; probing: boolean };
 }
 
 type GhostEntry = OverlayState["ghosts"][number];
@@ -28,6 +40,10 @@ type Mode = "text" | "multiline" | "pill";
 interface GhostNode {
   root: HTMLDivElement;
   label: HTMLSpanElement;
+  /** The key that accepts this ghost, named on its own cap: "Tab", "⌥ tap", "Enter" for a locked action. */
+  keycap: HTMLSpanElement;
+  /** "guess" / "check this": shown only for an answer the engine inferred (docs/answers.md section 3). */
+  chip: HTMLSpanElement;
   el: HTMLElement;
   value: string | undefined;
   /** Element the ghost visually lands on (the matching radio of a group, otherwise `el`). */
@@ -70,8 +86,11 @@ interface Parts {
   hud: HTMLDivElement;
   hudMain: HTMLDivElement;
   hudError: HTMLDivElement;
+  hudGate: HTMLDivElement;
+  /** The reason behind the current long-shot: why this is the best Ghost has here. */
+  hudWhy: HTMLDivElement;
   hudText: HTMLDivElement;
-  hudValues: Record<"provider" | "latency" | "cache" | "saved" | "textProvider" | "firstToken" | "textTotal", HTMLSpanElement>;
+  hudValues: Record<"provider" | "latency" | "cache" | "saved" | "key" | "textProvider" | "firstToken" | "textTotal", HTMLSpanElement>;
   hudCache: HTMLSpanElement;
   jump: HTMLDivElement;
   jumpCount: HTMLSpanElement;
@@ -94,6 +113,8 @@ export class Overlay {
   private currentSig = "";
   private glideUntil = 0;
   private hudKey = "";
+  /** The accept key currently drawn on every cap. Caps are only rewritten when it really changes. */
+  private capText = "";
   private savedTitle = "";
   private ringCss = "";
   private readonly clipCache = new WeakMap<HTMLElement, HTMLElement[]>();
@@ -130,12 +151,24 @@ export class Overlay {
     this.syncNodes(parts, live);
     // All layout reads happen before any write so a render costs at most one reflow.
     const viewport = viewportOf(this.doc);
+    this.paintKeycaps(state);
     const measured = live.map((entry) => this.measure(entry, viewport));
     for (const m of measured) paintNode(m, viewport);
     this.paintCurrent(parts, measured.find((m) => m.entry.status === "current") ?? null, viewport);
     this.paintHud(parts, state);
     paintJump(parts, state.jump ?? null);
     paintHostAttrs(parts.host, state);
+  }
+
+  /**
+   * Every ghost's cap names the key that takes it. A ghost the user cannot accept because the cap lies about
+   * the key is worse than no ghost at all (docs/always-propose.md), so this runs before anything is measured.
+   */
+  private paintKeycaps(state: OverlayState): void {
+    const text = state.key?.hint ?? TAB_HINT;
+    if (text === this.capText) return;
+    this.capText = text;
+    for (const node of this.nodes.values()) node.keycap.textContent = text;
   }
 
   destroy(): void {
@@ -146,6 +179,7 @@ export class Overlay {
     this.parts = null;
     this.currentSig = "";
     this.hudKey = "";
+    this.capText = "";
     this.ringCss = "";
   }
 
@@ -170,7 +204,7 @@ export class Overlay {
       seen.add(ghost.signature);
       let node = this.nodes.get(ghost.signature);
       if (!node) {
-        node = createNode(this.doc, ghost, el);
+        node = createNode(this.doc, ghost, el, this.capText || TAB_HINT);
         this.nodes.set(ghost.signature, node);
         parts.texts.appendChild(node.root);
       } else if (node.el !== el || (node.value !== ghost.value && isRadio(el))) {
@@ -249,7 +283,13 @@ export class Overlay {
 
   private paintHud(parts: Parts, state: OverlayState): void {
     const error = state.error === undefined ? (parts.host.getAttribute("data-ghost-error") ?? "") : (state.error ?? "");
-    const key = JSON.stringify([state.hud ?? null, error]);
+    // The gate line belongs to the HUD: with the HUD switched off nothing about it is drawn.
+    const gate = state.hud && state.gate?.reason ? state.gate.reason : "";
+    // A long shot says why it is the best Ghost has here (docs/always-propose.md). A confident ghost and an
+    // ordinary guess speak for themselves: the chip is enough.
+    const current = state.ghosts.find((entry) => entry.status === "current")?.ghost;
+    const why = state.hud && current?.tier === "long-shot" && current.reason ? current.reason : "";
+    const key = JSON.stringify([state.hud ?? null, error, gate, why, state.key ?? null]);
     if (key === this.hudKey) return;
     this.hudKey = key;
     const { hud } = state;
@@ -257,12 +297,20 @@ export class Overlay {
     parts.hudText.hidden = !hud?.text;
     parts.hudError.hidden = error === "";
     parts.hudError.textContent = error;
+    parts.hudGate.hidden = gate === "";
+    parts.hudGate.textContent = gate;
+    parts.hudWhy.hidden = why === "";
+    parts.hudWhy.textContent = why;
     setAttr(parts.hud, "data-visible", hud || error ? "true" : "false");
     if (!hud) return;
     parts.hudValues.provider.textContent = hud.provider;
     parts.hudValues.latency.textContent = millis(hud.latencyMs);
     parts.hudValues.cache.textContent = hud.cache;
     parts.hudValues.saved.textContent = `${hud.keystrokesSaved} keys`;
+    // Which key this site takes, and why. Named in the HUD so the user is never guessing (doc section 4).
+    parts.hudValues.key.textContent = state.key?.hint ?? TAB_HINT;
+    const keyItem = parts.hudValues.key.parentElement;
+    if (keyItem) setAttr(keyItem, "title", state.key ? state.key.reason : null);
     setAttr(parts.hudCache, "data-cache", hud.cache);
     if (!hud.text) return;
     parts.hudValues.textProvider.textContent = hud.text.provider;
@@ -280,6 +328,18 @@ function paintHostAttrs(host: HTMLElement, state: OverlayState): void {
   if (state.accepted !== undefined) setAttr(host, "data-ghost-accepted", String(state.accepted));
   if (state.error !== undefined) setAttr(host, "data-ghost-error", state.error || null);
   setAttr(host, "data-ghost-jump", state.jump ? "true" : "false");
+  setAttr(host, "data-ghost-guess", current?.guess === true ? "true" : "false");
+  // How the current proposal is drawn, never whether it exists (docs/always-propose.md). e2e reads it here.
+  setAttr(host, "data-ghost-tier", current ? (current.tier ?? "confident") : "");
+  if (state.key !== undefined) {
+    setAttr(host, "data-ghost-key", state.key.key);
+    setAttr(host, "data-ghost-key-hint", state.key.hint);
+    setAttr(host, "data-ghost-key-probing", String(state.key.probing));
+  }
+  if (state.gate !== undefined) {
+    setAttr(host, "data-ghost-gate", state.gate.blocked ? "blocked" : "allowed");
+    setAttr(host, "data-ghost-unmet", String(state.gate.unmet));
+  }
 }
 
 function paintJump(parts: Parts, hint: JumpHint | null): void {
@@ -309,6 +369,11 @@ function paintNode(m: Measured, viewport: Box): void {
   setAttr(node.root, "data-status", entry.status);
   setAttr(node.root, "data-streaming", entry.ghost.pending ? "true" : null);
   setAttr(node.root, "data-waiting", entry.waiting ? "true" : null);
+  setAttr(node.root, "data-guess", entry.ghost.guess === true ? "true" : null);
+  setAttr(node.root, "data-tier", entry.ghost.tier ?? null);
+  setAttr(node.root, "data-answer-class", entry.ghost.answerClass ?? null);
+  const chip = chipText(entry.ghost);
+  if (node.chip.textContent !== chip) node.chip.textContent = chip;
   if (node.mode === "multiline" && node.remeasure && !hidden) measureOverflow(node);
 }
 
@@ -387,16 +452,29 @@ function lockTransform(tip: { x: number; y: number }, viewport: Box): string {
   return translate(x, below ? tip.y + 22 : tip.y - 40);
 }
 
-function createNode(doc: Document, ghost: Ghost, el: HTMLElement): GhostNode {
+function createNode(doc: Document, ghost: Ghost, el: HTMLElement, capText: string): GhostNode {
   const root = make(doc, "div", "ghost");
   const label = make(doc, "span", "label");
-  root.append(label, make(doc, "span", "keycap", "Tab"));
+  const chip = make(doc, "span", "chip");
+  const keycap = make(doc, "span", "keycap", capText);
+  root.append(label, chip, keycap);
   const node: GhostNode = {
-    root, label, el, value: ghost.value, target: el, ringEls: [el], groupEls: [el], clipEls: [],
+    root, label, chip, keycap, el, value: ghost.value, target: el, ringEls: [el], groupEls: [el], clipEls: [],
     mode: "text", sizeKey: "", fieldCss: "", radius: 0, css: "", hinted: null, remeasure: true,
   };
   retarget(node, ghost, el);
   return node;
+}
+
+/**
+ * What the chip says. A guessed declaration asks to be read before it is taken, and so does an answer Ghost
+ * did NOT guess -- a fact, or something the user said before -- that simply came in under the threshold: it
+ * wants a look, but calling it a guess would be a lie. Everything else that is not confident is a guess.
+ */
+function chipText(ghost: Ghost): string {
+  if (ghost.guess !== true) return "";
+  if (ghost.answerClass === "declaration") return "check this";
+  return ghost.answerSource === "fact" || ghost.answerSource === "learned" ? "check this" : "guess";
 }
 
 function retarget(node: GhostNode, ghost: Ghost, el: HTMLElement): void {
@@ -586,10 +664,12 @@ function buildJump(doc: Document): Pick<Parts, "jump" | "jumpCount"> {
   return { jump, jumpCount };
 }
 
-function buildHud(doc: Document): Pick<Parts, "hud" | "hudMain" | "hudError" | "hudText" | "hudValues" | "hudCache"> {
+function buildHud(doc: Document): Pick<Parts, "hud" | "hudMain" | "hudError" | "hudGate" | "hudWhy" | "hudText" | "hudValues" | "hudCache"> {
   const hud = make(doc, "div", "hud");
   const hudMain = make(doc, "div", "hud-main");
   const hudError = make(doc, "div", "hud-error");
+  const hudGate = make(doc, "div", "hud-gate");
+  const hudWhy = make(doc, "div", "hud-why");
   const hudText = make(doc, "div", "hud-text");
   const brand = make(doc, "span", "brand");
   brand.append(make(doc, "span", "dot"), "Ghost");
@@ -603,14 +683,18 @@ function buildHud(doc: Document): Pick<Parts, "hud" | "hudMain" | "hudError" | "
   const [latencyWrap, latency] = item("last", "latency");
   const [hudCache, cache] = item("cache", "cache");
   const [savedWrap, saved] = item("saved", "saved");
+  const [keyWrap, key] = item("key", "key");
   const [textProviderWrap, textProvider] = item("draft via", "text-provider");
   const [firstTokenWrap, firstToken] = item("first token", "first-token");
   const [textTotalWrap, textTotal] = item("total", "text-total");
-  hudMain.append(brand, providerWrap, latencyWrap, hudCache, savedWrap);
+  hudMain.append(brand, providerWrap, latencyWrap, hudCache, savedWrap, keyWrap);
   hudText.append(textProviderWrap, firstTokenWrap, textTotalWrap);
-  hudMain.hidden = hudError.hidden = hudText.hidden = true;
-  hud.append(hudError, hudText, hudMain);
-  return { hud, hudMain, hudError, hudText, hudValues: { provider, latency, cache, saved, textProvider, firstToken, textTotal }, hudCache };
+  hudMain.hidden = hudError.hidden = hudGate.hidden = hudWhy.hidden = hudText.hidden = true;
+  hud.append(hudError, hudGate, hudWhy, hudText, hudMain);
+  return {
+    hud, hudMain, hudError, hudGate, hudWhy, hudText, hudCache,
+    hudValues: { provider, latency, cache, saved, key, textProvider, firstToken, textTotal },
+  };
 }
 
 function make<K extends keyof HTMLElementTagNameMap>(doc: Document, tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {

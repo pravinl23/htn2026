@@ -7,6 +7,7 @@ import { computeSignature } from "../src/content/capture";
 import { GhostController } from "../src/content/controller";
 import type { ControllerDeps } from "../src/content/controller";
 import { Overlay } from "../src/content/overlay";
+import { TAB_KEYS } from "./keys-port";
 import type { FormAnswer } from "../src/content/predict";
 import { createEmitter } from "../src/lib/events";
 import type { GhostEmitter, GhostEventMap, GhostEventType } from "../src/lib/events";
@@ -41,6 +42,8 @@ function start(extra: Partial<ControllerDeps> = {}): GhostController {
     getProfile: () => profile,
     getSettings: () => settings,
     isUserEvent: () => true, // jsdom cannot mint trusted events
+    // Tab, pinned: this file is about the walk, not about which key an origin takes (docs/accept-key.md).
+    keys: TAB_KEYS,
     ...extra,
   });
   controller.start();
@@ -233,20 +236,28 @@ describe("prediction pipeline", () => {
     expect(again.state.error).toBeNull();
   });
 
-  it("re-gates live when the confidence threshold changes, without asking again", async () => {
+  it("re-tiers live when the confidence threshold changes, without asking again or losing a ghost", async () => {
     const { predictForm, resolve } = deferredPredictor();
     const c = start({ predictForm });
     await resolve(answer([jev("#work", "github", 0.75)]));
     expect(values(c)).toContain("https://github.com/alexchen-dev");
+    const tierOf = (value: string): string | undefined => c.state.ghosts.find((g) => g.value === value)?.tier;
+
     settings = { ...settings, confidenceThreshold: 0.8 };
     c.rescan(); // what the content script does on a storage change
-    expect(values(c)).toEqual(["Alex", "Chen", undefined]);
+    // The github answer is now under the bar. It is dimmed, not dropped (docs/always-propose.md).
+    expect(values(c)).toContain("https://github.com/alexchen-dev");
+    expect(tierOf("https://github.com/alexchen-dev")).toBe("long-shot");
+    expect(tierOf("Alex")).toBe("confident");
+
     settings = { ...settings, confidenceThreshold: 0.99 };
     c.rescan();
-    expect(values(c)).toEqual([]);
+    expect(values(c)).toContain("Alex");
+    expect(tierOf("Alex")).toBe("long-shot");
+
     settings = { ...settings, confidenceThreshold: 0.7 };
     c.rescan();
-    expect(values(c)).toContain("https://github.com/alexchen-dev");
+    expect(tierOf("https://github.com/alexchen-dev")).toBe("guess");
     expect(predictForm).toHaveBeenCalledTimes(1);
   });
 

@@ -52,6 +52,7 @@ describe("ghost.metrics accumulation", () => {
     expect(stored).toEqual({
       ghostsShown: 17, ghostsAccepted: 11, keystrokesSaved: 200, clicksSaved: 4,
       calibration: [pair(), pair({ a: 0, s: "offline", cal: false }), pair({ c: 0.8, s: "llm", cal: false })],
+      answers: {},
     });
     expect(normalizeLocalMetrics(stored)).toEqual({
       ghostsShown: 17, ghostsAccepted: 11, keystrokesSaved: 200, clicksSaved: 4,
@@ -75,15 +76,15 @@ describe("ghost.metrics accumulation", () => {
   });
 
   it("reads junk in storage as zeroes", () => {
-    expect(normalizeMetrics("nope")).toEqual({ ...counters(), calibration: [] });
-    expect(normalizeMetrics({ ghostsShown: -1, calibration: [{ c: 2, a: 1 }, pair()] })).toEqual({ ...counters(), calibration: [pair()] });
+    expect(normalizeMetrics("nope")).toEqual({ ...counters(), calibration: [], answers: {} });
+    expect(normalizeMetrics({ ghostsShown: -1, calibration: [{ c: 2, a: 1 }, pair()] })).toEqual({ ...counters(), calibration: [pair()], answers: {} });
   });
 
   it("writes through chrome.storage.local under ghost.metrics", async () => {
     const mock = createChromeStorageMock();
     vi.stubGlobal("chrome", mock.chrome);
     await addMetrics({ counters: counters({ clicksSaved: 2 }), pairs: [] });
-    expect(mock.store.get(METRICS_KEY)).toEqual({ ...counters({ clicksSaved: 2 }), calibration: [] });
+    expect(mock.store.get(METRICS_KEY)).toEqual({ ...counters({ clicksSaved: 2 }), calibration: [], answers: {} });
   });
 });
 
@@ -164,7 +165,7 @@ describe("the worker's router", () => {
     expect(listener(message, { id: "a-web-page" }, vi.fn())).toBe(false);
     const reply = await new Promise((resolve) => expect(listener(message, { id: ID }, resolve)).toBe(true));
     expect(reply).toEqual({ ok: true, totals: counters({ ghostsShown: 5 }) });
-    expect(storage.store.get(METRICS_KEY)).toEqual({ ...counters({ ghostsShown: 5 }), calibration: [pair()] });
+    expect(storage.store.get(METRICS_KEY)).toEqual({ ...counters({ ghostsShown: 5 }), calibration: [pair()], answers: {} });
     await vi.waitFor(() => expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8788/v1/metrics/event"));
   });
 });

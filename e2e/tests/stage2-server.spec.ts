@@ -5,7 +5,7 @@ import path from "node:path";
 import type { Page } from "@playwright/test";
 import {
   EXPECTED, FORM_ROUTE, NEVER_FILLED, OFFLINE_GHOSTS, PROFILE_FIELDS, SERVER_GHOSTS,
-  collectComplaints, expectFormState, expectGhosts, expectNotSubmitted, expectParkedOnSubmit, gotoForm, openForm, readFormState, scrollToForm, walk,
+  collectComplaints, expectFormState, expectGhosts, expectNotSubmitted, expectParkedOnSubmit, finishRequired, gotoForm, openForm, readFormState, scrollToForm, walk,
 } from "../apply";
 import {
   E2E_SERVER_URL, FORM_CACHE_KEY, HOST, KEYLESS_SERVER_ENV, SERVER_DIR,
@@ -16,14 +16,6 @@ const DEMO_ORIGIN = "http://localhost:5173";
 
 async function expectHud(page: Page, expected: { provider: string; cache: string }): Promise<void> {
   await expect.poll(() => readHud(page)).toMatchObject({ visible: true, ...expected });
-}
-
-async function expectTabIsNative(page: Page): Promise<void> {
-  await page.locator("#first-name").focus();
-  await page.keyboard.press("Tab");
-  await expect(page.locator("#last-name")).toBeFocused();
-  await expect(page.locator("#first-name")).toHaveValue("");
-  await expect(page.locator("[data-ghost-hint]")).toHaveCount(0);
 }
 
 test.describe("stage 2: predictions from the server", () => {
@@ -51,8 +43,9 @@ test.describe("stage 2: predictions from the server", () => {
     const host = await openForm(page, "/apply", SERVER_GHOSTS);
     await expectHud(page, { provider: "heuristic", cache: "miss" });
 
-    expect(await walk(page)).toBe(SERVER_GHOSTS - 1);
+    expect(await walk(page)).toBe(SERVER_GHOSTS);
     await expectFormState(page, { ...EXPECTED, ...NEVER_FILLED });
+    await finishRequired(page); // the privacy box is the user's own act; only then is Submit proposable
     await expectParkedOnSubmit(page);
     for (let i = 0; i < 3; i++) await page.keyboard.press("Tab"); // over-pressing must stay harmless
     await expectParkedOnSubmit(page);
@@ -81,24 +74,28 @@ test.describe("stage 2: predictions from the server", () => {
     await expectNotSubmitted(page);
   });
 
-  test("a 0.99 threshold removes every ghost, live and on reload, without asking the server again", async ({ page, worker }) => {
+  // docs/always-propose.md: the threshold changes how a ghost is DRAWN, never whether it is there. A 0.99
+  // threshold makes every proposal a dimmed long shot that a held accept key stops at -- not a blank page.
+  test("a 0.99 threshold dims every ghost without removing one, live and on reload, without asking again", async ({ page, worker }) => {
     const before = await serverCalls(FORM_ROUTE);
     await openForm(page, "/apply", SERVER_GHOSTS);
     expect(await serverCalls(FORM_ROUTE) - before).toBe(1);
 
     await patchSettings(worker, { confidenceThreshold: 0.99 });
-    await expectGhosts(page, 0);
-    await expectTabIsNative(page);
+    await expectGhosts(page, SERVER_GHOSTS);
+    await expect(page.locator(HOST)).toHaveAttribute("data-ghost-tier", "long-shot");
+    await expect(page.locator(HOST)).toHaveAttribute("data-ghost-guess", "true");
 
     await page.reload();
-    await expect(page.locator(HOST)).toHaveAttribute("data-ghost-state", "idle");
-    await expectGhosts(page, 0);
+    await expectGhosts(page, SERVER_GHOSTS);
     await scrollToForm(page);
-    await expectTabIsNative(page);
+    await expect(page.locator(HOST)).toHaveAttribute("data-ghost-tier", "long-shot");
 
     await patchSettings(worker, { confidenceThreshold: 0.7 });
     await expectGhosts(page, SERVER_GHOSTS);
-    expect(await serverCalls(FORM_ROUTE) - before).toBe(1); // re-gating reads the cache, never the server
+    await expect(page.locator(HOST)).toHaveAttribute("data-ghost-tier", "confident");
+    expect(await serverCalls(FORM_ROUTE) - before).toBe(1); // re-tiering reads the cache, never the server
+    // Nothing was written along the way: a dim ghost is still only a proposal.
     expect(Object.values(await readFormState(page)).filter((value) => value !== "" && value !== false)).toEqual([]);
     await expectNotSubmitted(page);
   });
@@ -166,6 +163,7 @@ spareTest.describe("stage 2: the server goes down mid-session", () => {
 
     expect(await walk(page)).toBe(PROFILE_FIELDS);
     await expectFormState(page, { ...EXPECTED, ...NEVER_FILLED, whyNorthwind: "", project: "" });
+    await finishRequired(page);
     await expectParkedOnSubmit(page);
     await expectNotSubmitted(page);
     expect(await host.getAttribute("data-ghost-error")).toBeNull();

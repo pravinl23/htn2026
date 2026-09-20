@@ -18,6 +18,9 @@ const outfile = resolve(here, "../build/ghost-core.js");
 const REQUIRED_EXPORTS = [
   "demoProfile", "defaultSettings", "mapForm", "ghostsFor", "isSensitive", "isLockedAction", "textFacts",
   "upgradeGhosts", "formRequest", "cleanAssignments", "isPlaceholder", "textPastAnswers",
+  "proposeAnswers", "recordCorrection", "gateFor", "walkSkips",
+  "nextAction", "recordRoleOutcome", "emptyRoleMemory", "lockedForCandidate",
+  "rankWindow", "recordWindowOutcome", "forgetKnowledgeSurface",
 ];
 
 function loadEsbuild() {
@@ -85,6 +88,73 @@ try {
   if (!ok) fail(`smoke test: unexpected ghosts ${JSON.stringify(ghosts.map((g) => [g.signature, g.action, g.locked]))}`);
   if (core.isSensitive(JSON.stringify({ label: "Card number" })) !== true) fail("smoke test: isSensitive let a card field through");
   if (core.isLockedAction(JSON.stringify({ text: "Place order" })) !== true) fail("smoke test: isLockedAction missed 'Place order'");
+
+  // The answer engine and the gate, through the same bundle the native side loads.
+  const gated = [
+    { signature: "r1", label: "Country", kind: "select", required: true, options: [{ value: "", label: "Select..." }, { value: "CA", label: "Canada" }], value: "", rect: fields[0].rect },
+    { signature: "b1", label: "Submit application", kind: "button", locked: true, rect: fields[2].rect },
+  ];
+  const gate = JSON.parse(core.gateFor(JSON.stringify(gated), "[]"));
+  if (gate.terminalAllowed !== false || gate.unmetRequired.length !== 1) fail(`smoke test: the gate did not withhold Submit (${JSON.stringify(gate)})`);
+  const eeo = [{ signature: "e1", label: "Gender", kind: "select", value: "", rect: fields[0].rect,
+                 options: [{ value: "", label: "Select..." }, { value: "m", label: "Male" }, { value: "d", label: "I don't wish to answer" }] }];
+  const proposed = JSON.parse(core.proposeAnswers(JSON.stringify(eeo), JSON.stringify(profile), "", core.defaultSettings()));
+  if (proposed.length !== 1 || proposed[0].class !== "protected" || proposed[0].value !== "d") {
+    fail(`smoke test: a protected question was not declined (${JSON.stringify(proposed)})`);
+  }
+  const learned = JSON.parse(core.recordCorrection(JSON.stringify(eeo[0]), "m", "", "2026-01-01T00:00:00.000Z"));
+  if (learned.counter !== "answer.corrected.protected" || learned.answers.answers.length !== 1) {
+    fail(`smoke test: a correction was not learned (${JSON.stringify(learned)})`);
+  }
+
+  // Ghost anywhere (docs/anywhere.md): a window that is not a form still gets one proposal. A playing video
+  // wants fullscreen; nothing here names a site, and the whole pass is the SHARED affordance layer.
+  const player = [
+    { id: "c1", kind: "button", label: "Pause", locked: false, insideMediaControls: true },
+    { id: "c2", kind: "button", label: "", identifier: "player-fullscreen-button", locked: false, insideMediaControls: true },
+  ];
+  const anywhere = JSON.parse(core.nextAction(JSON.stringify(player), JSON.stringify({ hasMediaElement: true, mediaPlaying: true })));
+  if (anywhere.pageKind !== "media" || anywhere.top?.id !== "c2" || anywhere.top?.role !== "fullscreen") {
+    fail(`smoke test: the anywhere pass did not propose fullscreen on a playing video (${JSON.stringify(anywhere.top)})`);
+  }
+  const remembered = JSON.parse(core.recordRoleOutcome(core.emptyRoleMemory(), JSON.stringify({ pageKind: "media", role: "captions" }), "accepted"));
+  if (remembered.entries.length !== 1 || remembered.entries[0].role !== "captions") {
+    fail(`smoke test: role memory did not record an accept (${JSON.stringify(remembered)})`);
+  }
+  if (core.lockedForCandidate(JSON.stringify({ id: "x", kind: "button", label: "Place your order", locked: false }), "buy") !== true) {
+    fail("smoke test: lockedForCandidate let an irreversible control through");
+  }
+
+  // The knowledge layer (docs/knowledge.md), through the same bundle: an accessibility walk of a window becomes
+  // the one context key, the SHARED rankActions scores it, and what the person does here changes the answer.
+  // The surface is an opaque token and nothing in the result carries a label.
+  const windowControls = JSON.stringify([
+    { id: "a1", axRole: "AXButton", label: "Pause", insideMediaControls: true },
+    { id: "a2", axRole: "AXButton", label: "Full screen", insideMediaControls: true },
+    { id: "a3", axRole: "AXButton", label: "Captions", insideMediaControls: true },
+  ]);
+  const windowSignals = JSON.stringify({ surface: "w1", screenKind: "media", state: { mediaPlaying: true }, hasMediaElement: true });
+  const cold = JSON.parse(core.rankWindow(windowControls, windowSignals, ""));
+  if (cold.top?.id !== "a2" || cold.top?.role !== "fullscreen" || cold.top?.tier !== "shape") {
+    fail(`smoke test: an empty brain did not lead with the shape's answer on a playing video (${JSON.stringify(cold.top)})`);
+  }
+  if (JSON.stringify(cold).includes("Full screen")) fail("smoke test: rankWindow leaked a control's label into its result");
+  let file = "";
+  for (let i = 0; i < 4; i += 1) {
+    const step = JSON.parse(
+      core.recordWindowOutcome(file, JSON.stringify({ surface: "w1", screenKind: "media", role: "captions", visit: true }), "taken"),
+    );
+    if (step.changed !== true || typeof step.file !== "string") fail(`smoke test: an outcome was not recorded (${JSON.stringify(step)})`);
+    file = step.file;
+  }
+  const taught = JSON.parse(core.rankWindow(windowControls, windowSignals, file));
+  if (taught.top?.id !== "a3" || taught.top?.tier !== "surface") {
+    fail(`smoke test: the window did not learn what this person does here (${JSON.stringify(taught.top)})`);
+  }
+  const forgotten = JSON.parse(core.forgetKnowledgeSurface(file, "w1"));
+  if (forgotten.removed < 1 || JSON.parse(core.rankWindow(windowControls, windowSignals, forgotten.file)).top?.id !== "a2") {
+    fail(`smoke test: forgetting a surface did not undo what it learned (${JSON.stringify(forgotten)})`);
+  }
 } catch (err) {
   fail(`smoke test threw: ${err.message}`);
 }

@@ -9,12 +9,15 @@
 #import "GHCore.h"
 #import "GHField.h"
 #import "GHLog.h"
+#import "GHAffordance.h"
+#import "GHNextAction.h"
 #import "GHProbe.h"
 #import "GHProfileStore.h"
 
 NSString *const GHHarnessModeTrust = @"trust";
 NSString *const GHHarnessModeDump = @"dump";
 NSString *const GHHarnessModeDumpTree = @"dump-tree";
+NSString *const GHHarnessModeNext = @"next";
 NSString *const GHHarnessModeAutotab = @"autotab";
 NSString *const GHHarnessModeProbeComboBox = @"probe-combobox";
 NSString *const GHHarnessRequestNotification = @"dev.ghost.desktop.harness.request";
@@ -37,7 +40,8 @@ static const NSUInteger kStallLimit = 3;
 
 static NSDictionary<NSString *, NSString *> *GHHarnessModeFlags(void) {
     return @{ @"--trust": GHHarnessModeTrust, @"--dump": GHHarnessModeDump, @"--dump-tree": GHHarnessModeDumpTree,
-              @"--autotab": GHHarnessModeAutotab, @"--probe-combobox": GHHarnessModeProbeComboBox };
+              @"--autotab": GHHarnessModeAutotab, @"--probe-combobox": GHHarnessModeProbeComboBox,
+              @"--next": GHHarnessModeNext };
 }
 
 /// Flags that take a value, and the dictionary key the value travels under.
@@ -213,6 +217,7 @@ static BOOL GHHarnessIdentifierIsSafe(NSString *identifier) {
     if ([self.mode isEqualToString:GHHarnessModeAutotab]) total += self.autotabBudget;
     if ([self.mode isEqualToString:GHHarnessModeDumpTree]) total += kTreeTimeBudget + 5.0;
     if ([self.mode isEqualToString:GHHarnessModeProbeComboBox]) total += 20.0;
+    if ([self.mode isEqualToString:GHHarnessModeNext]) total += kCaptureTimeBudget + 10.0;
     return total;
 }
 
@@ -1043,6 +1048,64 @@ static BOOL (^gPauseCheck)(NSString *);
     }];
 }
 
+
+/// --next: what Ghost would PROPOSE on this window, in the terms docs/anywhere.md uses. Read-only in every
+/// sense: it presses nothing, posts no key, and reads role memory without ever writing it back.
+static NSDictionary<NSString *, id> *GHHarnessNextActionReport(GHCore *core, GHCaptureResult *result,
+                                                               id<GHAXNode> window, NSString *bundleId) {
+    GHNextAction *engine = [[GHNextAction alloc] initWithCore:core
+                                                      memory:[[GHRoleMemoryStore alloc] initWithPath:[GHRoleMemoryStore defaultPath] core:core]];
+    GHPageSignals *given = [[GHPageSignals alloc] init];
+    given.appBundleId = bundleId;
+    CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
+    GHNextProposal *top = [engine proposeForResult:result window:window signals:given];
+    double elapsed = round((CFAbsoluteTimeGetCurrent() - started) * 1000.0);
+
+    NSMutableDictionary<NSString *, GHField *> *bySignature = [NSMutableDictionary dictionary];
+    for (GHField *field in result.fields) if (field.signature.length) bySignature[field.signature] = field;
+
+    NSDictionary *(^row)(GHNextProposal *) = ^NSDictionary *(GHNextProposal *proposal) {
+        if (!proposal) return nil;
+        GHField *field = bySignature[proposal.signature];
+        NSMutableDictionary<NSString *, id> *out = [@{
+            @"role": proposal.role ?: @"unknown",
+            @"confidence": @(round(proposal.confidence * 1000.0) / 1000.0),
+            @"source": proposal.source ?: @"prior",
+            @"locked": @(proposal.locked),
+            @"guess": @(proposal.guess),
+            @"reason": proposal.reason ?: @"",
+        } mutableCopy];
+        if (field) {
+            out[@"kind"] = field.kind ?: @"";
+            out[@"label"] = field.label ?: @"";           // --dump already reports labels; never a value
+            out[@"unnamed"] = @(field.unnamed);
+            out[@"insideMediaControls"] = @(field.insideMediaControls);
+            out[@"nearbyPrice"] = @(field.nearbyPrice);
+            if (field.badgeCount > 0) out[@"badgeCount"] = @(field.badgeCount);
+            if (field.listSignature.length) out[@"listIndex"] = @(field.listIndex);
+        }
+        return out;
+    };
+
+    NSMutableArray<NSDictionary *> *ranked = [NSMutableArray array];
+    for (GHNextProposal *proposal in engine.ranked) {
+        NSDictionary *encoded = row(proposal);
+        if (encoded) [ranked addObject:encoded];
+    }
+    NSMutableDictionary<NSString *, id> *report = [@{
+        @"pageKind": engine.pageKind ?: @"unknown",
+        @"pageEvidence": engine.pageEvidence ?: @[],
+        @"threshold": @(engine.threshold),
+        @"ranked": ranked,
+        @"unnamedCount": @(engine.unnamedSignatures.count),
+        @"proposeMs": @(elapsed),
+    } mutableCopy];
+    NSDictionary *topRow = row(top);
+    if (topRow) report[@"top"] = topRow;
+    if (engine.lastSignals) report[@"signals"] = [engine.lastSignals toJSONObject];
+    return report;
+}
+
 /// --dump and --dump-tree. The AX walk runs off the main queue; the answer comes back on it.
 + (void)look:(GHHarnessRequest *)request target:(NSRunningApplication *)target completion:(void (^)(NSDictionary<NSString *, id> *))completion {
     NSString *bundleId = target.bundleIdentifier;
@@ -1055,6 +1118,7 @@ static BOOL (^gPauseCheck)(NSString *);
     NSString *appName = target.localizedName ?: @"";
     BOOL wantsTree = [request.mode isEqualToString:GHHarnessModeDumpTree];
     BOOL wantsProbe = [request.mode isEqualToString:GHHarnessModeProbeComboBox];
+    BOOL wantsNext = [request.mode isEqualToString:GHHarnessModeNext];
     NSUInteger depth = (NSUInteger)request.depth;
     GHCore *core = (wantsTree || wantsProbe) ? nil : [GHCore sharedCore];
     if (!wantsTree && !wantsProbe && !core) { completion(GHHarnessErrorResponse(@"no-core", @"ghost-core.js is missing; run make core lib")); return; }
@@ -1117,6 +1181,7 @@ static BOOL (^gPauseCheck)(NSString *);
             response[@"fieldCount"] = @(result.fields.count);
             response[@"lockedCount"] = @(locked);
             response[@"fields"] = [GHField wireJSONObjectsForFields:result.fields];   // wire objects: never a value
+            if (wantsNext) [response addEntriesFromDictionary:GHHarnessNextActionReport(core, result, result.windowNode ?: node, bundleId)];
             if (request.expectField.length) {
                 NSMutableArray<NSString *> *labels = [NSMutableArray array];
                 for (GHField *field in result.fields) if (field.label.length) [labels addObject:field.label];

@@ -1,6 +1,8 @@
 // Options page entry. Add a tab by appending a section here.
 import { mountSections } from "./sections";
 import type { OptionsSection } from "./sections";
+import { answersSection } from "./answers-section";
+import { factsSection } from "./facts-section";
 import { metricsSection } from "./metrics-section";
 import { mountOnboarding } from "./onboarding";
 import { profileSection } from "./profile-section";
@@ -8,7 +10,7 @@ import { resumeSection } from "./resume-section";
 import { settingsSection } from "./settings-section";
 import { mountStatusPill } from "./status-pill";
 
-const sections: OptionsSection[] = [profileSection, resumeSection, metricsSection, settingsSection];
+const sections: OptionsSection[] = [profileSection, factsSection, resumeSection, answersSection, metricsSection, settingsSection];
 
 async function main(): Promise<void> {
   const nav = document.getElementById("tabs");

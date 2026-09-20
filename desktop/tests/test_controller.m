@@ -7,6 +7,8 @@
 #import "GHOverlayWindow.h"
 #import "GHProfileStore.h"
 #import "GHWriter.h"
+#import "GHField.h"
+#include <sys/stat.h>
 
 #pragma mark - stub server
 
@@ -787,4 +789,128 @@ GH_TEST(controller_drafts_carry_company_role_and_description_of_the_posting) {
     GH_ASSERT([context[@"description"] containsString:@"friendly robots"]);
     NSString *wire = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:body options:0 error:NULL] encoding:NSUTF8StringEncoding];
     GH_ASSERT_FALSE([wire containsString:DemoEmail()]);          // still only the allowlisted facts
+}
+
+#pragma mark - the answer engine and the gate (docs/answers.md, docs/incremental.md)
+
+/// The same form plus a required Country select the profile can answer and a required consent checkbox it cannot.
+static void CtlBuildGatedForm(GHRig *rig) {
+    [rig buildFormWithAreas:@[]];
+    GHFakeAXNode *submit = rig.nodes[@"Submit application"];
+    GHFakeAXNode *consent = [rig add:@"AXCheckBox" label:@"I agree to the terms *" y:submit.frame.origin.y height:24];
+    consent.value = @"0";   // AXValue of an unticked box
+    // The submit has to come last in reading order for the gate to have anything to withhold.
+    [rig.web removeChild:submit];
+    submit.frame = CGRectMake(submit.frame.origin.x, consent.frame.origin.y + 50, submit.frame.size.width, 32);
+    [rig.web addChild:submit];
+}
+
+GH_TEST(controller_withholds_submit_until_the_required_field_is_answered_and_says_why) {
+    RIG(rig, nil);
+    CtlBuildGatedForm(rig);
+    [rig rescan];
+    GHWalkState *walk = rig.controller.walk;
+    // A required checkbox nobody has ticked: no Submit ghost at all, no lock badge, and the HUD says why.
+    for (GHGhost *ghost in walk.ghosts) GH_ASSERT_FALSE(ghost.locked);
+    GH_ASSERT([[rig.controller statusLine] containsString:@"1 required field still empty"]);
+    GH_ASSERT([[rig.controller statusLine] containsString:@"I agree to the terms"]);
+
+    // The user ticks it themselves. The next rescan finds nothing unmet and parks the locked Submit last.
+    rig.nodes[@"I agree to the terms *"].value = @"1";
+    [rig rescan];
+    GH_ASSERT(walk.ghosts.lastObject.locked);
+    GH_ASSERT_FALSE([[rig.controller statusLine] containsString:@"required field"]);
+}
+
+GH_TEST(controller_learns_the_answer_the_user_gave_and_proposes_it_next_time) {
+    RIG(rig, nil);
+    [rig.store updateSettings:@{ @"learningEnabled": @YES } error:NULL];
+    [rig buildFormWithAreas:@[]];
+    GHFakeAXNode *referral = [rig add:@"AXTextField" label:@"How did you hear about us?" y:600 height:30];
+    [rig rescan];
+    GH_ASSERT_EQUAL_INT([rig.store.answers[@"answers"] count], 0);
+
+    // The user types their own answer over the one Ghost proposed. No key logging: the next capture simply
+    // reports a value Ghost did not write.
+    referral.value = @"A friend at Viam";
+    [rig rescan];
+    GH_ASSERT_EQUAL_INT([rig.store.answers[@"answers"] count], 1);
+    NSDictionary *learned = rig.store.answers[@"answers"][0];
+    GH_ASSERT_EQUAL_OBJECTS(learned[@"label"], @"How did you hear about us?");
+    GH_ASSERT_EQUAL_OBJECTS(learned[@"value"], @"A friend at Viam");
+    GH_ASSERT_EQUAL_OBJECTS(learned[@"class"], @"ordinary");
+    struct stat st;
+    GH_ASSERT_EQUAL_INT(stat(rig.store.answersPath.fileSystemRepresentation, &st), 0);
+    GH_ASSERT_EQUAL_INT((int)(st.st_mode & 0777), 0600);
+
+    // The same question on the next page is answered from the correction rather than from the profile.
+    GHRig *next = [GHRig rigWithClient:nil];
+    GH_ASSERT(next != nil);
+    next.store = rig.store;
+    GHController *controller = [[GHController alloc] initWithCore:next.core store:rig.store client:nil];
+    controller.assumesActive = YES;
+    controller.capture = next.capture;
+    controller.overlay = next.controller.overlay;
+    controller.writer = next.controller.writer;
+    next.controller = controller;
+    [next buildFormWithAreas:@[]];
+    [next add:@"AXTextField" label:@"How did you hear about us?" y:600 height:30];
+    [next rescan];
+    GHGhost *proposed = nil;
+    for (GHGhost *ghost in controller.walk.ghosts) {
+        if ([[controller focusSignatureForNode:next.nodes[@"How did you hear about us?"]] isEqualToString:ghost.signature]) proposed = ghost;
+    }
+    GH_ASSERT(proposed != nil);
+    GH_ASSERT_EQUAL_OBJECTS(proposed.value, @"A friend at Viam");
+    GH_ASSERT_EQUAL_OBJECTS(proposed.answerSource, @"learned");
+}
+
+GH_TEST(controller_never_learns_its_own_writes_or_a_secret_and_never_learns_with_learning_off) {
+    RIG(rig, nil);
+    [rig buildFormWithAreas:@[]];
+    [rig rescan];
+    // Learning is off by default: a user edit changes nothing on disk.
+    rig.nodes[@"First name"].value = @"Alexandra";
+    [rig rescan];
+    GH_ASSERT_EQUAL_INT([rig.store.answers[@"answers"] count], 0);
+    GH_ASSERT_FALSE([NSFileManager.defaultManager fileExistsAtPath:rig.store.answersPath]);
+
+    // With learning on, what GHOST writes is never read back as a correction.
+    [rig.store updateSettings:@{ @"learningEnabled": @YES } error:NULL];
+    rig.nodes[@"First name"].value = @"";
+    [rig rescan];
+    for (int i = 0; i < 4; i++) [rig tab];
+    [rig rescan];
+    GH_ASSERT_EQUAL_OBJECTS(rig.nodes[@"First name"].value, @"Alex");
+    GH_ASSERT_EQUAL_OBJECTS(rig.nodes[@"Email"].value, DemoEmail());
+    GH_ASSERT_EQUAL_INT([rig.store.answers[@"answers"] count], 0);
+    GH_ASSERT_FALSE([NSFileManager.defaultManager fileExistsAtPath:rig.store.answersPath]);
+}
+
+GH_TEST(controller_hold_tab_stops_at_a_guess_and_a_fresh_press_takes_it) {
+    RIG(rig, nil);
+    [rig buildFormWithAreas:@[]];
+    // A declaration the Canadian demo profile cannot support: the conservative "No", shown as a guess.
+    GHFakeAXNode *auth = [rig add:@"AXRadioGroup" label:@"Are you legally authorized to work in the United States?" y:600 height:30];
+    [auth addChild:[GHFakeAXNode nodeWithRole:@"AXRadioButton" title:@"Yes" frame:CGRectMake(140, 600, 60, 20)]];
+    [auth addChild:[GHFakeAXNode nodeWithRole:@"AXRadioButton" title:@"No" frame:CGRectMake(210, 600, 60, 20)]];
+    [rig rescan];
+
+    GHWalkState *walk = rig.controller.walk;
+    GHGhost *guess = nil;
+    for (GHGhost *ghost in walk.ghosts) if (ghost.guess) guess = ghost;
+    GH_ASSERT_MSG(guess != nil, @"the US question should be a visible guess");
+    GH_ASSERT(guess.needsReview);
+
+    // Hold Tab through the form: it takes the facts and STOPS on the guess without writing it.
+    for (int i = 0; i < 10 && walk.current && !walk.current.guess; i++) [rig holdTab];
+    GH_ASSERT(walk.current != nil && walk.current.guess);
+    [rig holdTab];
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"outcome"], @"needs-press");
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"reason"], @"guess");
+    GH_ASSERT(walk.current.guess);   // still there, still unwritten
+
+    // One deliberate press takes it.
+    [rig tab];
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"outcome"], @"accepted");
 }

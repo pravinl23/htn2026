@@ -1,8 +1,9 @@
 // A REAL Greenhouse application (Viam, Software Engineering Intern Summer 2027) captured in Safari with
 // `ghostctl dump-tree` and sanitized (values are lengths only, browser chrome removed): replayed through
 // GHFakeAXNode -> GHCapture -> the real ghost-core.js, so the real page is a regression test.
-// Plus the Desktop core rules it exercises: upload ghosts, lazy selects, EEO questions, another country's
-// work authorization. Everything uses the fictional Alex Chen profile and a fictional resume path.
+// Plus the Desktop core rules it exercises: upload ghosts, lazy selects, and the shared answer engine's verdict
+// on the EEO questions and on another country's work authorization (docs/answers.md), under the shared gate
+// (docs/incremental.md). Everything uses the fictional Alex Chen profile and a fictional resume path.
 #import "GHTest.h"
 #import "GHAXNode.h"
 #import "GHCapture.h"
@@ -190,10 +191,13 @@ GH_TEST(fixture_greenhouse_ghosts_for_alex_chen_with_a_resume) {
         [order addObject:label];
         byLabel[label] = ghost;
     }
+    // EVERY question on the page gets a ghost, in reading order. What is missing is the Submit: the page marks
+    // the work-authorization question required (AXRequired) and it is not answered yet, so the gate withholds it.
     NSArray *expected = @[
         @"First Name", @"Last Name", @"Email", @"Country", @"Phone", @"Resume/CV",
         @"LinkedIn Profile", @"Github", @"Website", @"How did you hear about this opportunity at Viam?",
-        @"Submit application",
+        @"Are you legally authorized to work in the United States for any employer?",
+        @"Gender", @"Are you Hispanic/Latino?", @"Veteran Status", @"Disability Status",
     ];
     GH_ASSERT_EQUAL_OBJECTS(order, expected);
 
@@ -220,20 +224,138 @@ GH_TEST(fixture_greenhouse_ghosts_for_alex_chen_with_a_resume) {
     GH_ASSERT_EQUAL_OBJECTS(referral[@"displayText"], @"Hack the North");
     GH_ASSERT_EQUAL_OBJECTS(referral[@"value"], @"Hack the North");
     GH_ASSERT_EQUAL_OBJECTS(referral[@"lazy"], @YES);
+    // The live list is LinkedIn / Indeed / A friend / TikTok / Instagram / Twitter / Meetup-Event / Other, which
+    // does not offer "Hack the North" at all. An ordinary question is still answered: the list's own neutral
+    // option (docs/answers.md section 3). Country is ordinary too, and its own name wins there.
+    GH_ASSERT_EQUAL_OBJECTS(referral[@"lazyMatch"], @"neutral");
+    GH_ASSERT_EQUAL_OBJECTS(country[@"lazyMatch"], @"neutral");
+    // A declaration has no neutral side: its answer is matched literally against Yes / No.
+    GH_ASSERT_EQUAL_OBJECTS(byLabel[@"Are you legally authorized to work in the United States for any employer?"][@"lazyMatch"], @"text");
 
-    // The profile covers Canada only: the US work-authorization question is left to the applicant.
-    GH_ASSERT(byLabel[@"Are you legally authorized to work in the United States for any employer?"] == nil);
+    // The profile covers Canada only. The US question is answered with the conservative inference -- "No", the
+    // side that claims the least -- as a VISIBLE guess that hold-Tab will not take (docs/answers.md section 1).
+    NSDictionary *usAuth = byLabel[@"Are you legally authorized to work in the United States for any employer?"];
+    GH_ASSERT(usAuth != nil);
+    GH_ASSERT_EQUAL_OBJECTS(usAuth[@"displayText"], @"No");
+    GH_ASSERT_EQUAL_OBJECTS(usAuth[@"guess"], @YES);
+    GH_ASSERT_EQUAL_OBJECTS(usAuth[@"needsReview"], @YES);
+    GH_ASSERT_EQUAL_OBJECTS(usAuth[@"answerClass"], @"declaration");
+    GH_ASSERT_EQUAL_OBJECTS(usAuth[@"answerSource"], @"guess");
+    GH_ASSERT_EQUAL_OBJECTS(usAuth[@"lazy"], @YES);
+
+    // The four EEO questions are answered with the form's OWN way of declining: a true answer for anyone, and
+    // never a characteristic Ghost invented. The option list does not exist yet, so the ghost says "match
+    // whichever option MEANS decline" rather than this exact wording.
     for (NSString *eeo in @[ @"Gender", @"Are you Hispanic/Latino?", @"Veteran Status", @"Disability Status" ]) {
-        GH_ASSERT_MSG(byLabel[eeo] == nil, @"EEO question %@ must never get a ghost", eeo);
+        NSDictionary *ghost = byLabel[eeo];
+        GH_ASSERT_MSG(ghost != nil, @"EEO question %@ must be answered with a decline", eeo);
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"answerClass"], @"protected");
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"answerSource"], @"fact");   // declining is not a guess about anybody
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"lazyMatch"], @"decline");
+        // Sourced as a fact, but at 0.8 it is under the confident tier, so it wears a "check this" chip and
+        // a held accept key stops on it (docs/always-propose.md).
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"tier"], @"guess");
     }
     GH_ASSERT(byLabel[@"Cover Letter"] == nil); // no coverLetterPath in the profile
     GH_ASSERT(byLabel[@"Apply"] == nil);
 
-    NSDictionary *lock = ghosts.lastObject;
+    // No Submit ghost while a required field is unanswered, and the gate says why.
+    GH_ASSERT(byLabel[@"Submit application"] == nil);
+    for (NSDictionary *ghost in ghosts) GH_ASSERT_EQUAL_OBJECTS(ghost[@"locked"], @NO);
+    NSArray<NSDictionary *> *fieldObjects = [GHField JSONObjectsForFields:result.fields];
+    NSDictionary *gate = [FixtureCore() gateForFieldObjects:fieldObjects ghosts:ghosts accepted:@[]];
+    GH_ASSERT_EQUAL_OBJECTS(gate[@"terminalAllowed"], @NO);
+    GH_ASSERT_EQUAL_OBJECTS(gate[@"firstUnmetLabel"], @"First Name");
+    GH_ASSERT_EQUAL_INT([gate[@"unmetRequired"] count], 4);   // First Name, Last Name, Email, US work authorization
+}
+
+GH_TEST(fixture_greenhouse_submit_is_gated_until_every_required_field_is_answered) {
+    GHCaptureResult *result = CaptureGreenhouse();
+    GH_ASSERT(result != nil);
+    GHCore *core = FixtureCore();
+    NSDictionary *profile = ProfileWith(@{ @"resumePath": kResumePath });
+    NSArray<NSDictionary *> *fieldObjects = [GHField JSONObjectsForFields:result.fields];
+
+    // What the sanitized Safari tree exposes as required: three text fields and the work-authorization question.
+    NSMutableArray<NSString *> *required = [NSMutableArray array];
+    for (GHField *field in result.fields) if (field.required) [required addObject:field.label];
+    GH_ASSERT_EQUAL_OBJECTS(required, (@[ @"First Name", @"Last Name", @"Email",
+                                          @"Are you legally authorized to work in the United States for any employer?" ]));
+
+    // A pending ghost meets nothing: holding Tab can never unlock Submit through a guess.
+    NSArray<NSDictionary *> *ghosts = OfflineGhosts(result.fields, profile);
+    NSDictionary *labels = LabelsBySignature(result.fields);
+    for (NSDictionary *ghost in ghosts) GH_ASSERT_FALSE([labels[ghost[@"signature"]] isEqualToString:@"Submit application"]);
+
+    // The user takes each of them: with the last one accepted, the Submit ghost appears, parked and locked.
+    NSMutableArray<NSString *> *accepted = [NSMutableArray array];
+    for (GHField *field in result.fields) if (field.required) [accepted addObject:field.signature];
+    for (NSUInteger taken = 0; taken < accepted.count; taken++) {
+        NSArray *some = [accepted subarrayWithRange:NSMakeRange(0, taken)];
+        NSDictionary *gate = [core gateForFieldObjects:fieldObjects ghosts:ghosts accepted:some];
+        GH_ASSERT_MSG([gate[@"terminalAllowed"] boolValue] == NO, @"Submit was allowed with %lu of %lu answered",
+                      (unsigned long)taken, (unsigned long)accepted.count);
+    }
+    NSDictionary *open = [core gateForFieldObjects:fieldObjects ghosts:ghosts accepted:accepted];
+    GH_ASSERT_EQUAL_OBJECTS(open[@"terminalAllowed"], @YES);
+    GH_ASSERT(open[@"reason"] == nil);
+
+    NSArray *assignments = [core mapFields:result.fields factKeys:KeysOf(profile)];
+    NSArray<NSDictionary *> *final = [core ghostsForFields:result.fields assignments:assignments profile:profile
+                                                  settings:[core defaultSettings] source:@"offline"
+                                                   options:@{ @"accepted": accepted }];
+    NSDictionary *lock = final.lastObject;
     GH_ASSERT_EQUAL_OBJECTS(labels[lock[@"signature"]], @"Submit application");
     GH_ASSERT_EQUAL_OBJECTS(lock[@"locked"], @YES);
     GH_ASSERT_EQUAL_OBJECTS(lock[@"action"], @"click");
-    for (NSDictionary *ghost in ghosts) if (ghost != lock) GH_ASSERT_EQUAL_OBJECTS(ghost[@"locked"], @NO);
+}
+
+GH_TEST(fixture_greenhouse_a_correction_changes_the_next_proposal) {
+    GHCaptureResult *result = CaptureGreenhouse();
+    GH_ASSERT(result != nil);
+    GHCore *core = FixtureCore();
+    NSDictionary *profile = ProfileWith(@{ @"resumePath": kResumePath });
+    GHField *usAuth = Labelled(result.fields, @"Are you legally authorized to work in the United States for any employer?");
+    GH_ASSERT(usAuth != nil);
+
+    // Before: the conservative guess.
+    NSArray<NSDictionary *> *before = [core proposeAnswersForFieldObjects:@[ [usAuth toJSONObject] ] profile:profile
+                                                                  answers:@"" settings:[core defaultSettings]];
+    GH_ASSERT_EQUAL_INT(before.count, 1);
+    GH_ASSERT_EQUAL_OBJECTS(before.firstObject[@"source"], @"guess");
+    GH_ASSERT_EQUAL_OBJECTS(before.firstObject[@"value"], @"No");
+
+    // The user says Yes once. It is learned, keyed by the QUESTION, and never sent anywhere.
+    NSDictionary *learned = [core recordCorrectionForFieldObject:[usAuth toJSONObject] value:@"Yes" answers:@"" at:nil];
+    GH_ASSERT_EQUAL_OBJECTS(learned[@"changed"], @"added");
+    GH_ASSERT_EQUAL_OBJECTS(learned[@"counter"], @"answer.corrected.declaration");
+    NSString *answersJSON = GHJSONString(learned[@"answers"]);
+    GH_ASSERT(answersJSON != nil);
+
+    // After: the same question is answered "Yes", from the correction, and it is no longer a guess.
+    NSArray<NSDictionary *> *after = [core proposeAnswersForFieldObjects:@[ [usAuth toJSONObject] ] profile:profile
+                                                                 answers:answersJSON settings:[core defaultSettings]];
+    GH_ASSERT_EQUAL_OBJECTS(after.firstObject[@"source"], @"learned");
+    GH_ASSERT_EQUAL_OBJECTS(after.firstObject[@"value"], @"Yes");
+    GH_ASSERT_EQUAL_OBJECTS(after.firstObject[@"needsReview"], @NO);
+
+    // And the walk itself shows it: no guess badge on that ghost any more.
+    NSArray *assignments = [core mapFields:result.fields factKeys:KeysOf(profile)];
+    NSArray<NSDictionary *> *ghosts = [core ghostsForFields:result.fields assignments:assignments profile:profile
+                                                   settings:[core defaultSettings] source:@"offline"
+                                                    options:@{ @"answers": answersJSON }];
+    for (NSDictionary *ghost in ghosts) {
+        if (![ghost[@"signature"] isEqualToString:usAuth.signature]) continue;
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"displayText"], @"Yes");
+        // The user's own answer, not an inference: what changed is the SOURCE, not how loud it is drawn.
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"answerSource"], @"learned");
+    }
+
+    // A secret is never learned, whatever the user typed.
+    GHField *secret = CoreField(@"txt|card", @"Card number", GHKindText);
+    NSDictionary *refused = [core recordCorrectionForFieldObject:[secret toJSONObject] value:@"4111 1111 1111 1111" answers:@"" at:nil];
+    GH_ASSERT_EQUAL_OBJECTS(refused[@"changed"], @"refused");
+    GH_ASSERT_EQUAL_INT([refused[@"answers"][@"answers"] count], 0);
 }
 
 GH_TEST(fixture_greenhouse_without_a_resume_path_offers_no_upload) {
@@ -245,10 +367,12 @@ GH_TEST(fixture_greenhouse_without_a_resume_path_offers_no_upload) {
         GH_ASSERT_FALSE([ghost[@"action"] isEqualToString:@"upload"]);
         GH_ASSERT_FALSE([labels[ghost[@"signature"]] isEqualToString:@"Resume/CV"]);
     }
-    GH_ASSERT_EQUAL_INT(ghosts.count, 10); // the 9 personal / choice ghosts + the lock
+    // 8 personal fields + the referral question + the US work-authorization guess + the four EEO declines.
+    // No lock: a required field is still unanswered (see the gate test above).
+    GH_ASSERT_EQUAL_INT(ghosts.count, 14);
 }
 
-GH_TEST(fixture_greenhouse_server_answers_cannot_reach_eeo_or_another_country) {
+GH_TEST(fixture_greenhouse_server_answers_never_put_a_fact_where_it_does_not_belong) {
     GHCaptureResult *result = CaptureGreenhouse();
     GH_ASSERT(result != nil);
     GHCore *core = FixtureCore();
@@ -264,14 +388,30 @@ GH_TEST(fixture_greenhouse_server_answers_cannot_reach_eeo_or_another_country) {
     }
     NSArray *ghosts = [core upgradeGhostsForFields:result.fields served:served profile:profile settings:[core defaultSettings] source:@"server" options:nil];
     NSDictionary<NSString *, NSString *> *labels = LabelsBySignature(result.fields);
-    NSMutableSet<NSString *> *ghosted = [NSMutableSet set];
-    for (NSDictionary *ghost in ghosts) [ghosted addObject:labels[ghost[@"signature"]]];
-    for (NSString *never in @[ @"Gender", @"Are you Hispanic/Latino?", @"Veteran Status", @"Disability Status", @"Website", @"Cover Letter",
-                               @"Are you legally authorized to work in the United States for any employer?" ]) {
-        GH_ASSERT_MSG(![ghosted containsObject:never], @"%@ must stay ghost-less", never);
+    NSMutableDictionary<NSString *, NSDictionary *> *byLabel = [NSMutableDictionary dictionary];
+    for (NSDictionary *ghost in ghosts) byLabel[labels[ghost[@"signature"]]] = ghost;
+
+    // A path never lands in a text field and an upload only ever takes the path it asks for, whatever a
+    // (compromised, confused, or simply wrong) server says.
+    GH_ASSERT(byLabel[@"Website"] == nil);
+    GH_ASSERT(byLabel[@"Cover Letter"] == nil);
+    // A protected question is answered by the local rules alone: the server's "put the first name here" is
+    // ignored, and the answer stays the form's own way of declining.
+    for (NSString *eeo in @[ @"Gender", @"Are you Hispanic/Latino?", @"Veteran Status", @"Disability Status" ]) {
+        NSDictionary *ghost = byLabel[eeo];
+        GH_ASSERT_MSG(ghost != nil, @"%@ should be declined", eeo);
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"answerClass"], @"protected");
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"lazyMatch"], @"decline");
+        GH_ASSERT_FALSE([ghost[@"displayText"] isEqualToString:profile[@"facts"][@"firstName"]]);
     }
-    GH_ASSERT([ghosted containsObject:@"Resume/CV"]);
-    GH_ASSERT([ghosted containsObject:@"First Name"]);
+    // Same for a declaration: the server naming `workAuthorization` cannot turn the Canadian profile's "yes"
+    // into a claim about the United States. The conservative guess stands.
+    NSDictionary *usAuth = byLabel[@"Are you legally authorized to work in the United States for any employer?"];
+    GH_ASSERT(usAuth != nil);
+    GH_ASSERT_EQUAL_OBJECTS(usAuth[@"displayText"], @"No");
+    GH_ASSERT_EQUAL_OBJECTS(usAuth[@"guess"], @YES);
+    GH_ASSERT(byLabel[@"Resume/CV"] != nil);
+    GH_ASSERT(byLabel[@"First Name"] != nil);
 }
 
 GH_TEST(fixture_greenhouse_form_request_leaves_out_eeo_and_file_paths) {
@@ -354,37 +494,91 @@ GH_TEST(core_lazy_select_carries_the_intended_answer) {
     GH_ASSERT(exact[@"lazy"] == nil);
 }
 
-GH_TEST(core_work_authorization_speaks_for_the_profiles_country_only) {
-    NSArray<NSString *> *elsewhere = @[
+GH_TEST(core_work_authorization_answers_another_country_conservatively_and_visibly) {
+    // Authorization is a fact about ONE country. The Canadian demo profile says nothing about the United
+    // States or the UK, so those questions are answered the way that claims the LEAST -- and every such answer
+    // is a visible guess the user is asked to check (docs/answers.md sections 1 and 2).
+    NSArray<NSString *> *authorization = @[
         @"Are you legally authorized to work in the United States for any employer?",
         @"Are you authorized to work in the U.S.?",
-        @"Are you legally eligible to work in the US or Canada?", // two countries: which one is a guess
         @"Do you have the right to work in the UK?",
-        @"Will you require visa sponsorship to work in the United States?",
     ];
+    NSString *sponsorship = @"Will you require visa sponsorship to work in the United States?";
     NSArray<NSString *> *home = @[ @"Are you legally authorized to work in Canada?", @"Are you legally eligible to work for us?" ];
     NSMutableArray<GHField *> *fields = [NSMutableArray array];
     NSUInteger index = 0;
-    for (NSString *label in [elsewhere arrayByAddingObjectsFromArray:home]) {
+    for (NSString *label in [[authorization arrayByAddingObject:sponsorship] arrayByAddingObjectsFromArray:home]) {
         GHField *field = CoreField([NSString stringWithFormat:@"q|%lu", (unsigned long)index++], label, GHKindRadio);
         field.options = @[ @{ @"value": @"Yes", @"label": @"Yes" }, @{ @"value": @"No", @"label": @"No" } ];
         [fields addObject:field];
     }
     NSDictionary *map = GhostMap(OfflineGhosts(fields, [FixtureCore() demoProfile]));
-    for (NSUInteger i = 0; i < elsewhere.count; i++) {
-        GH_ASSERT_MSG(map[fields[i].signature] == nil, @"%@ must not be answered for a Canadian profile", elsewhere[i]);
+    for (NSUInteger i = 0; i < authorization.count; i++) {
+        NSDictionary *ghost = map[fields[i].signature];
+        GH_ASSERT_MSG(ghost != nil, @"%@ must still be answered", authorization[i]);
+        GH_ASSERT_MSG([ghost[@"value"] isEqualToString:@"No"], @"%@ must be answered conservatively", authorization[i]);
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"guess"], @YES);
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"needsReview"], @YES);
     }
-    GH_ASSERT_EQUAL_OBJECTS(map[fields[elsewhere.count].signature][@"value"], @"Yes");
-    GH_ASSERT_EQUAL_OBJECTS(map[fields[elsewhere.count + 1].signature][@"value"], @"Yes"); // "us" is a pronoun
+    // Needing sponsorship is the conservative side of the same coin.
+    NSDictionary *needsVisa = map[fields[authorization.count].signature];
+    GH_ASSERT_EQUAL_OBJECTS(needsVisa[@"value"], @"Yes");
+    GH_ASSERT_EQUAL_OBJECTS(needsVisa[@"guess"], @YES);
 
-    // A US profile answers the US question and not the Canadian one.
+    // Its own country is a fact, not a guess.
+    NSDictionary *canada = map[fields[authorization.count + 1].signature];
+    GH_ASSERT_EQUAL_OBJECTS(canada[@"value"], @"Yes");
+    GH_ASSERT_EQUAL_OBJECTS(canada[@"answerSource"], @"fact");
+    GH_ASSERT_EQUAL_OBJECTS(map[fields[authorization.count + 2].signature][@"value"], @"Yes"); // "us" is a pronoun
+
+    // A profile that lives in the United States states the US fact instead: the same questions stop being
+    // guesses. `workAuthorization.CA` is still an explicit fact, so Canada keeps its "Yes" either way.
     NSDictionary *american = GhostMap(OfflineGhosts(fields, ProfileWith(@{ @"country": @"United States" })));
     GH_ASSERT_EQUAL_OBJECTS(american[fields[0].signature][@"value"], @"Yes");
+    GH_ASSERT_EQUAL_OBJECTS(american[fields[0].signature][@"answerSource"], @"fact");
     GH_ASSERT_EQUAL_OBJECTS(american[fields[1].signature][@"value"], @"Yes");
-    GH_ASSERT(american[fields[elsewhere.count].signature] == nil);
+    GH_ASSERT_EQUAL_OBJECTS(american[fields[authorization.count + 1].signature][@"value"], @"Yes");
+    GH_ASSERT_EQUAL_OBJECTS(american[fields[authorization.count + 1].signature][@"answerSource"], @"fact");
+
+    // Drop the qualified key and the UK question has nothing to stand on: a conservative guess again.
+    NSMutableDictionary *noCanada = [ProfileWith(@{ @"country": @"United States" }) mutableCopy];
+    NSMutableDictionary *trimmed = [noCanada[@"facts"] mutableCopy];
+    [trimmed removeObjectForKey:@"workAuthorization.CA"];
+    [trimmed removeObjectForKey:@"workAuthorization"];
+    noCanada[@"facts"] = trimmed;
+    NSDictionary *silent = GhostMap(OfflineGhosts(fields, noCanada));
+    GH_ASSERT_EQUAL_OBJECTS(silent[fields[authorization.count + 1].signature][@"value"], @"No");
+    GH_ASSERT_EQUAL_OBJECTS(silent[fields[authorization.count + 1].signature][@"guess"], @YES);
+
+    // One correction settles it for every site afterwards.
+    GHCore *core = FixtureCore();
+    NSDictionary *learned = [core recordCorrectionForFieldObject:[fields[0] toJSONObject] value:@"Yes" answers:@"" at:nil];
+    NSString *answersJSON = GHJSONString(learned[@"answers"]);
+    NSArray *assignments = [core mapFields:fields factKeys:KeysOf([core demoProfile])];
+    NSDictionary *after = GhostMap([core ghostsForFields:fields assignments:assignments profile:[core demoProfile]
+                                                settings:[core defaultSettings] source:@"offline"
+                                                 options:@{ @"answers": answersJSON }]);
+    GH_ASSERT_EQUAL_OBJECTS(after[fields[0].signature][@"value"], @"Yes");
+    GH_ASSERT(after[fields[0].signature][@"guess"] == nil);
+    GH_ASSERT_EQUAL_OBJECTS(after[fields[0].signature][@"answerSource"], @"learned");
+    // The correction is keyed by the QUESTION, not by the field or the site: the same question on the next
+    // ATS (another signature, another option wording) is answered from it too.
+    GHField *elsewhereSameQuestion = CoreField(@"other-site|auth", authorization[0], GHKindSelect);
+    elsewhereSameQuestion.options = @[ @{ @"value": @"y", @"label": @"Yes" }, @{ @"value": @"n", @"label": @"No" } ];
+    NSDictionary *carried = GhostMap([core ghostsForFields:@[ elsewhereSameQuestion ]
+                                              assignments:[core mapFields:@[ elsewhereSameQuestion ] factKeys:KeysOf([core demoProfile])]
+                                                  profile:[core demoProfile] settings:[core defaultSettings] source:@"offline"
+                                                  options:@{ @"answers": answersJSON }]);
+    GH_ASSERT_EQUAL_OBJECTS(carried[@"other-site|auth"][@"value"], @"y");
+    GH_ASSERT_EQUAL_OBJECTS(carried[@"other-site|auth"][@"answerSource"], @"learned");
+    // A question that is worded differently is a different question: it keeps the conservative guess.
+    GH_ASSERT_EQUAL_OBJECTS(after[fields[1].signature][@"value"], @"No");
+    GH_ASSERT_EQUAL_OBJECTS(after[fields[1].signature][@"guess"], @YES);
 }
 
-GH_TEST(core_eeo_questions_never_get_a_ghost) {
+GH_TEST(core_eeo_questions_are_declined_never_invented) {
+    // A protected question with NO way to decline is the one case where Ghost proposes nothing: inventing a
+    // characteristic is worse than an empty field (docs/answers.md section 1). These are free-text questions.
     NSArray<NSString *> *questions = @[ @"Gender", @"Are you Hispanic/Latino?", @"Race", @"Veteran Status", @"Disability Status",
                                         @"Pronouns", @"Sexual orientation", @"Date of birth", @"What is your age?" ];
     NSMutableArray<GHField *> *fields = [NSMutableArray array];
@@ -405,17 +599,49 @@ GH_TEST(core_eeo_questions_never_get_a_ghost) {
 
     GHCore *core = FixtureCore();
     NSDictionary *profile = [core demoProfile];
+    // The server is never told which fact could answer a protected question.
     for (NSDictionary *assignment in [core mapFields:fields factKeys:KeysOf(profile)]) {
         if (![assignment[@"signature"] isEqualToString:@"txt|first"]) GH_ASSERT_EQUAL_OBJECTS(assignment[@"factKey"], @"none");
     }
     NSArray *direct = [core ghostsForFields:fields assignments:served profile:profile settings:[core defaultSettings] source:@"server" options:nil];
     NSArray *upgraded = [core upgradeGhostsForFields:fields served:served profile:profile settings:[core defaultSettings] source:@"server" options:nil];
-    GH_ASSERT_EQUAL_INT(direct.count, 0);
-    GH_ASSERT_EQUAL_INT(upgraded.count, 1);
-    GH_ASSERT_EQUAL_OBJECTS([upgraded.firstObject objectForKey:@"signature"], @"txt|first");
+    for (NSArray *list in @[ direct, upgraded ]) {
+        GH_ASSERT_EQUAL_INT(list.count, 1);
+        GH_ASSERT_EQUAL_OBJECTS([list.firstObject objectForKey:@"signature"], @"txt|first");
+    }
+
+    // The same questions WITH a decline option are answered with it: a true answer for anyone, and the form
+    // is finished. Ghost picks the form's own wording, never a characteristic.
+    GHField *gender = CoreField(@"sel|gender", @"Gender", GHKindSelect);
+    gender.options = @[ @{ @"value": @"", @"label": @"Select..." }, @{ @"value": @"m", @"label": @"Male" },
+                        @{ @"value": @"f", @"label": @"Female" }, @{ @"value": @"d", @"label": @"Decline To Self Identify" } ];
+    GHField *disability = CoreField(@"sel|disability", @"Disability Status", GHKindSelect);
+    disability.options = @[ @{ @"value": @"y", @"label": @"Yes, I have a disability" },
+                            @{ @"value": @"n", @"label": @"No, I do not have a disability" },
+                            @{ @"value": @"x", @"label": @"I do not want to answer" } ];
+    NSDictionary *declined = GhostMap(OfflineGhosts(@[ gender, disability ], profile));
+    GH_ASSERT_EQUAL_OBJECTS(declined[@"sel|gender"][@"value"], @"d");
+    GH_ASSERT_EQUAL_OBJECTS(declined[@"sel|gender"][@"answerClass"], @"protected");
+    GH_ASSERT_EQUAL_OBJECTS(declined[@"sel|gender"][@"answerSource"], @"fact");   // declining claims nothing about anybody
+    GH_ASSERT_EQUAL_OBJECTS(declined[@"sel|disability"][@"value"], @"x");
+
+    // Turn the setting off and those questions go back to being the user's alone: no ANSWER is proposed for
+    // either of them. The screen is not left blank (docs/always-propose.md) -- with nothing to answer, Ghost
+    // offers only to take the cursor to the first control, which on the native side is a parked click that
+    // Ghost never presses (GHWalkState treats every click ghost as locked).
+    NSMutableDictionary *settings = [[core defaultSettings] mutableCopy];
+    settings[@"answerProtectedWithDecline"] = @NO;
+    NSArray<NSDictionary *> *quiet = [core ghostsForFields:@[ gender, disability ]
+                               assignments:[core mapFields:@[ gender, disability ] factKeys:KeysOf(profile)]
+                                   profile:profile settings:settings source:@"offline" options:nil];
+    for (NSDictionary *ghost in quiet) {
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"action"], @"click");
+        GH_ASSERT(ghost[@"value"] == nil);
+        GH_ASSERT(ghost[@"answerClass"] == nil);
+    }
 }
 
-GH_TEST(core_demographic_answers_and_facts_are_never_offered_whatever_the_question_says) {
+GH_TEST(core_demographic_facts_stay_local_and_a_server_can_never_point_at_one) {
     GHCore *core = FixtureCore();
     NSMutableDictionary *profile = [[core demoProfile] mutableCopy];
     NSMutableDictionary *facts = [profile[@"facts"] mutableCopy];
@@ -444,13 +670,38 @@ GH_TEST(core_demographic_answers_and_facts_are_never_offered_whatever_the_questi
         @{ @"signature": service.signature, @"factKey": @"veteranStatus", @"confidence": @0.99, @"calibrated": @YES },
         @{ @"signature": born.signature, @"factKey": @"dateOfBirth", @"confidence": @0.99, @"calibrated": @YES },
     ];
-    NSArray *ghosts = [core upgradeGhostsForFields:fields served:served profile:profile settings:[core defaultSettings] source:@"server" options:nil];
-    NSArray<NSString *> *protectedSignatures = @[ identify.signature, service.signature, born.signature ];
-    for (NSDictionary *ghost in ghosts) {
-        GH_ASSERT_MSG(![protectedSignatures containsObject:ghost[@"signature"]], @"%@ got a ghost", ghost[@"signature"]);
+    NSDictionary *map = GhostMap([core upgradeGhostsForFields:fields served:served profile:profile settings:[core defaultSettings] source:@"server" options:nil]);
+    // The profile DOES state these facts, so the questions are answered from the profile -- by the local rules,
+    // never because a server pointed at them. "How do you identify?" has no decline option among Man / Woman /
+    // Non-binary, and the profile says "Woman": that is the user's own word, and it is used.
+    GH_ASSERT_EQUAL_OBJECTS(map[identify.signature][@"value"], @"woman");
+    GH_ASSERT_EQUAL_OBJECTS(map[identify.signature][@"answerSource"], @"fact");   // the user's own word, from the profile
+    // "Have you served?" offers only two full sentences and no way to decline: the profile's "No" cannot be
+    // tied to "I am not a protected veteran" with confidence -- so Ghost proposes the option that claims the
+    // least, as a flagged long shot, rather than leaving the form unfinishable (docs/always-propose.md).
+    GH_ASSERT(map[service.signature] != nil);
+    GH_ASSERT_EQUAL_OBJECTS(map[service.signature][@"answerSource"], @"guess");
+    GH_ASSERT_EQUAL_OBJECTS(map[service.signature][@"tier"], @"long-shot");
+    GH_ASSERT_EQUAL_OBJECTS(map[service.signature][@"needsReview"], @YES);
+    // A date of birth is never typed into a free-text field by inference, and the country list is not demographic.
+    GH_ASSERT(map[born.signature] == nil);
+    GH_ASSERT_EQUAL_OBJECTS(map[country.signature][@"value"], @"CA");
+
+    // Take the demographic facts away and the same questions fall back to the local rules, never to a
+    // server's idea. Neither offers a way to decline, so each gets the least specific option it does offer,
+    // flagged and dimmed -- a guess the user fixes in one keystroke, never a server's guess (docs/answers.md
+    // section 1, docs/always-propose.md). A date of birth still has nothing to propose: it is free text.
+    NSDictionary *plain = [core demoProfile];
+    NSDictionary *without = GhostMap([core upgradeGhostsForFields:fields served:served profile:plain settings:[core defaultSettings] source:@"server" options:nil]);
+    GH_ASSERT(without[born.signature] == nil);
+    for (GHField *field in @[ identify, service ]) {
+        NSDictionary *ghost = without[field.signature];
+        GH_ASSERT_MSG(ghost != nil, @"%@ must still be proposed for", field.label);
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"answerSource"], @"guess");
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"tier"], @"long-shot");
+        GH_ASSERT_EQUAL_OBJECTS(ghost[@"needsReview"], @YES);
     }
-    NSArray *direct = [core ghostsForFields:fields assignments:served profile:profile settings:[core defaultSettings] source:@"server" options:nil];
-    GH_ASSERT_EQUAL_INT(direct.count, 0);
+
     for (NSDictionary *assignment in [core mapFields:fields factKeys:[facts.allKeys sortedArrayUsingSelector:@selector(compare:)]]) {
         if (![assignment[@"signature"] isEqualToString:country.signature]) GH_ASSERT_EQUAL_OBJECTS(assignment[@"factKey"], @"none");
     }
