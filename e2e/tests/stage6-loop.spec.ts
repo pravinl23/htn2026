@@ -112,11 +112,27 @@ test.describe("Stage 6: do it twice, Ghost does the rest", () => {
     }
   });
 
-  test("the reply and the clear-sheet controls stay locked against a Tab walk", async ({ page }) => {
+  // The batch above clicks "Reply: received" 47 times, but only because a person confirmed it once. Pressing Tab
+  // on that same page must never send one: a reply cannot be unsent (CLAUDE.md, locked actions).
+  //
+  // An invoice page carries no fields to fill, so Ghost offers nothing at all there: the overlay stays idle with
+  // zero ghosts and Tab belongs to the page. That is the property asserted here -- Ghost is not merely declining
+  // to press the locked control, it is standing down entirely, and Tab still sends nothing.
+  test("a Tab walk on an invoice never sends the reply", async ({ page }) => {
     await fresh(page);
     await page.goto(`${DEMO_URL}/invoices/INV-1003`);
     await expect(page.getByTestId("reply-received")).toHaveAttribute("data-ghost-lock", "");
-    await page.goto(`${DEMO_URL}/sheet`);
-    await expect(page.getByTestId("clear-sheet")).toHaveAttribute("data-ghost-lock", "");
+
+    const host = page.locator(HOST);
+    await expect(host).toHaveCount(1); // the content script is in, it simply has nothing to offer
+    await expect(host).toHaveAttribute("data-ghost-state", "idle");
+    await expect(host).toHaveAttribute("data-ghost-count", "0");
+
+    for (let i = 0; i < 20; i++) await page.keyboard.press("Tab");
+
+    await expect(host).toHaveAttribute("data-ghost-accepted", "0");
+    expect(await repliedIds(page), "20 Tab presses sent no reply").toEqual([]);
+    await expect(page.getByTestId("reply-received")).toHaveText("Reply: received");
+    await expect(page.getByTestId("reply-confirmation")).toBeEmpty();
   });
 });

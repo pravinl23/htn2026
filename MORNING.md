@@ -1,6 +1,6 @@
 # Current handoff
 
-_Last updated: 2026-09-19 21:30 UTC by Pravin's agent after the terminal, vision, next-action and desktop streams landed (build, typecheck, 2,350 unit tests, 36 e2e, 50 terminal pty tests, 316 desktop tests: all green)._
+_Last updated: 2026-09-20 01:50 UTC by Samir's agent after the invoice-loop e2e landed. Build, typecheck and 2,586 unit tests pass; browser e2e is 49 passed / 3 failed (all 3 in `tab-surface.spec.ts`, a real break, see below)._
 
 ## What works now
 
@@ -20,7 +20,7 @@ Pull (`git pull --rebase origin main`) before you push; update this file when yo
 | Ghost Desktop on a REAL Greenhouse form (Safari) | Pravin's agents | `desktop/**` | **LIVE on the real Viam Greenhouse form (2026-09-19 18:20 EDT):** 11 Tab presses in 13.8 s filled First/Last name, Email, Phone, LinkedIn, Github, Website (each verified), **attached the fictional resume through the native macOS open panel in 4.1 s** (the page then showed "Remove file"), and stopped parked on the locked "Submit application". Nothing was submitted. Open gap: react-select dropdowns were refused (Country was pre-filled; "How did you hear" refused) - being iterated on now. Evidence: `docs/media/desktop-greenhouse-autotab.json`, `docs/media/desktop-greenhouse-final-form.json` (labels and value LENGTHS only). |
 | Composio (loop API mode + atomic workflows) | Tahseen | `server/src/executors/composio*`, `server/src/workflows/**`, see `docs/handoff-composio.md` | Atomic workflow engine merged; live API payload aligned. |
 | Learning loop (walk outcomes -> Sentry -> replay evals) | Samir | `shared/src/walkTelemetry.ts`, `extension/src/content/walkTelemetry.ts`, `server/src/{routes,telemetry}/walk*`, `evals/walk-replays/`, `docs/learning-loop.md` | Done and merged onto main's streams. The `Alt+Shift+J` agent runner was REMOVED: the loop now hangs off Pravin's form walk, which Desktop drives too. Needs a `SENTRY_DSN` for live proof. See `handoff.md`. |
-| Integration, invoice-loop proof, docs | Samir | `DEMO_WIN_PLAN.md`, e2e for the loop, `DEMO.md` | See "Next milestone". |
+| Integration, invoice-loop proof, docs | Samir | `DEMO_WIN_PLAN.md`, e2e for the loop, `DEMO.md` | Invoice-loop e2e DONE and pushed (`e2e/tests/stage6-loop.spec.ts`, `e2e/loop.ts`, video recorded). `DEMO.md` still missing. |
 | OpenAI vision fallback (OpenAI API prize) | Pravin's agents | `server/src/routes/vision.ts`, `server/src/vision/**`, `docs/openai.md` | Done, mock-tested (63 tests): `/v1/vision/label` and `/v1/vision/locate`; locks and sensitivity re-derived in code. Needs an `OPENAI_API_KEY` to go live; no client calls it yet. |
 | Terminal ghost (zsh, Warp track) | Pravin's agents | `terminal/**`, `server/src/routes/command.ts`, `server/src/command/**` | Done: `source terminal/ghost.zsh`; Jev picks the next command (live: 491 ms, 0.89), Tab inserts, never runs; `pnpm test:terminal` 50 passed. Not in Warp (Warp replaces the line editor). |
 | Extension next-action ghosts + presence heartbeat | Pravin's agents | `extension/src/content/nextAction.ts`, `extension/src/background/{nextClient,presence}.ts` | Done: click ghosts from episodic memory + `/v1/predict/next`, form-submitting controls locked, 30 s `/v1/presence` beat; e2e 36 passed. |
@@ -29,19 +29,21 @@ Measured on Pravin's machine with real keys: Jev direct 12-field form 649 ms (12
 
 ## What does not work end to end yet
 
-- The canonical 50-invoice story has strong unit coverage but no full loaded-extension Playwright run, intentional one-row exception proof, or fallback video yet.
+- ~~The canonical 50-invoice story has no full loaded-extension run.~~ **Closed 2026-09-20:** `e2e/tests/stage6-loop.spec.ts` proves it end to end with the extension loaded, including the intentional one-row exception, and `docs/media/stage6-loop.webm` is recorded.
+- **`main` cannot go green on e2e right now:** all 3 `tab-surface.spec.ts` tests fail, identically when that file is run completely alone, so it is a real break rather than suite contention. The workflow page never leaves its "Start the local server" state, so the Tab-ownership behaviour underneath is never actually exercised. Owned by the tab-surface stream.
 - The learning loop has no live Sentry proof yet (no DSN), and Ghost Desktop does not emit walk outcomes although it drives the same walk.
 - Browserbase credentials are present but have not been live-rehearsed. Composio, AI Gateway and OpenAI are not configured; all current Composio demo effects are simulated.
 - `GHWorkflowCoordinator` is not yet connected to the desktop app’s main capture/overlay/Tab pipeline.
-- `DEMO.md`, the invoice-loop fallback video and the final results screen are missing.
+- `DEMO.md` and the final results screen are missing. (The invoice-loop fallback video is now recorded: `docs/media/stage6-loop.webm`.)
 
 ## Next milestone
 
 Lock the new live Jev proof into the judging story, then complete the existing invoice-loop proof:
 
 1. Add a Sentry Node project DSN, produce one walk that goes wrong, and confirm its scrubbed event plus replay attachment.
-2. Add one loaded-extension e2e from `/reset` through two manual invoice examples and the proposal.
-3. Exercise preview across the remaining 48 items, complete 47 safe items, hold one for review, and record `docs/media/stage6-loop.webm`.
+2. ~~Add one loaded-extension e2e from `/reset` through two manual invoice examples and the proposal.~~ **Done 2026-09-20.**
+3. ~~Exercise preview across the remaining 48 items, complete 47 safe items, hold one for review, and record `docs/media/stage6-loop.webm`.~~ **Done 2026-09-20**, both in `e2e/tests/stage6-loop.spec.ts` (2 tests, 18.2 s).
+3b. Fix or quarantine `tab-surface.spec.ts` so the e2e gate can be green again.
 4. Record the live desktop Greenhouse run into `docs/media/` and write `DEMO.md` around it.
 
 Only after that vertical slice is stable: connect OpenAI to a visible, code-verified ambiguity-resolution or drafting step; write `DEMO.md`; rehearse; then consider live Browserbase/Composio or the native breadth proof.
@@ -50,8 +52,8 @@ Only after that vertical slice is stable: connect OpenAI to a visible, code-veri
 
 - Build: pass.
 - Typecheck: pass.
-- JS/TS unit tests: 2,386 passed, followed by the checked-in replay eval.
-- Browser e2e: 37 passed, 1 failed. `stage5-next.spec.ts:187` (extension presence heartbeat) fails the same way on pristine `origin/main`, checked in a clean worktree: pre-existing, and owned by the next-action/presence stream.
+- JS/TS unit tests: 2,586 passed, followed by the checked-in replay eval.
+- Browser e2e: 49 passed, 3 failed (52 tests). The 3 are `tab-surface.spec.ts` (71, 102, 113); see above. `stage5-next.spec.ts:187` (presence heartbeat) PASSED in both full runs on 2026-09-20, so it is flaky rather than consistently failing as this file previously recorded - worth pinning down, because a flaky test passes in rehearsal and fails in front of judges.
 - Demo smoke: the previous 95-check run passed; it was not rerun after this merge.
 - Desktop: 203 passed (the documented 201 was stale).
 - Frozen install: pass.

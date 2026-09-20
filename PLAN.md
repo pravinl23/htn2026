@@ -5,12 +5,13 @@ This is the implementation ledger. Check a box only when the item works on its i
 ## Current snapshot — 2026-09-19 19:09 UTC
 
 - **Demoable now:** browser form capture, offline prediction, ghost overlay, Tab/Escape/hold-Tab interaction, verified React-safe writes, sensitive-field exclusion, locked actions, settings/profile editing, and the `/apply` walkthrough.
+- **Canonical loop proven end to end (2026-09-20):** `e2e/tests/stage6-loop.spec.ts` drives the built extension from `/reset` through two hand-performed invoices, a proposal for the remaining 48, a full preview, one invoice held back, ONE explicit confirmation, and 47 completed items verified against their preview rows. Video: `docs/media/stage6-loop.webm`.
 - **Connected extension path:** server-upgraded form prediction, per-form cache, HUD, streamed ghost text, resume import, learning, metrics, trace/page-fact capture, loop proposal/preview and confirmed execution are implemented.
 - **Learning loop:** every Tab walk emits one strictly value-free outcome (extension -> worker -> server), reviewable walks become replay fixtures, and `pnpm eval:walk-replays` gates them. Live Sentry delivery still needs a DSN.
 - **Workflow showcase:** `/workflow/index.html` runs meeting coordination and Slack → GitHub issue stories through one Jev choice per step and simulated Composio execution.
 - **Native:** the stable Objective-C host, hot-swappable library, Accessibility harness and 201 tests exist; the atomic `GHWorkflowCoordinator` seam is not connected to the main desktop pipeline.
-- **Top priority:** prove the canonical invoice loop in loaded-extension e2e: two demonstrations, preview 48, flag one intentional exception, explicitly confirm once, execute/verify 47, then record the fallback video.
-- **Verified baseline:** build and typecheck pass; 2,046 JS/TS unit tests, the replay eval, 201 desktop tests and 35 browser e2e tests pass. The prior 95-check demo smoke run was not repeated after this integration.
+- **Top priority:** `main` cannot currently go green on e2e: all 3 `tab-surface.spec.ts` tests fail in isolation (the workflow page never leaves its "Start the local server" state, so the Tab-ownership behaviour underneath is never actually exercised). Fix or quarantine that, then write `DEMO.md` around the invoice-loop and desktop Greenhouse proofs.
+- **Verified baseline (2026-09-20):** build and typecheck pass; 2,586 JS/TS unit tests, the walk-replay eval and 203 desktop tests pass. Browser e2e is 49 passed / 3 failed: the 3 are `tab-surface.spec.ts`, which fails the same way when run completely alone, so it is a real break and not suite contention. The prior 95-check demo smoke run was not repeated after this integration.
 
 Demo profile (fictional, use everywhere, never real data):
 Alex Chen, alex.chen.dev@example.com, +1 519 555 0142, Waterloo ON, University of Waterloo, BCS Computer Science, expected graduation April 2028, github.com/alexchen-dev, linkedin.com/in/alexchen-dev, alexchen.dev, authorized to work in Canada: yes, requires sponsorship: no.
@@ -100,7 +101,7 @@ product, so the learning loop now hangs off that walk instead of a second, paral
 - [x] Preview grid: dry-run extraction for every remaining item, with confidence per row and low-confidence rows flagged.
 - [x] Executor: visible/background modes with verification, stop-on-mismatch and one explicit batch confirmation; remote Browserbase/Composio modes route through the server.
 - [x] Extensive unit/adversarial tests for loop detection, alignment, synthesis, transforms and refusal behavior.
-- [ ] E2E: perform two invoices manually, accept the proposal, preview 48, explicitly confirm, complete 47 safe items, leave one intentional exception for review, and record `docs/media/stage6-loop.webm`.
+- [x] E2E: perform two invoices manually, accept the proposal, preview 48, explicitly confirm, complete 47 safe items, leave one intentional exception for review, and record `docs/media/stage6-loop.webm`. (`e2e/tests/stage6-loop.spec.ts`, 2 tests, 18.2 s: the held-back item is the largest invoice in the batch, and it is asserted to be the ONLY one of the 50 left unlogged and unreplied.)
 
 ## Stage 7: Metrics and calibration
 

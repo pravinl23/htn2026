@@ -59,8 +59,15 @@ Format:
 - Found two stale doc claims while auditing: desktop is 203 tests, not the documented 201, and PLAN.md's Stretch checkbox for the extension presence heartbeat was wrong until main landed it. Both corrected.
 - Next: add a `SENTRY_DSN` and confirm one live scrubbed event, then emit the same envelope from Ghost Desktop.
 
-## Run 6: 2026-09-20 01:05 (UTC) [IN PROGRESS]
-- Worked on: the last unchecked Stage 6 item, the loaded-extension invoice-loop e2e.
-- Gate on main 9d5a82e before touching anything: build pass, typecheck pass, 2,586 JS/TS unit tests pass (demo 74, extension 883, server 906, shared 723) plus the walk-replay eval. e2e baseline running.
-- Changed: `e2e/loop.ts` (shared loop driver: closed-shadow panel access, the by-hand routine, row exclusion) and `e2e/tests/stage6-loop.spec.ts` (the acceptance spec).
-- Next: run the new spec, record `docs/media/stage6-loop.webm`, check the Stage 6 box.
+## Run 6: 2026-09-20 01:05 (UTC) [DONE at 01:45 UTC]
+- Worked on: the last unchecked Stage 6 item, the loaded-extension invoice-loop e2e. Checked it off.
+- Added `e2e/tests/stage6-loop.spec.ts`: from `/reset`, two invoices performed by hand (real clicks, real typing, real navigation), Ghost proposes the remaining 48, the preview fills with all four extracted values for every one of them, ONE invoice is held back, ONE explicit Tab+Enter confirmation runs the rest, 47 complete. 2 tests, 18.2 s.
+- The held-back item is chosen as the largest total in the batch, which is both a deterministic pick and the invoice a person would actually stop on. The spec then asserts it is the ONLY one of the 50 left unlogged and unreplied, and that every other row reached the sheet exactly as previewed.
+- The spec also asserts the batch changed nothing before the confirmation, that the confirmation text names the irreversible effect and its count (47, not 48), and that no row reported a failure.
+- Recorded `docs/media/stage6-loop.webm` (1.3 MB).
+- Extracted the loop driver `compareA.spec.ts` carried inline into `e2e/loop.ts` and pointed both specs at it: compareA shrank by ~6.4 KB and still passes. `panelEval` now takes a serializable argument, because a function sent to a closed shadow root over CDP closes over nothing.
+- Second test in the spec initially failed for a good reason: I asserted the overlay reaches `data-ghost-state="ready"` on an invoice page. It does not, and should not - an invoice page has no fields, so Ghost reports `idle` with zero ghosts. The test now asserts that stronger, truer property: Ghost stands down entirely there and 20 Tab presses send no reply.
+- Tests: build pass, typecheck pass, 2,586 unit tests pass (demo 74, extension 883, server 906, shared 723) plus the walk-replay eval. Browser e2e 49 passed / 3 failed.
+- The 3 failures are `tab-surface.spec.ts` (71, 102, 113) and are NOT mine: they fail identically when that file is run completely alone with fresh servers. The workflow page never leaves its "Start the local server" state, so every assertion that waits for it times out and the Tab-ownership behaviour underneath is never exercised. Reported to its owner in the war room; deliberately not fixed here.
+- Correction to the previous run's note: `stage5-next.spec.ts:187` (presence heartbeat) PASSED in both full runs today. It is flaky, not consistently failing as Run 5 and MORNING.md recorded.
+- Next: `tab-surface` needs fixing or quarantining before main can go green on e2e, then `DEMO.md` around the invoice-loop and desktop Greenhouse proofs.
