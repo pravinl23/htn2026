@@ -100,6 +100,24 @@ static NSRegularExpression *GHAffMediaPattern(void) {
     return pattern;
 }
 
+/// The one control every player has, and the thing a window is FOR when it has it.
+static NSRegularExpression *GHAffTransportPattern(void) {
+    static NSRegularExpression *pattern;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ pattern = GHAffPattern(@"\\b(play|pause)\\b"); });
+    return pattern;
+}
+
+/// The rest of a transport bar. One of these BESIDE a play/pause is what separates a player from a button
+/// that happens to say "Play": "Play squash" on a form is a verb, "Play" next to "Mute" and "Full screen" is
+/// a player. Nothing here names an app or a site -- it is the vocabulary of a transport bar anywhere.
+static NSRegularExpression *GHAffTransportMatePattern(void) {
+    static NSRegularExpression *pattern;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ pattern = GHAffPattern(@"\\b(un)?mute\\b|\\bvolume\\b|\\bfull ?screen\\b|\\bcaptions?\\b|\\bsubtitles?\\b|\\bmini ?player\\b|\\bautoplay\\b|\\bauto-play\\b|\\bnext (video|track|song|episode)\\b|\\bplayback (speed|rate)\\b"); });
+    return pattern;
+}
+
 /// The small count an icon carries: "3", "12", "7 new", "2 items". Never a year, a price or an id.
 static NSRegularExpression *GHAffBadgePattern(void) {
     static NSRegularExpression *pattern;
@@ -231,6 +249,11 @@ static uint32_t GHAffHash(NSString *text) {
         if (windowArea > 0 && area / windowArea >= 0.9) signals.isFullscreen = YES;
     }
     [self markScrubbersIn:entries children:children];
+    // A scrubber IS a player, and until now it never said so: markScrubbersIn runs AFTER the loop above that
+    // decides hasMediaElement, so every seed it found was used for `insideMediaControls` and thrown away here.
+    if (!signals.hasMediaElement) {
+        for (GHAffEntry *entry in entries) if (entry.mediaSeed) { signals.hasMediaElement = YES; break; }
+    }
     [self findListsIn:entries children:children];
 
     NSUInteger repeats = 0;
@@ -238,6 +261,8 @@ static uint32_t GHAffHash(NSString *text) {
     signals.mainRegionRepeats = repeats;
 
     NSArray<GHField *> *fields = result.fields ?: @[];
+    // ...and a window that publishes a transport bar is a player even when nothing in the tree is a media node.
+    if (!signals.hasMediaElement && [self fieldsLookLikeAPlayer:fields]) signals.hasMediaElement = YES;
     NSUInteger controls = 0;
     for (GHField *field in fields) if (!field.unnamed) controls++;
     controls = MAX(controls, fields.count / 2);
@@ -310,6 +335,28 @@ static uint32_t GHAffHash(NSString *text) {
 }
 
 /// A slider is the playhead when its own naming says so, or when a duration is drawn beside it.
+/**
+ * Whether this window publishes a PLAYER'S CONTROLS, which is the only evidence a great many players give.
+ *
+ * Chromium publishes no AXVideo for a <video> at all. Measured on a real video page: "Play (k)", "Mute (m)"
+ * and "Full screen (f)" were all captured, `hasMediaElement` was still NO, so the page classified as a feed,
+ * the media priors never applied, and the best thing Ghost could find to offer after opening a video was an
+ * advert in the sidebar. That is the whole "it does not lead anywhere" complaint, in one boolean.
+ *
+ * Two controls, never one: a lone "Play" is a verb the rest of the desktop uses for other things.
+ */
++ (BOOL)fieldsLookLikeAPlayer:(NSArray<GHField *> *)fields {
+    BOOL transport = NO;
+    NSUInteger mates = 0;
+    for (GHField *field in fields) {
+        NSString *name = GHAffSquash(field.label);
+        if (name.length == 0) continue;
+        if (GHAffMatches(GHAffTransportPattern(), name)) transport = YES;
+        if (GHAffMatches(GHAffTransportMatePattern(), name)) mates++;
+    }
+    return transport && mates > 0;
+}
+
 + (void)markScrubbersIn:(NSArray<GHAffEntry *> *)entries children:(NSArray<NSMutableArray<NSNumber *> *> *)children {
     for (NSUInteger i = 0; i < entries.count; i++) {
         GHAffEntry *entry = entries[i];
