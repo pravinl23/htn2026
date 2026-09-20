@@ -22,19 +22,12 @@ const ROUTES = [
   "/v1/loop/preview",
   "/v1/loop/execute",
   "/v1/executors",
-  "/v1/facts",
-  "/v1/facts/scan",
   "/v1/vision",
   "/v1/vision/label",
   "/v1/vision/locate",
-  "/v1/workflows/predict",
-  "/v1/workflows/approve",
-  "/v1/workflows/execute",
-  "/v1/workflows/local-result",
-  "/v1/composio/connections",
-  "/v1/composio/connect-link",
-  "/v1/composio/oauth-complete",
-  "/v1/composio/prefetch",
+  // The learning loop. Without these the most important endpoint in the product reported as "<other>".
+  "/v1/walk/outcomes",
+  "/v1/walk/replays",
 ] as const;
 
 const KNOWN = new Set<string>(ROUTES);
@@ -43,7 +36,6 @@ export const UNKNOWN_ROUTE = "<other>";
 /** Routes with a path parameter. The parameter is never kept: `/v1/loop/execute/<uuid>` is `/v1/loop/execute/:runId`. */
 const PARAMETERIZED: Array<{ prefix: string; pattern: string }> = [
   { prefix: "/v1/loop/execute/", pattern: "/v1/loop/execute/:runId" },
-  { prefix: "/v1/workflows/", pattern: "/v1/workflows/:userId" },
 ];
 
 /** The route a path belongs to, with query strings, fragments and path parameters removed. */
@@ -75,7 +67,7 @@ const WORK_SPANS: Record<string, string> = {
   "/v1/loop/synthesize": "loop.synthesize",
   "/v1/vision/label": "vision.label",
   "/v1/vision/locate": "vision.locate",
-  "/v1/facts/scan": "facts.scan",
+  "/v1/walk/outcomes": "walk.outcome",
 };
 
 export function workSpanName(route: string): string | undefined {

@@ -202,7 +202,9 @@ describe("route names never carry a URL", () => {
     expect(routeOf("/v1/predict/form?origin=https://jobs.example.test")).toBe("/v1/predict/form");
     expect(routeOf("/v1/predict/form#alex")).toBe("/v1/predict/form");
     expect(routeOf("/v1/loop/execute/3f2504e0-4f89-11d3-9a0c-0305e82c3301")).toBe("/v1/loop/execute/:runId");
-    expect(routeOf("/v1/workflows/alex.chen@example.test")).toBe("/v1/workflows/:userId");
+    expect(routeOf("/v1/walk/outcomes?runId=3f2504e0-4f89-11d3-9a0c-0305e82c3301")).toBe("/v1/walk/outcomes");
+    // /v1/workflows/* moved to attic/, so a path that once parameterised now carries an address and must be <other>.
+    expect(routeOf("/v1/workflows/alex.chen@example.test")).toBe(UNKNOWN_ROUTE);
   });
 
   it("names anything it does not recognise <other> rather than after its URL", () => {
