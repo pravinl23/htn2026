@@ -86,6 +86,10 @@ const EMITTED_KEYS = new Set([
   "ghost.proposed",
   "ghost.accepted",
   "ghost.corrected",
+  // The rejection counts. Every one is an integer count of ghosts in one walk, never anything about the page.
+  "ghost.rejected",
+  "ghost.dismissed",
+  "ghost.skipped",
   "ghost.candidates",
   "ghost.class",
   "ghost.source",

@@ -576,7 +576,19 @@ describe("the walk sink", () => {
     expect(proposed).toHaveLength(2);
     expect(sentry.metrics.some((m) => m.name === "ghost.accepted" && m.attributes?.["ghost.source"] === "fact")).toBe(true);
     expect(sentry.metrics.some((m) => m.name === "ghost.corrected" && m.attributes?.["ghost.confidence.bucket"] === "weak")).toBe(true);
-    expect(sentry.logs[0]?.message).toBe("walk: 1 accepted, 1 corrected of 2 ghosts");
+    expect(sentry.logs[0]?.message).toBe("walk: 1 accepted, 1 rejected (1 typed over, 0 dismissed) of 2 ghosts");
+  });
+
+  it("reports a walk where every ghost was turned down as rejected, not as silence", () => {
+    const sentry = fakeSentry();
+    recordWalk([
+      { ghostClass: "next-action", source: "prior", bucket: "guess", outcome: "dismissed", surface: "extension" },
+      { ghostClass: "next-action", source: "model", bucket: "high", outcome: "corrected", surface: "extension" },
+    ]);
+    // The old line counted only accepted and corrected, so a dismissed ghost read as nothing at all.
+    expect(sentry.logs[0]?.message).toBe("walk: 0 accepted, 2 rejected (1 typed over, 1 dismissed) of 2 ghosts");
+    expect(sentry.logs[0]?.attributes?.["ghost.rejected"]).toBe(2);
+    expect(sentry.logs[0]?.attributes?.["ghost.dismissed"]).toBe(1);
   });
 
   it("does nothing at all when Sentry is off", () => {

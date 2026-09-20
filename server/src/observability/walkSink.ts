@@ -66,15 +66,25 @@ export function recordWalk(outcomes: WalkOutcome[]): void {
   if (!isEnabled() || outcomes.length === 0) return;
   let accepted = 0;
   let corrected = 0;
+  let dismissed = 0;
+  let skipped = 0;
   for (const outcome of outcomes) {
     recordWalkOutcome(outcome);
     if (outcome.outcome === "accepted") accepted += 1;
     if (outcome.outcome === "corrected") corrected += 1;
+    if (outcome.outcome === "dismissed") dismissed += 1;
+    if (outcome.outcome === "skipped") skipped += 1;
   }
-  log("info", `walk: ${accepted} accepted, ${corrected} corrected of ${outcomes.length} ghosts`, {
+  // Rejections are the signal the product learns from, so they belong in the line itself. Counting only
+  // accepted and corrected made a walk where the user turned every ghost down read "0 accepted, 0 corrected".
+  const rejected = corrected + dismissed;
+  log("info", `walk: ${accepted} accepted, ${rejected} rejected (${corrected} typed over, ${dismissed} dismissed) of ${outcomes.length} ghosts`, {
     "ghost.proposed": outcomes.length,
     "ghost.accepted": accepted,
+    "ghost.rejected": rejected,
     "ghost.corrected": corrected,
+    "ghost.dismissed": dismissed,
+    "ghost.skipped": skipped,
     "ghost.surface": outcomes[0]?.surface,
   });
 }
