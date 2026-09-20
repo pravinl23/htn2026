@@ -1,7 +1,9 @@
 import {
+  instructionsText,
   JEV_GATEWAY_MODEL,
   type Answer,
   type Answers,
+  type ChoiceQuestion,
   type DecisionProvider,
   type DecisionState,
   type Question,
@@ -16,7 +18,9 @@ const RETRYABLE_STATUS = new Set([429, 529]);
 
 /** Question shape of the AI SDK's experimental_evaluate: same as Jev's except yes/no is called "boolean". */
 export type GatewayQuestion =
-  | { type: "choice"; instructions: string; criteria: Record<string, string | null> }
+  // Criteria stay structured: this path proxies to the same Jev, so it gets the same typed criteria the
+  // direct provider sends. Instructions do not — the SDK types them as a string, so they are flattened.
+  | { type: "choice"; instructions: string; criteria: ChoiceQuestion["criteria"] }
   | { type: "score"; instructions: string; criteria: string[] }
   | { type: "boolean"; instructions: string; criteria?: { true: string; false: string } };
 
@@ -81,8 +85,10 @@ function sdkEvaluate(apiKey: string | undefined): EvaluateFn {
 }
 
 export function toGatewayQuestion(question: Question): GatewayQuestion {
-  if (question.type !== "noul") return question;
-  return { type: "boolean", instructions: question.instructions, ...(question.criteria ? { criteria: question.criteria } : {}) };
+  if (question.type === "noul") return { type: "boolean", instructions: question.instructions, ...(question.criteria ? { criteria: question.criteria } : {}) };
+  if (question.type === "score") return question;
+  // The ownership wording is preserved, just flattened into the one string the SDK's type allows.
+  return { type: "choice", instructions: instructionsText(question.instructions), criteria: question.criteria };
 }
 
 /** TypeSafe confidence arrives in providerMetadata.typesafe.confidence, as one number or keyed by question name. */

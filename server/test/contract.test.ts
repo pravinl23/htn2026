@@ -64,6 +64,17 @@ const EXPECTED_QUESTIONS = {
   f2: { type: "choice", instructions: instructions(2), criteria: CRITERIA },
 };
 
+/** The AI SDK types `instructions` as a string, so the gateway path flattens them: task then clauses, in order. */
+const flat = (i: number): string => {
+  const { task, ...clauses } = instructions(i);
+  return [task, ...Object.values(clauses)].join(" ");
+};
+const GATEWAY_EXPECTED_QUESTIONS = {
+  f0: { type: "choice", instructions: flat(0), criteria: CRITERIA },
+  f1: { type: "choice", instructions: flat(1), criteria: CRITERIA },
+  f2: { type: "choice", instructions: flat(2), criteria: CRITERIA },
+};
+
 function typesafeAnswers(names: string[]): Response {
   const answers = Object.fromEntries(names.map((n) => [n, { type: "choice", choice: "none", probabilities: { none: 1 }, confidence: 0.9 }]));
   return new Response(JSON.stringify({ model: "jev-latest", answers, usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200 });
@@ -134,7 +145,9 @@ describe("Vercel AI Gateway (experimental_evaluate) contract", () => {
     expect(args).toEqual({
       model: "typesafe-ai/jev",
       state: EXPECTED_STATE,
-      questions: EXPECTED_QUESTIONS,
+      // Criteria stay structured here, because this path proxies to the same Jev. Instructions do not:
+      // the AI SDK types `instructions` as a string, so they are flattened, wording preserved in order.
+      questions: GATEWAY_EXPECTED_QUESTIONS,
       abortSignal: expect.any(AbortSignal),
       maxRetries: 0, // retries are done by the provider on a short backoff, not by the SDK
     });
