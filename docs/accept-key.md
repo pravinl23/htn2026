@@ -8,12 +8,18 @@ So Ghost uses **two** keys, and picks between them by evidence rather than by a 
 
 | Key | When it accepts | Why |
 | --- | --- | --- |
-| **Tab** | Only when the current ghost is a value for the field that currently has focus, and the page has not been observed to handle Tab itself | This is the autocomplete case: Tab already means "take this and move on". Nothing is stolen, because Ghost is doing what the key would have done. |
+| **Tab** | When the current ghost is a value for the field that currently has focus, and the page has not been observed to handle Tab itself | This is the autocomplete case: Tab already means "take this and move on". Nothing is stolen, because Ghost is doing what the key would have done. |
+| **Tab** | Also when the ghost is an unlocked next-action PROPOSAL and focus is not in a box the user types in | Measured on the running agent: Tab did nothing at all in Messages and Spotify while the Ghost key worked, because focus in a native app sits on a list row or a sidebar and never on the ghost. Tab's own meaning in that spot is "move focus to some other control", which is a weaker version of what the proposal already offers, so taking it costs the user nothing they wanted. Focus in a text box is still theirs. |
 | **The Ghost key** (default: a tap of the **right Option key**, configurable) | Always: clicks, media controls, cross-app suggestions, anything that is not a focused field | A key nobody's page or app binds. Tapped alone it does nothing in macOS; held with another key it still behaves as a normal modifier, so nothing is taken away from the user. |
 
 Escape always dismisses. Typing always wins. Holding the Ghost key accepts consecutive ghosts, and still stops at every guess and every locked action.
 
 ## 2. Picking the right key without a site list
+
+**What is built today (2026-09-20):** the Ghost key, and the two Tab rules in the table above. The
+observe-and-remember policy below is designed and unit-tested in `shared/src/keys` but **nothing calls it
+yet** — no origin is marked `tab: taken`, and no habit is written. The HUD names the key on the current
+ghost ("1 ghost in Spotify (right ⌥ accepts)"), which is the discoverability part of section 4 that exists.
 
 Ghost never assumes. It observes, per origin (browser) or per app (native), and remembers the result in the habits section of `docs/storage.md`:
 

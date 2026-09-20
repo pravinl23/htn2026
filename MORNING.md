@@ -1,5 +1,81 @@
 # Current handoff
 
+## 2026-09-20 06:50 UTC — the native agent stopped being a web form filler
+
+Everything below this section predates the boundary in `CLAUDE.md` (Ghost is a native macOS app; the
+extension is in `attic/`). Where the two disagree, this section and `CLAUDE.md` are right.
+
+Pushed to `main` as `848969d..836c912`, seven commits. 445 desktop tests, 1,677 shared, 796 server, 0 failed.
+
+### What was wrong, measured rather than guessed
+
+`ghostctl next` on the live agent, before any of this:
+
+| App | AX nodes walked | candidates found |
+| --- | --- | --- |
+| Spotify | **15** | 0 |
+| Finder | **3,269** | 0 |
+| Messages | 94 | 27, of which **21 were the messages on screen** |
+
+Ghost was a web form filler running on a desktop. Five separate causes:
+
+1. **Spotify is CEF, not Electron.** The detector only matched `Electron Framework.framework`, so
+   `AXManualAccessibility` was never set and Chromium never built a tree. The window really was 15 nodes.
+2. **`kindForRole` knew eight web-form roles.** A conversation, a track, a file and a mail message are all
+   `AXRow`, and nothing mapped `AXRow`. There is a `GHKindItem` now.
+3. **`AXToolbar` was skipped wholesale** outside a web area — which is where native apps keep their buttons.
+4. **There was no click.** `grep CGEventCreateMouseEvent desktop/src` returned nothing: every accept was
+   `AXPress`, which most of the desktop does not implement, and `kAXErrorCannotComplete` was counted as
+   success, so a press that did nothing logged `ok=1`.
+5. **The ranking carried no information.** Eight proposals on one real page, every one at exactly 0.70 with
+   the same reason. `roleConfidence` returned the place's prior verbatim and threw the evidence away.
+
+### What works now
+
+- **Native apps are visible.** Spotify 206 candidates, Finder 29, Messages 9 (was 27, the 21 phantom
+  message-bubble "fields" are gone). Chrome unchanged at 43 with no browser chrome leaking in.
+- **Clicks land.** `AXPress` first, a real `CGEvent` left click at the element's centre when the control does
+  not publish `AXPress`, pointer put back where the user left it.
+- **Tab works in native apps.** Proven live: `ghostctl autotab 1 --frontmost Spotify` → `consumed: true,
+  outcome: accepted`, and the playlist opened. Tab now takes an unlocked next-action proposal when focus is
+  not in a box the user types in; focus in a text field is still theirs, and form walks are untouched.
+- **The ghost stops fidgeting.** A row just taken or turned down is left alone for 2.5 s, and the row already
+  on screen wins near-ties.
+- **Sequential logic, not hardcoded.** `previousRole` now carries a prior of its own (compose→field,
+  field→send, search→primary-item, play→fullscreen — roles only, no app is ever named), and the app's own
+  cursor is read as a signal: a focused empty box makes filling it the top prior anywhere.
+- **iMessage.** `GHConversation` reads the thread off the accessibility tree, `/v1/ghost-text` answers it with
+  a reply prompt, and the draft lands in the compose box. Live: `conversation of 4 messages (34 nodes)` →
+  `draft ready label=Message provider=baseten`. On a test thread, 752 ms for *"yep got it, ill bring the hdmi
+  adapter"* — matching the register of the user's own lines.
+- **A test panel.** Ghost menu → "Test buttons": **Tab** posts a real Tab a second from now, **Accept** takes
+  the ghost directly. If Tab does nothing and Accept works, the key never arrived; if neither works, the
+  actuation is broken. This is how the Tab-in-native-apps bug was found.
+
+### Two things to know
+
+- **`memory.json` was poisoned and has been cleared** (backup in this session's scratchpad). It held
+  `{pageKind: app, previousRole: search, role: search, accepted: 10}`: Ghost proposed the search box, the only
+  thing to Tab was the search box, it recorded an accept, search scored higher, repeat. Ten times. It will
+  re-learn from the fixed behaviour.
+- **The Sentry rejection stream is alive.** A `POST /v1/walk/outcomes` returns `{"accepted":true,
+  "captured":true}` — `captured` is the Sentry event id. `/v1/walk/replays` stays near-empty on purpose:
+  `isReviewableWalk` keeps only abandoned walks, locked accepts and confident rejections as replay fixtures;
+  a healthy accepted walk is a counter and a Sentry event, not a fixture.
+
+### Still open
+
+- **`GHVision` is written, unit-tested and never called.** It crops icon-only controls into one strip for
+  `/v1/vision/label`. It is what would name Spotify's and Discord's glyph buttons, which currently classify
+  `unknown` at 0.435. Wiring it into `ghostsByAddingNextAction:` is the next obvious win.
+- **`server/src/providers/nextPredict.ts` still does not use the brain** and is not on the desktop path at
+  all (the desktop posts only `/v1/predict/form`). Unchanged today.
+- **Filling a contact name** after "New Message" needs the Contacts cold-start source. Ghost proposes the
+  `To` field correctly now; it has nothing to put in it.
+- `PLAN.md` and `ROUTINE_PROMPT.md` still describe the invoice loop and are stale.
+
+---
+
 _Last updated: 2026-09-20 01:50 UTC by Samir's agent after the invoice-loop e2e landed. Build, typecheck and 2,586 unit tests pass; browser e2e is 49 passed / 3 failed (all 3 in `tab-surface.spec.ts`, a real break, see below)._
 
 ## What works now

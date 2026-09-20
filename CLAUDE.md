@@ -34,10 +34,19 @@ Read `PLAN.md` (what to build, in order), `PROGRESS.md` (what previous runs did)
 2. **The invoice loop is dead.** "Do it twice, Ghost does the rest" is no longer the product.
    `PLAN.md` and `ROUTINE_PROMPT.md` still name it and are stale; trust this file over both.
 3. The brain (`shared/src/knowledge`, `shared/src/affordance`, `shared/src/coldstart`) is built and
-   benchmarked, and `desktop/core/knowledge.ts` consumes it.
-   **Known gap: `server/src/providers/nextPredict.ts` does NOT use it** and answers `none` on real
-   pages (measured on YouTube and Amazon). Wiring the brain into that path is the top priority.
+   benchmarked, and `desktop/core/knowledge.ts` consumes it. The desktop's next-action path is
+   `GHController -> GHNextAction -> desktop/core/anywhere.ts -> shared/src/affordance`, all in process.
+   **`server/src/providers/nextPredict.ts` is NOT on that path at all** — the desktop only ever posts
+   `/v1/predict/form` and `/v1/ghost-text` — and it still answers `none` on real pages. Leave it alone
+   unless something is actually going to call it.
 4. `server/src/observability/walkSink.ts` is the Sentry sink for the rejection stream, and it is wired.
+   `/v1/walk/replays` stays near-empty on purpose: `isReviewableWalk` keeps only abandoned walks, locked
+   accepts and confident rejections. A healthy accepted walk is a counter and a Sentry event, not a fixture.
+5. **`GHVision` is written, unit-tested and called from nowhere.** It is what would name the icon-only
+   controls that currently classify `unknown`. Wiring it is the top remaining item.
+6. A conversation on screen is read by `GHConversation` and answered through `/v1/ghost-text`'s optional
+   `conversation` field. It keys on the accessible-description shape `"<who>, <what>, <when>"` that macOS
+   asks messaging apps to publish — not on any app. See `MORNING.md` for what is proven live.
 
 Do not infer that anything else in the target architecture below already exists.
 
