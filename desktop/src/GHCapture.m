@@ -946,9 +946,40 @@ static void GHAdoptComboDisplay(GHField *field, GHWalkEntry *entry) {
 
 #pragma mark File uploads
 
+/**
+ * What a browser appends to a file input's accessible name: its own state, which no other control has.
+ * "Resume / CV: No file chosen", "Cover letter: 1 file selected".
+ *
+ * Chromium publishes <input type=file> as a PLAIN AXButton -- no AXFileUploadButton subrole, and a role
+ * description of "button" -- so the two tests below can never fire there. Measured in Chrome on a real
+ * application form: the resume control captured as an ordinary button, the upload path never engaged at all,
+ * and the walk filled thirteen fields and silently skipped the resume. WebKit does publish the subrole, which
+ * is why this only ever worked in Safari and looked like a browser-specific mystery rather than a missing rule.
+ */
+static NSRegularExpression *GHFileInputStatePattern(void) {
+    static NSRegularExpression *regex; static dispatch_once_t once;
+    dispatch_once(&once, ^{ regex = GHRegex(@"\\bno files? (chosen|selected)\\b|\\b\\d+ files? (chosen|selected)\\b"); });
+    return regex;
+}
+
+/// The file a file input already holds, when its name says so: "Resume / CV: alex-chen.pdf". "" when it is empty
+/// or says nothing. Rule 9 reads this -- Ghost never replaces a file somebody already attached.
+static NSString *GHFileInputStateValue(id<GHAXNode> node) {
+    NSString *name = GHSquash(node.title);
+    NSRange colon = [name rangeOfString:@":" options:NSBackwardsSearch];
+    if (colon.location == NSNotFound) return @"";
+    NSString *state = GHSquash([name substringFromIndex:colon.location + 1]);
+    if (state.length == 0) return @"";
+    if (GHMatches(GHRegex(@"^no files? (chosen|selected)$"), state)) return @"";
+    return GHMatches(GHFileInputStatePattern(), state) || GHMatches(GHAttachedFileNamePattern(), state) ? state : @"";
+}
+
 static BOOL GHIsFileUploadButton(id<GHAXNode> node) {
     if ([node.subrole isEqualToString:kSubroleFileUpload]) return YES;
-    return [node.roleDescription.lowercaseString isEqualToString:@"file upload button"];
+    if ([node.roleDescription.lowercaseString isEqualToString:@"file upload button"]) return YES;
+    // Chromium: the control's own state is the only thing that gives it away.
+    return GHMatches(GHFileInputStatePattern(), GHSquash(node.title)) ||
+           GHMatches(GHFileInputStatePattern(), GHSquash(node.axDescription));
 }
 
 static BOOL GHEntryIsInside(GHWalkEntry *entry, GHWalkEntry *container) {
@@ -1094,7 +1125,7 @@ static NSString *GHUploadKindForText(NSString *text) {
         field.axElement = attach ? attach.node.axElement : node.axElement;
         field.required = node.required || GHMatches(GHRequiredMarkPattern(), label);
         field.context = [self contextFromLegend:legend heading:heading label:label];
-        field.value = (container ? GHAttachedFileName(container.node, 3) : nil) ?: @"";
+        field.value = (container ? GHAttachedFileName(container.node, 3) : nil) ?: GHFileInputStateValue(node);
 
         GHCandidate *candidate = [[GHCandidate alloc] init];
         candidate.entry = anchor;

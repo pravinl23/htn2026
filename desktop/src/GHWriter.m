@@ -834,11 +834,16 @@ static BOOL GHIsOn(id<GHAXNode> node) {
 }
 
 - (void)pressAndExpectOn:(id<GHAXNode>)node finish:(void (^)(GHWriteResult *))finish {
-    if (![self.actuator pressNode:node]) { finish([GHWriteResult failure:GHWriteReasonDidNotHold method:GHWriteMethodPress]); return; }
+    // Same rule as the click path: a web checkbox in a Chromium window answers AXPress with success and stays
+    // off. The state is read back below either way, so the worst a click costs is the same verified failure.
+    BOOL trustworthy = [self.actuator pressIsTrustworthyForNode:node];
+    BOOL acted = trustworthy ? [self.actuator pressNode:node] : [self.actuator clickNode:node];
+    NSString *method = trustworthy ? GHWriteMethodPress : GHWriteMethodClick;
+    if (!acted) { finish([GHWriteResult failure:GHWriteReasonDidNotHold method:method]); return; }
     __weak GHWriter *weakSelf = self;
     self.after(self.verifyDelay, ^{
         id<GHAXNode> now = [weakSelf.actuator refreshedNode:node];
-        finish(now && GHIsOn(now) ? [GHWriteResult okWithMethod:GHWriteMethodPress] : [GHWriteResult failure:GHWriteReasonDidNotHold method:GHWriteMethodPress]);
+        finish(now && GHIsOn(now) ? [GHWriteResult okWithMethod:method] : [GHWriteResult failure:GHWriteReasonDidNotHold method:method]);
     });
 }
 

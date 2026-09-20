@@ -205,6 +205,14 @@ static id<GHAXNode> GHFindNode(id<GHAXNode> root, NSUInteger maxDepth, NSUIntege
     for (NSString *prefix in @[ @"attach", @"upload", @"choose file", @"select file", @"browse" ]) {
         if ([text hasPrefix:prefix]) return YES;
     }
+    // Chromium publishes <input type=file> as a plain AXButton with no subrole, and appends the control's own
+    // state to its name instead: "Resume / CV: No file chosen". That state is the only thing that identifies
+    // it, and no other kind of button says it. Without this the writer refuses its own upload ghost with
+    // no-upload-target, which is exactly what it did on a real form in Chrome.
+    for (NSString *state in @[ @"no file chosen", @"no files chosen", @"no file selected", @"no files selected",
+                               @"file chosen", @"file selected", @"files chosen", @"files selected" ]) {
+        if ([text containsString:state]) return YES;
+    }
     return NO;
 }
 
@@ -351,7 +359,12 @@ static BOOL GHNodesMentionFilename(NSArray<id<GHAXNode>> *roots, NSString *filen
     GHLog(@"openpanel: start");
 
     [self enter:GHOpenPanelStatePressUpload message:@"Opening the file picker"];
-    if (![self.actuator pressNode:button]) { [self fail:GHOpenPanelReasonPressFailed escape:NO]; return; }
+    // The Attach control is almost always a web element, and in a Chromium-hosted window AXPress on one answers
+    // success and opens nothing -- so the panel never appears and the whole upload times out waiting for it.
+    // (It worked in Safari, where WebKit's AXPress is honest, which is why this looked app-specific.)
+    BOOL opened = [self.actuator pressIsTrustworthyForNode:button] ? [self.actuator pressNode:button]
+                                                                   : [self.actuator clickNode:button];
+    if (!opened) { [self fail:GHOpenPanelReasonPressFailed escape:NO]; return; }
     [self enter:GHOpenPanelStateWaitForPanel message:nil];
     [self waitUntil:^BOOL {
         id<GHAXNode> panel = [GHOpenPanelDriver openPanelInWindows:[self.state windowsOfProcess:self->_pid]];
@@ -450,6 +463,9 @@ static BOOL GHNodesMentionFilename(NSArray<id<GHAXNode>> *roots, NSString *filen
 #pragma mark plumbing
 
 - (void)enter:(GHOpenPanelState)state message:(NSString *)message {
+    // Every transition, because an upload is ten steps in another process and the only way to see which one
+    // went wrong is to watch it walk. Names and milliseconds only -- never the path, never the file name.
+    GHLog(@"openpanel: -> %@ (%.0f ms in)", GHOpenPanelStateName(state), (self.clock() - _started) * 1000.0);
     _currentState = state;
     if (message && self.progress) self.progress(state, message);
 }
