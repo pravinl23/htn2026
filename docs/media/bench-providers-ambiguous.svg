@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 268" width="760" height="268" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 166" width="760" height="166" role="img" aria-labelledby="t d">
 <title id="t">Ghost provider benchmark</title>
-<desc id="d">Decision latency and streamed draft latency per provider, measured 2026-09-19 17:25 UTC. The same numbers are in the table in bench-providers-ambiguous.md.</desc>
+<desc id="d">Decision latency and streamed draft latency per provider, measured 2026-09-20 02:37 UTC. The same numbers are in the table in bench-providers-ambiguous.md.</desc>
 <style>
   svg { --surface: #fcfcfb; --text: #0b0b0b; --text2: #52514e; --grid: #e6e5e0; --series: #2a78d6; }
   @media (prefers-color-scheme: dark) { svg { --surface: #1a1a19; --text: #ffffff; --text2: #c3c2b7; --grid: #33332f; --series: #3987e5; } }
@@ -16,26 +16,17 @@
   .grid { stroke: var(--grid); stroke-width: 1; }
   .axis { stroke: var(--text2); stroke-width: 1; }
 </style>
-<rect class="bg" width="760" height="268" rx="8"/>
-<text class="t" x="20" y="30">Ghost provider benchmark · 2026-09-19 17:25 UTC · N=4 decisions, 0 drafts</text>
+<rect class="bg" width="760" height="166" rx="8"/>
+<text class="t" x="20" y="30">Ghost provider benchmark · 2026-09-20 02:37 UTC · N=4 decisions, 0 drafts</text>
 <text class="h" x="150" y="56">Decision latency, 10-field ambiguous form</text><text class="s" x="150" y="73">bar: p50 · tick: p95 (slowest of the run)</text>
-<line class="grid" x1="150" y1="90" x2="150" y2="226"/><text class="tick" x="150" y="241" text-anchor="middle">0</text>
-<line class="grid" x1="242" y1="90" x2="242" y2="226"/><text class="tick" x="242" y="241" text-anchor="middle">500</text>
-<line class="grid" x1="334" y1="90" x2="334" y2="226"/><text class="tick" x="334" y="241" text-anchor="middle">1000</text>
-<line class="grid" x1="426" y1="90" x2="426" y2="226"/><text class="tick" x="426" y="241" text-anchor="middle">1500</text>
-<line class="grid" x1="518" y1="90" x2="518" y2="226"/><text class="tick" x="518" y="241" text-anchor="middle">2000</text>
-<line class="grid" x1="610" y1="90" x2="610" y2="226"/><text class="tick" x="610" y="241" text-anchor="middle">2500 ms</text>
-<g><title>baseten: 811 ms, p95 1093 ms</title><rect x="150" y="90" width="600" height="34" fill="transparent"/><text class="l" x="140" y="111" text-anchor="end">baseten</text><path class="bar" d="M150,100h145.22400000000005a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-145.22400000000005z"/>
-<line class="mark" x1="351.11199999999997" y1="97" x2="351.11199999999997" y2="117"/>
-<text class="v" x="359.11199999999997" y="111">811 ms · p95 1093</text></g>
-<g><title>typesafe: 197 ms, p95 420 ms</title><rect x="150" y="124" width="600" height="34" fill="transparent"/><text class="l" x="140" y="145" text-anchor="end">typesafe</text><path class="bar" d="M150,134h32.24799999999999a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-32.24799999999999z"/>
-<line class="mark" x1="227.28" y1="131" x2="227.28" y2="151"/>
-<text class="v" x="235.28" y="145">197 ms · p95 420</text></g>
-<g><title>llm (xai): 1038 ms, p95 2128 ms</title><rect x="150" y="158" width="600" height="34" fill="transparent"/><text class="l" x="140" y="179" text-anchor="end">llm (xai)</text><path class="bar" d="M150,168h186.99200000000002a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-186.99200000000002z"/>
-<line class="mark" x1="541.5519999999999" y1="165" x2="541.5519999999999" y2="185"/>
-<text class="v" x="549.5519999999999" y="179">1038 ms · p95 2128</text></g>
-<g><title>heuristic: 0 ms, p95 9 ms</title><rect x="150" y="192" width="600" height="34" fill="transparent"/><text class="l" x="140" y="213" text-anchor="end">heuristic</text><path class="bar" d="M150,202h1a1,1 0 0 1 1,1v12a1,1 0 0 1 -1,1h-1z"/>
-<line class="mark" x1="151.656" y1="199" x2="151.656" y2="219"/>
-<text class="v" x="159.656" y="213">0 ms · p95 9</text></g>
-<line class="axis" x1="150" y1="90" x2="150" y2="226"/>
+<line class="grid" x1="150" y1="90" x2="150" y2="124"/><text class="tick" x="150" y="139" text-anchor="middle">0</text>
+<line class="grid" x1="242" y1="90" x2="242" y2="124"/><text class="tick" x="242" y="139" text-anchor="middle">500</text>
+<line class="grid" x1="334" y1="90" x2="334" y2="124"/><text class="tick" x="334" y="139" text-anchor="middle">1000</text>
+<line class="grid" x1="426" y1="90" x2="426" y2="124"/><text class="tick" x="426" y="139" text-anchor="middle">1500</text>
+<line class="grid" x1="518" y1="90" x2="518" y2="124"/><text class="tick" x="518" y="139" text-anchor="middle">2000</text>
+<line class="grid" x1="610" y1="90" x2="610" y2="124"/><text class="tick" x="610" y="139" text-anchor="middle">2500 ms</text>
+<g><title>baseten: 655 ms, p95 2132 ms</title><rect x="150" y="90" width="600" height="34" fill="transparent"/><text class="l" x="140" y="111" text-anchor="end">baseten</text><path class="bar" d="M150,100h116.51999999999998a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-116.51999999999998z"/>
+<line class="mark" x1="542.288" y1="97" x2="542.288" y2="117"/>
+<text class="v" x="550.288" y="111">655 ms · p95 2132</text></g>
+<line class="axis" x1="150" y1="90" x2="150" y2="124"/>
 </svg>

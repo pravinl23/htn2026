@@ -85,9 +85,10 @@ const SYSTEM_PROMPT = [
   "You are a decision function. The user message is JSON with `state` and `questions`. Answer EVERY question about the state.",
   "Reply with one JSON object that maps each question name to exactly one of that question's allowed codes. No explanations.",
   "choice question: `options` names an entry of `optionSets`, which maps each allowed code to its meaning. Answer none (when offered) if nothing fits.",
-  // Measured on an 8-field ambiguous form (K=5): this line took wrong answers from 4 to 2 (an employer's website and a referrer's
-  // email became none). "Emergency contact phone" -> phone stayed 5 of 5: a systematic error no amount of sampling can vote away.
-  "An option must fit exactly. When the state asks about a different person or thing than the option describes (someone else's phone, an employer's website), answer none.",
+  // This used to name two rows of the ambiguous benchmark ("someone else's phone, an employer's website"), which handed
+  // this provider the answer key that Jev — which has no system-prompt channel — never got, and made the published
+  // comparison meaningless. The exclusion now travels in each option's `not_for`, which every provider receives.
+  "An option must fit exactly. When an option says what it is `not for`, that exclusion is binding: answer none instead.",
   "noul question: answer yes or no.",
   "score question: `levels` maps the codes 0..N to descriptions ordered low to high. Answer the code of the level that fits best.",
   "Backticked paths in instructions, like `fields[3]`, point into the state.",
