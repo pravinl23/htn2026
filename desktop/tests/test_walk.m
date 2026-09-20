@@ -271,32 +271,44 @@ GH_TEST(tab_is_native_unless_every_condition_holds) {
     GH_ASSERT_EQUAL_INT(GHDecideTab(Ready(), GHKeyModifierNone, NO, NULL), GHKeyDecisionAccept);   // NULL hold is allowed
 }
 
-/// Measured on the running agent: Tab did nothing at all in Messages and Spotify while the Ghost key worked,
-/// because focus there sits on a list row or a sidebar and never on the ghost. Tab's own meaning in that spot
-/// is "move focus to some other control", which is a weaker version of what the proposal already offers.
-GH_TEST(tab_takes_a_proposal_when_focus_is_not_in_a_box_the_user_types_in) {
+/// Tab is the most overloaded key on the keyboard. Ghost takes it ONLY where it is already doing what Tab
+/// does -- walking a form, focus on the ghost's own field. A next-action proposal never changes that, however
+/// convenient it looks: everywhere else the Ghost key is the accept key, and it has no conflict surface.
+GH_TEST(tab_is_never_taken_from_an_app_for_a_proposal) {
     GHHoldState hold = { NO, NO };
     GHWalkSnapshot s = Ready();
     s.focusInWalk = NO;
     s.currentIsProposal = YES;
-    GH_ASSERT_EQUAL_INT(GHDecideTab(s, GHKeyModifierNone, NO, &hold), GHKeyDecisionAccept);
+    GH_ASSERT_EQUAL_INT(GHDecideTab(s, GHKeyModifierNone, NO, &hold), GHKeyDecisionPass);
+    GH_ASSERT_FALSE(hold.walking);
 
-    // Focus in a text box is the user's, always: that Tab is theirs whatever is on screen.
+    // Focus in a text box, same answer.
     hold = (GHHoldState){ NO, NO };
     s.focusOnTypeable = YES;
     GH_ASSERT_EQUAL_INT(GHDecideTab(s, GHKeyModifierNone, NO, &hold), GHKeyDecisionPass);
 
-    // A form walk is untouched: its ghosts are values to write, never proposals.
+    // With focus on the ghost's own field it IS the form case, and Tab is Ghost's.
     hold = (GHHoldState){ NO, NO };
     s = Ready();
-    s.focusInWalk = NO;
-    GH_ASSERT_EQUAL_INT(GHDecideTab(s, GHKeyModifierNone, NO, &hold), GHKeyDecisionPass);
-
-    // And a locked proposal is still parked on, never taken.
-    hold = (GHHoldState){ NO, NO };
     s.currentIsProposal = YES;
-    s.currentLocked = YES;
-    GH_ASSERT_EQUAL_INT(GHDecideTab(s, GHKeyModifierNone, NO, &hold), GHKeyDecisionPark);
+    GH_ASSERT_EQUAL_INT(GHDecideTab(s, GHKeyModifierNone, NO, &hold), GHKeyDecisionAccept);
+}
+
+/// The Ghost key is a choice, and both choices are a lone right-hand modifier tap: nothing macOS or any app
+/// binds, and holding the key is untouched because a chord is never a tap.
+GH_TEST(ghost_key_choice_maps_to_a_key_code_a_flag_and_a_name) {
+    GH_ASSERT_EQUAL_INT(GHGhostKeyFromName(@"right-command"), GHGhostKeyRightCommand);
+    GH_ASSERT_EQUAL_INT(GHGhostKeyFromName(@"right-option"), GHGhostKeyRightOption);
+    // Anything unknown leaves the default in place rather than turning the accept key off.
+    GH_ASSERT_EQUAL_INT(GHGhostKeyFromName(@"f19"), GHGhostKeyRightOption);
+    GH_ASSERT_EQUAL_INT(GHGhostKeyFromName(nil), GHGhostKeyRightOption);
+
+    GH_ASSERT_EQUAL_INT(GHGhostKeyCode(GHGhostKeyRightOption), GHKeyCodeRightOption);
+    GH_ASSERT_EQUAL_INT(GHGhostKeyCode(GHGhostKeyRightCommand), GHKeyCodeRightCommand);
+    GH_ASSERT(GHGhostKeyFlagMask(GHGhostKeyRightOption) == kCGEventFlagMaskAlternate);
+    GH_ASSERT(GHGhostKeyFlagMask(GHGhostKeyRightCommand) == kCGEventFlagMaskCommand);
+    GH_ASSERT(GHGhostKeyDisplayName(GHGhostKeyRightOption).length > 0);
+    GH_ASSERT_FALSE([GHGhostKeyDisplayName(GHGhostKeyRightOption) isEqualToString:GHGhostKeyDisplayName(GHGhostKeyRightCommand)]);
 }
 
 GH_TEST(tab_hold_only_counts_when_ghost_took_the_first_press) {
@@ -568,6 +580,22 @@ GH_TEST(ghost_key_tap_accepts_the_current_ghost) {
     [tap publishSnapshot:Ready()];
     [tap handleFlagsChanged:kCGEventFlagMaskAlternate keyCode:GHKeyCodeRightOption];   // down
     [tap handleFlagsChanged:0 keyCode:GHKeyCodeRightOption];                            // up, straight away
+    NSArray *expected = @[ @"ghost-key" ];
+    GH_ASSERT_EQUAL_OBJECTS(recorder.events, expected);
+}
+
+GH_TEST(ghost_key_follows_the_setting) {
+    GHTapRecorder *recorder = [[GHTapRecorder alloc] init];
+    GHEventTap *tap = Tap(recorder);
+    tap.ghostKey = GHGhostKeyRightCommand;
+    [tap publishSnapshot:Ready()];
+    // Right Option is no longer the key: tapping it does nothing at all.
+    [tap handleFlagsChanged:kCGEventFlagMaskAlternate keyCode:GHKeyCodeRightOption];
+    [tap handleFlagsChanged:0 keyCode:GHKeyCodeRightOption];
+    GH_ASSERT_EQUAL_INT(recorder.events.count, 0);
+    // Right Command is.
+    [tap handleFlagsChanged:kCGEventFlagMaskCommand keyCode:GHKeyCodeRightCommand];
+    [tap handleFlagsChanged:0 keyCode:GHKeyCodeRightCommand];
     NSArray *expected = @[ @"ghost-key" ];
     GH_ASSERT_EQUAL_OBJECTS(recorder.events, expected);
 }

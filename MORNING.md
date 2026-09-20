@@ -36,9 +36,14 @@ Ghost was a web form filler running on a desktop. Five separate causes:
   message-bubble "fields" are gone). Chrome unchanged at 43 with no browser chrome leaking in.
 - **Clicks land.** `AXPress` first, a real `CGEvent` left click at the element's centre when the control does
   not publish `AXPress`, pointer put back where the user left it.
-- **Tab works in native apps.** Proven live: `ghostctl autotab 1 --frontmost Spotify` → `consumed: true,
-  outcome: accepted`, and the playlist opened. Tab now takes an unlocked next-action proposal when focus is
-  not in a box the user types in; focus in a text field is still theirs, and form walks are untouched.
+- **Accepting works in native apps, and Tab is left alone.** Tab is form-only: where focus is not on the
+  ghost's own field it goes straight to the app (`ghostctl autotab --frontmost Spotify` → `consumed: false`).
+  Everywhere else the accept key is the Ghost key, a LONE tap of a right-hand modifier — no app binds one,
+  and holding it still works normally because a chord is never a tap. `acceptKey` in `settings.json` picks
+  between `right-option` (default) and `right-command`; the HUD names whichever is set.
+
+  Briefly Tab did take a proposal in native apps, which worked but was the wrong trade: Tab is the most
+  overloaded key on the keyboard. Reverted, with the reasoning in `docs/accept-key.md`.
 - **The ghost stops fidgeting.** A row just taken or turned down is left alone for 2.5 s, and the row already
   on screen wins near-ties.
 - **Sequential logic, not hardcoded.** `previousRole` now carries a prior of its own (compose→field,

@@ -7,6 +7,23 @@ const int64_t GHSyntheticEventUserData = 0x47484F5354;   // "GHOST"
 const CGKeyCode GHKeyCodeTab = 48;
 const CGKeyCode GHKeyCodeEscape = 53;
 const CGKeyCode GHKeyCodeRightOption = 61;
+const CGKeyCode GHKeyCodeRightCommand = 54;
+
+GHGhostKey GHGhostKeyFromName(NSString *name) {
+    return [name isEqualToString:@"right-command"] ? GHGhostKeyRightCommand : GHGhostKeyRightOption;
+}
+
+CGKeyCode GHGhostKeyCode(GHGhostKey key) {
+    return key == GHGhostKeyRightCommand ? GHKeyCodeRightCommand : GHKeyCodeRightOption;
+}
+
+CGEventFlags GHGhostKeyFlagMask(GHGhostKey key) {
+    return key == GHGhostKeyRightCommand ? kCGEventFlagMaskCommand : kCGEventFlagMaskAlternate;
+}
+
+NSString *GHGhostKeyDisplayName(GHGhostKey key) {
+    return key == GHGhostKeyRightCommand ? @"right \u2318" : @"right \u2325";
+}
 const NSTimeInterval GHGhostKeyTapSeconds = 0.3;
 
 static const NSTimeInterval kWatchdogInterval = 5.0;
@@ -196,15 +213,17 @@ static CGEventRef GHEventTapCallback(CGEventTapProxy proxy, CGEventType type, CG
     if (GHKeyModifiersFromFlags(flags) != GHKeyModifierNone) _hold.walking = _hold.halted = NO;
 
     // The Ghost key (docs/accept-key.md). Tab belongs to the app on most screens - a video page, a mail
-    // client, an editor, a spreadsheet all bind it - so the key that always works is a lone tap of right
-    // Option. The flagsChanged event is never consumed, so holding right Option as a real modifier, or
-    // using it for an accented character, is untouched: only a down-and-up with nothing in between counts.
-    if (keyCode != GHKeyCodeRightOption) {
+    // client, an editor, a spreadsheet, a file list all bind it - so the key that always works is a lone tap
+    // of a right-hand modifier. The flagsChanged event is never consumed, so holding that key as a real
+    // modifier, or using right Option for an accented character, is untouched: only a down-and-up with
+    // nothing at all in between counts as a tap, which is what leaves no conflict surface.
+    GHGhostKey ghostKey = self.ghostKey;
+    if (keyCode != GHGhostKeyCode(ghostKey)) {
         // Some other modifier moved during the hold: that makes it a chord, not a tap.
         _ghostKeyArmed = NO;
         return;
     }
-    BOOL down = (flags & kCGEventFlagMaskAlternate) != 0;
+    BOOL down = (flags & GHGhostKeyFlagMask(ghostKey)) != 0;
     if (down) {
         _ghostKeyDownAt = CFAbsoluteTimeGetCurrent();
         _ghostKeyArmed = YES;

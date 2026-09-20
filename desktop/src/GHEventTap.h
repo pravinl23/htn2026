@@ -22,12 +22,37 @@ NS_ASSUME_NONNULL_BEGIN
 /// kCGEventSourceUserData of every event Ghost posts.
 extern const int64_t GHSyntheticEventUserData;
 
-extern const CGKeyCode GHKeyCodeTab;         // 48
-extern const CGKeyCode GHKeyCodeEscape;      // 53
-extern const CGKeyCode GHKeyCodeRightOption; // 61, the Ghost key (docs/accept-key.md)
+extern const CGKeyCode GHKeyCodeTab;          // 48
+extern const CGKeyCode GHKeyCodeEscape;       // 53
+extern const CGKeyCode GHKeyCodeRightOption;  // 61
+extern const CGKeyCode GHKeyCodeRightCommand; // 54
 
-/// A tap of the Ghost key is right Option down and up again within this long, with nothing in between.
+/// A tap of the Ghost key is that modifier down and up again within this long, with nothing in between.
 extern const NSTimeInterval GHGhostKeyTapSeconds; // 0.3
+
+/**
+ * Which key accepts a ghost outside a form (docs/accept-key.md).
+ *
+ * Both choices are a LONE tap of a right-hand modifier: down and up with no other key in between, and the
+ * modifier event itself is never consumed. That is what gives them no conflict surface at all -- macOS
+ * produces nothing for either tap, no app binds one, and holding the key still works exactly as it always
+ * did, accented characters included, because a chord is never a tap.
+ *
+ * Right Option is the default because it is the one people's hands already rest near. Right Command is
+ * there for anyone who types accents with right Option and would rather keep the two apart entirely.
+ */
+typedef NS_ENUM(NSInteger, GHGhostKey) {
+    GHGhostKeyRightOption = 0,
+    GHGhostKeyRightCommand,
+};
+
+/// "right-option" / "right-command" from settings.json. Anything else is the default.
+GHGhostKey GHGhostKeyFromName(NSString *_Nullable name);
+/// The key code a choice listens for, and the flag mask that says it is down.
+CGKeyCode GHGhostKeyCode(GHGhostKey key);
+CGEventFlags GHGhostKeyFlagMask(GHGhostKey key);
+/// What the HUD and the ghost's hint chip call it: "right \u2325" / "right \u2318".
+NSString *GHGhostKeyDisplayName(GHGhostKey key);
 
 /// Process-wide kill switch for synthetic input. Once called, no key event ever leaves this process: GHEventTap
 /// +postKeyCode:, GHTaggedKeyEventSink (GHKeyPoster's live sink) and the harness Tab all refuse. The test runner calls
@@ -57,6 +82,8 @@ GHKeyModifiers GHKeyModifiersFromFlags(CGEventFlags flags);
 @interface GHEventTap : NSObject
 
 @property (nonatomic, weak, nullable) id<GHEventTapDelegate> delegate;
+/// Which lone modifier tap accepts a ghost. Read on the tap thread, so it is atomic. Default: right Option.
+@property (atomic) GHGhostKey ghostKey;
 
 /// Creates the tap and its thread. NO when the system refuses (the process is not trusted for Accessibility):
 /// nothing is consumed then, and the watchdog keeps retrying until -uninstall.

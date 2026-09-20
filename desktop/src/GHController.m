@@ -255,6 +255,7 @@ static const NSUInteger kUploadVerifyTries = 8;
 - (void)start {
     if (_running) return;
     _running = YES;
+    [self syncAcceptKey];
     if (!self.overlay) {
         self.overlay = [[GHOverlayWindow alloc] init];
         _ownsOverlay = YES;
@@ -321,12 +322,18 @@ static const NSUInteger kUploadVerifyTries = 8;
 
 - (void)storeDidChange:(NSNotification *)notification {
     [self syncPauseList];
+    [self syncAcceptKey];
     // A new threshold re-gates live, a new profile re-maps: both are an ordinary rescan.
     if (_running) [self.accessibility setNeedsRescan:GHRescanReasonManual];
     else if (self.assumesActive && _result) [self adoptCaptureResult:_result pageKey:_pageKey ?: @"" origin:_origin ?: @""];
 }
 
 /// GHProfileStore is the source of truth for the user's pause list; GHAccessibility enforces it on the AX side.
+/// Which lone modifier tap accepts a ghost, from settings.json. Follows an edit of the file live.
+- (void)syncAcceptKey {
+    self.eventTap.ghostKey = GHGhostKeyFromName(_store.settings[@"acceptKey"]);
+}
+
 - (void)syncPauseList {
     self.accessibility.userPausedBundleIdentifiers = [NSSet setWithArray:[_store userPausedBundleIds] ?: @[]];
 }
@@ -373,7 +380,8 @@ static const NSUInteger kUploadVerifyTries = 8;
         // Tab only accepts while focus is on the ghost's own field, which is a form. Everywhere else -- a list
         // row, a sidebar, a player -- the Ghost key is the one that works, so the HUD says so rather than
         // leaving the user pressing a key the app has already taken.
-        NSString *key = [_walk.current.action isEqualToString:GHGhostActionClick] ? @" (right ⌥ accepts)" : @"";
+        NSString *key = [_walk.current.action isEqualToString:GHGhostActionClick]
+            ? [NSString stringWithFormat:@" (%@ accepts)", GHGhostKeyDisplayName(self.eventTap.ghostKey)] : @"";
         return [NSString stringWithFormat:@"%lu ghost%@ in %@%@", (unsigned long)unlocked, unlocked == 1 ? @"" : @"s", app, key];
     }
     if (_walk.current.locked) return [NSString stringWithFormat:@"Parked on the locked action in %@ (Enter confirms)", app];
@@ -1498,11 +1506,6 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
     [_walk noteFocus:[self liveFocusSignature]];
     // The Ghost key has nothing to give back to the app, so where focus happens to be does not decide it.
     if (_stepFromGhostKey) return NO;
-    GHGhost *current = _walk.current;
-    // The same exception the Tab rule makes: a proposal is a place to go, and Tab's own meaning where focus is
-    // not in a text box is a weaker version of it. Kept in step with GHDecideTab deliberately -- the tap
-    // decided on a snapshot milliseconds old, and this is the re-check against live focus.
-    if (current && !current.locked && [current.action isEqualToString:GHGhostActionClick] && ![self focusIsOnATypeableField]) return NO;
     return ![_walk snapshotWithActive:YES currentVisible:YES busy:NO].focusInWalk;
 }
 

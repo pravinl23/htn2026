@@ -156,7 +156,7 @@ static NSDictionary *GHCleanProfile(NSDictionary *raw) {
 static NSDictionary *GHFallbackSettings(void) {
     // Same values as DEFAULT_SETTINGS in shared/src/types.ts, for the case where the core did not load.
     return @{ @"enabled": @YES, @"confidenceThreshold": @0.7, @"serverUrl": @"http://localhost:8787", @"showHud": @YES,
-              @"learningEnabled": @NO, @"answerProtectedWithDecline": @YES };
+              @"learningEnabled": @NO, @"answerProtectedWithDecline": @YES, @"acceptKey": @"right-option" };
 }
 
 static BOOL GHIsPlainHTTPURL(NSString *string) {
@@ -177,6 +177,12 @@ static NSDictionary *GHCleanSettings(NSDictionary *raw, NSDictionary *defaults) 
     }
     NSString *server = raw[@"serverUrl"];
     if ([server isKindOfClass:[NSString class]] && GHIsPlainHTTPURL(server)) settings[@"serverUrl"] = server;
+    // Which lone modifier tap accepts a ghost outside a form. Only the two Ghost knows: anything else in the
+    // file leaves the default in place rather than turning the accept key off.
+    NSString *acceptKey = raw[@"acceptKey"];
+    if ([acceptKey isKindOfClass:[NSString class]] && ([acceptKey isEqualToString:@"right-option"] || [acceptKey isEqualToString:@"right-command"])) {
+        settings[@"acceptKey"] = acceptKey;
+    }
     NSMutableArray<NSString *> *paused = [NSMutableArray array];
     if ([raw[kPausedKey] isKindOfClass:[NSArray class]]) {
         for (id item in raw[kPausedKey]) {

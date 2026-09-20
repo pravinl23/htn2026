@@ -8,18 +8,18 @@ So Ghost uses **two** keys, and picks between them by evidence rather than by a 
 
 | Key | When it accepts | Why |
 | --- | --- | --- |
-| **Tab** | When the current ghost is a value for the field that currently has focus, and the page has not been observed to handle Tab itself | This is the autocomplete case: Tab already means "take this and move on". Nothing is stolen, because Ghost is doing what the key would have done. |
-| **Tab** | Also when the ghost is an unlocked next-action PROPOSAL and focus is not in a box the user types in | Measured on the running agent: Tab did nothing at all in Messages and Spotify while the Ghost key worked, because focus in a native app sits on a list row or a sidebar and never on the ghost. Tab's own meaning in that spot is "move focus to some other control", which is a weaker version of what the proposal already offers, so taking it costs the user nothing they wanted. Focus in a text box is still theirs. |
-| **The Ghost key** (default: a tap of the **right Option key**, configurable) | Always: clicks, media controls, cross-app suggestions, anything that is not a focused field | A key nobody's page or app binds. Tapped alone it does nothing in macOS; held with another key it still behaves as a normal modifier, so nothing is taken away from the user. |
+| **Tab** | Only when the current ghost is a value for the field that currently has focus | This is the autocomplete case: Tab already means "take this and move on". Nothing is stolen, because Ghost is doing what the key would have done. Tried and reverted (2026-09-20): letting Tab also take a next-action proposal did make Tab work in Messages and Spotify, but Tab is the most overloaded key on the keyboard and a helper that takes it where an app has its own meaning for it is a bug, however convenient the good case looks. |
+| **The Ghost key** (`acceptKey` in settings.json: `right-option` by default, or `right-command`) | Always: clicks, media controls, list entries, cross-app suggestions, anything that is not a focused field | A key nobody's page or app binds. Only a LONE tap counts -- down and up inside 300 ms with no other key in between -- and the modifier event is never consumed, so holding it still behaves as a normal modifier and right Option still types accented characters. That is the whole of its conflict surface: none. |
 
 Escape always dismisses. Typing always wins. Holding the Ghost key accepts consecutive ghosts, and still stops at every guess and every locked action.
 
 ## 2. Picking the right key without a site list
 
-**What is built today (2026-09-20):** the Ghost key, and the two Tab rules in the table above. The
-observe-and-remember policy below is designed and unit-tested in `shared/src/keys` but **nothing calls it
-yet** — no origin is marked `tab: taken`, and no habit is written. The HUD names the key on the current
-ghost ("1 ghost in Spotify (right ⌥ accepts)"), which is the discoverability part of section 4 that exists.
+**What is built today (2026-09-20):** the Ghost key, configurable through `acceptKey`, and the one Tab rule
+in the table above. The observe-and-remember policy below is designed and unit-tested in `shared/src/keys`
+but **nothing calls it yet** — no origin is marked `tab: taken`, and no habit is written. In practice it is
+not needed: Tab is form-only, so there is nothing to observe. The HUD names the key on the current ghost
+("1 ghost in Spotify (right ⌥ accepts)"), which is the part of section 4 that exists.
 
 Ghost never assumes. It observes, per origin (browser) or per app (native), and remembers the result in the habits section of `docs/storage.md`:
 
@@ -37,7 +37,12 @@ Requirements for the Ghost key: reachable with the hand already on the keyboard,
 
 The right Option key meets all of them: tapped alone (down and up within 300 ms, no other key in between, no drag) it produces nothing in macOS, and Ghost can consume the tap without ever swallowing a real modifier use. The extension sees the same tap as `Alt` keydown/keyup with no intervening key.
 
-Alternatives available in settings, for people who use right Option for accented characters: `⌥Space`, `⌘'`, `F19`, double-tap `Shift`, or plain Tab everywhere (the old behaviour).
+The one alternative built is `acceptKey: "right-command"`, for anyone who would rather keep the accept key
+away from the accent modifier entirely. It has the same shape and the same guard: a lone tap, never a chord.
+
+Considered and rejected: `⌥Space` and `⌘'` are bound by real apps; `F19` does not exist on most keyboards;
+double-tapping `Shift` misfires when typing fast capitals. Every one of those has a conflict surface that a
+lone right-hand modifier tap does not.
 
 ## 4. Discoverability
 
