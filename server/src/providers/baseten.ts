@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { DecisionProvider, DecisionResult, DecisionState, Questions } from "@ghost/shared";
+import { criterionText, type DecisionProvider, type DecisionResult, type DecisionState, type Questions } from "@ghost/shared";
 import type { BasetenConfig, LlmConfig } from "../config";
 import { stripThinkBlocks } from "../llm/client";
 import { consensus, type ConsensusAnswer, type Sample } from "./consensus";
@@ -139,7 +139,8 @@ export function buildDecisionPlan(model: string, state: DecisionState, questions
         setNames.set(key, set);
         const meanings: Record<string, string | null> = {};
         options.forEach((option, i) => {
-          const description = q.criteria[option] ?? null;
+          // Jev takes structured criteria natively; this transport is a text prompt, so flatten them.
+          const description = criterionText(q.criteria[option] ?? null);
           const code = codes[i] ?? option;
           meanings[code] = code === option ? description : description ? `${option}: ${description}` : option;
         });

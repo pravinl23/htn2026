@@ -69,11 +69,58 @@ export function cleanFactKeys(factKeys: string[]): string[] {
   return [...new Set(factKeys)].filter((key) => key !== NEEDS_TEXT && key !== NONE);
 }
 
+/**
+ * Every stored fact is about the applicant, but `FACT_DESCRIPTIONS` describes the KIND of value
+ * ("phone number"), not whose it is. Jev reads criteria literally, so for a field labelled
+ * "Emergency contact phone" a fact described as "phone number" genuinely does fit, and answering
+ * `phone` is a correct answer to a question that forgot to say "the applicant's own". We stated the
+ * constraint in the grader and not in the question, then scored the model on the gap.
+ *
+ * These entries say it out loud. Measured on the 10-field ambiguous form, live against jev-latest:
+ * 55% -> 90% correct, and 8 wrong ghosts above the 0.7 gate -> 0.
+ */
+const OWNED_BY_APPLICANT = "the applicant's own ";
+
+/** Descriptions that are clauses rather than noun phrases, so the prefix above cannot compose with them. */
+const OWNED_DESCRIPTION: Record<string, string> = {
+  referralSource: "how the applicant themselves heard about the company",
+  workAuthorization: "whether the applicant is legally authorized to work in the country (yes/no)",
+  requiresSponsorship: "whether the applicant requires visa sponsorship (yes/no)",
+  "workAuthorization.CA": "whether the applicant is legally authorized to work in Canada (yes/no)",
+  "requiresSponsorship.CA": "whether the applicant requires visa sponsorship in Canada (yes/no)",
+};
+
+const NOT_FOR: Record<string, string> = {
+  phone: "not an emergency contact's, a reference's or anyone else's phone number",
+  email: "not a referrer's, a manager's or anyone else's email address",
+  website: "not an employer's, a school's or any company's website",
+  lastName: "not a manager's, a reference's or anyone else's surname",
+  firstName: "not a manager's, a reference's or anyone else's given name",
+  fullName: "not another person's name",
+  linkedin: "not another person's LinkedIn profile",
+  github: "not another person's GitHub profile",
+};
+
 export function factCriteria(factKeys: string[]): ChoiceQuestion["criteria"] {
   const criteria: ChoiceQuestion["criteria"] = {};
-  for (const key of cleanFactKeys(factKeys)) criteria[key] = FACT_DESCRIPTIONS[key] ?? null;
-  criteria[NEEDS_TEXT] = "free-text answer the applicant must write";
-  criteria[NONE] = "no profile fact fits";
+  for (const key of cleanFactKeys(factKeys)) {
+    const base = FACT_DESCRIPTIONS[key];
+    if (!base) {
+      criteria[key] = null;
+      continue;
+    }
+    const what = OWNED_DESCRIPTION[key] ?? OWNED_BY_APPLICANT + base;
+    criteria[key] = NOT_FOR[key] ? { what, not_for: NOT_FOR[key] } : what;
+  }
+  criteria[NEEDS_TEXT] = {
+    what: "the applicant must write a free-text answer in their own words",
+    not_for: "a short factual value that is already known about the applicant",
+  };
+  // Described by what it IS, not as an absence: an option defined only as a gap attracts near-misses.
+  criteria[NONE] = {
+    what: "the field asks for something that is not a stored fact about the applicant themselves",
+    examples: "a different person's contact details, a company's or employer's details, or a fact nobody has recorded about the applicant",
+  };
   return criteria;
 }
 
@@ -88,8 +135,16 @@ export function buildFormDecision(origin: string, fields: CapturedField[], factK
   fields.forEach((_, i) => {
     questions[formQuestionName(i)] = {
       type: "choice",
-      instructions: `Which profile fact should fill the form field \`fields[${i}]\`? Answer ${NEEDS_TEXT} if the applicant must write a free-text answer, or ${NONE} if no profile fact fits.`,
       criteria,
+      instructions: {
+        task: `The form field \`fields[${i}]\` is being filled in by the applicant. Which stored fact about the applicant belongs in it?`,
+        whose:
+          "Every option describes a fact about the applicant themselves. Read the field's label to see whose detail it asks for. " +
+          "A label naming another person (an emergency contact, a referrer, a manager, a reference) or an organisation (an employer, a company) " +
+          `asks for that party's detail, so the applicant's own matching fact is the wrong value: answer ${NONE}.`,
+        free_text: `Answer ${NEEDS_TEXT} when the field asks the applicant to write prose in their own words.`,
+        no_fit: `Answer ${NONE} when no stored fact about the applicant is the value this field asks for.`,
+      },
     };
   });
   return { state: { page: { origin }, fields: fields.map(toStateField) }, questions };

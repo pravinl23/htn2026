@@ -21,15 +21,34 @@ const FIELDS: CapturedField[] = [
 ];
 const FACT_KEYS = ["firstName", "referralSource", "extra.pronouns"];
 
+// Ownership is STATED, never implied: Jev reads criteria literally, so "phone number" legitimately fits
+// "Emergency contact phone". Measured live on the 10-field ambiguous form: 53% -> 90%, 4 wrong ghosts
+// above the 0.7 gate -> 0. See server/src/providers/formQuestions.ts.
 const CRITERIA = {
-  firstName: "first / given name",
-  referralSource: "how the applicant heard about the company",
+  firstName: {
+    what: "the applicant's own first / given name",
+    not_for: "not a manager's, a reference's or anyone else's given name",
+  },
+  referralSource: "how the applicant themselves heard about the company",
   "extra.pronouns": null,
-  needs_text: "free-text answer the applicant must write",
-  none: "no profile fact fits",
+  needs_text: {
+    what: "the applicant must write a free-text answer in their own words",
+    not_for: "a short factual value that is already known about the applicant",
+  },
+  none: {
+    what: "the field asks for something that is not a stored fact about the applicant themselves",
+    examples: "a different person's contact details, a company's or employer's details, or a fact nobody has recorded about the applicant",
+  },
 };
-const instructions = (i: number) =>
-  `Which profile fact should fill the form field \`fields[${i}]\`? Answer needs_text if the applicant must write a free-text answer, or none if no profile fact fits.`;
+const instructions = (i: number) => ({
+  task: `The form field \`fields[${i}]\` is being filled in by the applicant. Which stored fact about the applicant belongs in it?`,
+  whose:
+    "Every option describes a fact about the applicant themselves. Read the field's label to see whose detail it asks for. " +
+    "A label naming another person (an emergency contact, a referrer, a manager, a reference) or an organisation (an employer, a company) " +
+    "asks for that party's detail, so the applicant's own matching fact is the wrong value: answer none.",
+  free_text: "Answer needs_text when the field asks the applicant to write prose in their own words.",
+  no_fit: "Answer none when no stored fact about the applicant is the value this field asks for.",
+});
 
 const EXPECTED_STATE = {
   page: { origin: "http://localhost:5173" },

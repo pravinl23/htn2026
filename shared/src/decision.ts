@@ -10,11 +10,36 @@ export interface NoulQuestion {
   criteria?: { true: string; false: string };
 }
 
+/**
+ * A structured option description. Jev reads criteria literally rather than inferring intent, so
+ * `not_for` is the only way to exclude a near-miss the option would otherwise legitimately cover.
+ */
+export interface CriterionDetail {
+  what: string;
+  not_for?: string;
+  examples?: string;
+}
+
+/** A structured instruction. `task` is the question itself; the other clauses qualify it. */
+export interface ChoiceInstructions {
+  task: string;
+  [clause: string]: string;
+}
+
 export interface ChoiceQuestion {
   type: "choice";
-  instructions: string;
+  instructions: string | ChoiceInstructions;
   /** Option name -> description (or null). Max 255 options. Include "none" when the list may not cover the input. */
-  criteria: Record<string, string | null>;
+  criteria: Record<string, string | null | CriterionDetail>;
+}
+
+/** Flattens a criterion for providers whose transport is a text prompt rather than Jev's typed criteria. */
+export function criterionText(criterion: string | null | CriterionDetail): string | null {
+  if (criterion === null || typeof criterion === "string") return criterion;
+  const parts = [criterion.what];
+  if (criterion.not_for) parts.push(`not for: ${criterion.not_for}`);
+  if (criterion.examples) parts.push(`for example: ${criterion.examples}`);
+  return parts.join("; ");
 }
 
 export interface ScoreQuestion {
