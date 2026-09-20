@@ -190,6 +190,7 @@ static NSData *CtlReadBody(NSURLRequest *request) {
 
 - (void)tab { [self.controller eventTap:self.controller.eventTap didConsumeTab:GHKeyDecisionAccept isRepeat:NO]; }
 - (void)holdTab { [self.controller eventTap:self.controller.eventTap didConsumeTab:GHKeyDecisionAccept isRepeat:YES]; }
+- (void)ghostKey { [self.controller eventTapDidTapGhostKey:self.controller.eventTap]; }
 
 - (NSString *)currentLabel {
     GHGhost *current = self.controller.walk.current;
@@ -721,6 +722,33 @@ GH_TEST(controller_focus_moved_during_a_write_is_left_where_the_user_put_it) {
     GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"outcome"], @"handed-back");
     GH_ASSERT_EQUAL_INT(rig.handedBack, 1);
     GH_ASSERT_FALSE(rig.nodes[@"Submit application"].isFocused);
+}
+
+/// The other half of the same rule. Tab is handed back when focus has left the walk, because Tab belonged to
+/// whatever the user was focused on. A lone right Option belongs to nobody, so it is not handed back -- and
+/// requiring focus is exactly what made the accept do nothing in every native app, where focus sits on a list
+/// row or a sidebar while the ghost is on a toolbar button.
+GH_TEST(controller_the_ghost_key_accepts_even_when_focus_is_elsewhere) {
+    RIG(rig, nil);
+    [rig buildFormWithAreas:@[]];
+    GHFakeAXNode *elsewhere = [GHFakeAXNode nodeWithRole:@"AXTextField" title:nil frame:CGRectMake(600, 70, 200, 30)];
+    [rig.window addChild:elsewhere];   // never captured: focus here is "not in the walk"
+    [rig rescan];
+    rig.controller.focusedNodeProvider = ^id<GHAXNode> { return elsewhere; };
+    [rig.controller noteFocusedNode:elsewhere];
+    GH_ASSERT_FALSE([rig.controller.eventTap publishedSnapshot].focusInWalk);
+
+    // A Tab from there is the app's.
+    [rig tab];
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"outcome"], @"handed-back");
+    GH_ASSERT_EQUAL_INT(rig.handedBack, 1);
+    GH_ASSERT_EQUAL_INT(rig.nodes[@"First name"].value.length, 0);
+
+    // The Ghost key is not.
+    [rig ghostKey];
+    GH_ASSERT_EQUAL_OBJECTS(rig.controller.lastStep[@"outcome"], @"accepted");
+    GH_ASSERT_EQUAL_INT(rig.handedBack, 1);   // nothing was given back to the app
+    GH_ASSERT(rig.nodes[@"First name"].value.length > 0);
 }
 
 #pragma mark - lifecycle

@@ -91,6 +91,7 @@ static const NSUInteger kUploadVerifyTries = 8;
     BOOL _drainIsRepeat;
     BOOL _stepMayHandBack;   // the first step of a fresh, unqueued press: a Tab that was not Ghost's goes back to the app
     BOOL _stepDirect;        // the step in flight follows the user's press at once (no draft wait, no sequence)
+    BOOL _stepFromGhostKey;  // the accept came from the Ghost key, which no app binds and nothing can take back
     BOOL _rescanDeferred;
     NSString *_walkBundleId;   // the app whose window the walk belongs to (live captures only)
     NSString *_waitingDraft;
@@ -357,7 +358,13 @@ static const NSUInteger kUploadVerifyTries = 8;
     if (!_busy && _gateReason.length && _walk.ghosts.count > 0 && !_walk.error) return _gateReason;
     NSUInteger unlocked = 0;
     for (GHGhost *ghost in _walk.ghosts) if (!ghost.locked) unlocked++;
-    if (unlocked > 0) return [NSString stringWithFormat:@"%lu ghost%@ in %@", (unsigned long)unlocked, unlocked == 1 ? @"" : @"s", app];
+    if (unlocked > 0) {
+        // Tab only accepts while focus is on the ghost's own field, which is a form. Everywhere else -- a list
+        // row, a sidebar, a player -- the Ghost key is the one that works, so the HUD says so rather than
+        // leaving the user pressing a key the app has already taken.
+        NSString *key = [_walk.current.action isEqualToString:GHGhostActionClick] ? @" (right ⌥ accepts)" : @"";
+        return [NSString stringWithFormat:@"%lu ghost%@ in %@%@", (unsigned long)unlocked, unlocked == 1 ? @"" : @"s", app, key];
+    }
     if (_walk.current.locked) return [NSString stringWithFormat:@"Parked on the locked action in %@ (Enter confirms)", app];
     if (_walk.accepted > 0) return [NSString stringWithFormat:@"Filled %ld field%@ in %@", (long)_walk.accepted, _walk.accepted == 1 ? @"" : @"s", app];
     return [NSString stringWithFormat:@"No ghosts in %@", app];
@@ -1214,7 +1221,12 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
 #pragma mark - GHEventTapDelegate
 
 - (void)eventTap:(GHEventTap *)tap didConsumeTab:(GHKeyDecision)decision isRepeat:(BOOL)isRepeat {
+    [self acceptFromKey:decision isRepeat:isRepeat ghostKey:NO];
+}
+
+- (void)acceptFromKey:(GHKeyDecision)decision isRepeat:(BOOL)isRepeat ghostKey:(BOOL)ghostKey {
     if (!_running && !self.assumesActive) return;
+    if (ghostKey) _stepFromGhostKey = YES;
     if (_busy) {
         // A fresh press during a write is queued (the tap only queues it while focus is in the walk); a repeat is
         // dropped. Every queued press is checked against live focus again right before its own step runs.
@@ -1238,9 +1250,15 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
  *
  * Deliberately simple: it takes the same path as an accepted Tab, including the lock rule, so a locked
  * action still cannot be taken by a tap.
+ *
+ * One thing it does NOT share with Tab: the focus gate. A Tab whose focus has moved out of the walk belongs to
+ * the thing the user is focused on and is handed back. A lone right Option belongs to nobody, so there is
+ * nothing to hand back -- and insisting on focus is what made the accept do nothing in every native app, where
+ * focus sits on a list row while the ghost is on a toolbar button. Only "another app came to the front" still
+ * stops it, because then the capture is stale.
  */
 - (void)eventTapDidTapGhostKey:(GHEventTap *)tap {
-    [self eventTap:tap didConsumeTab:GHKeyDecisionAccept isRepeat:NO];
+    [self acceptFromKey:GHKeyDecisionAccept isRepeat:NO ghostKey:YES];
 }
 
 - (void)eventTapDidConsumeEscape:(GHEventTap *)tap {
@@ -1308,6 +1326,7 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
     _busy = NO;
     _pendingTabs = 0;
     _stepMayHandBack = NO;
+    _stepFromGhostKey = NO;
     [self publish];
     if (_rescanDeferred) {
         _rescanDeferred = NO;
@@ -1325,6 +1344,8 @@ static BOOL GHNodeIsUnreadable(id<GHAXNode> node) {
     if (![self canReadLiveFocus]) return NO;
     if ([self walkAppLeftTheFront]) { [_walk noteFocus:GHWalkFocusElsewhere]; return YES; }
     [_walk noteFocus:[self liveFocusSignature]];
+    // The Ghost key has nothing to give back to the app, so where focus happens to be does not decide it.
+    if (_stepFromGhostKey) return NO;
     return ![_walk snapshotWithActive:YES currentVisible:YES busy:NO].focusInWalk;
 }
 

@@ -3,6 +3,7 @@
 #import "GHEventTap.h"
 #import "GHKeyPoster.h"
 #import "GHLog.h"
+#import "GHGeometry.h"
 #import "GHOpenPanelDriver.h"
 #import <stdatomic.h>
 
@@ -11,6 +12,7 @@ NSString *const GHWriteMethodValue = @"value";
 NSString *const GHWriteMethodSelectedText = @"selected-text";
 NSString *const GHWriteMethodTyping = @"typing";
 NSString *const GHWriteMethodPress = @"press";
+NSString *const GHWriteMethodClick = @"click";
 NSString *const GHWriteMethodOpenPanel = @"open-panel";
 NSString *const GHWriteMethodComboBox = @"combobox";
 NSString *const GHWriteMethodFocus = @"focus";
@@ -103,8 +105,18 @@ static pid_t GHPidOfNode(id<GHAXNode> node) {
     return pid;
 }
 
+/// Roles whose AXPress opens a menu and then blocks until it closes, so a timeout there means "it worked".
+static BOOL GHRoleOpensAMenu(NSString *role) {
+    return [role isEqualToString:kRolePopUp] || [role isEqualToString:@"AXMenuButton"] || [role isEqualToString:@"AXComboBox"];
+}
+
 @implementation GHAXLiveActuator {
     pid_t _menuPID;
+    CGEventSourceRef _mouseSource;
+}
+
+- (void)dealloc {
+    if (_mouseSource) CFRelease(_mouseSource);
 }
 
 - (instancetype)init {
@@ -180,8 +192,58 @@ static pid_t GHPidOfNode(id<GHAXNode> node) {
     if (!element) return NO;
     _menuPID = GHPidOfNode(node);
     AXError error = AXUIElementPerformAction(element, kAXPressAction);
+    if (error == kAXErrorSuccess) return YES;
     // A popup runs its menu inside the press: the call times out while the menu is open, and that is a success.
-    return error == kAXErrorSuccess || error == kAXErrorCannotComplete;
+    // Nothing ELSE gets that benefit of the doubt -- kAXErrorCannotComplete is also what an app that never
+    // answered returns, and counting it as a success is how a press that did nothing was logged ok=1.
+    return error == kAXErrorCannotComplete && GHRoleOpensAMenu(node.role);
+}
+
+- (BOOL)nodeAcceptsPress:(id<GHAXNode>)node {
+    AXUIElementRef element = node.axElement;
+    if (!element) return NO;
+    CFArrayRef names = NULL;
+    if (AXUIElementCopyActionNames(element, &names) != kAXErrorSuccess || !names) return NO;
+    BOOL found = [(__bridge NSArray *)names containsObject:(__bridge NSString *)kAXPressAction];
+    CFRelease(names);
+    return found;
+}
+
+- (BOOL)clickNode:(id<GHAXNode>)node {
+    if (GHRealKeyEventsForbidden()) return NO;   // the test runner never moves the real pointer
+    CGRect frame = node.frame;
+    if (!GHRectIsUsable(frame)) return NO;
+    if (!_mouseSource) {
+        _mouseSource = CGEventSourceCreate(kCGEventSourceStatePrivate);
+        if (!_mouseSource) return NO;
+        CGEventSourceSetUserData(_mouseSource, GHSyntheticEventUserData);
+    }
+    CGPoint target = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame));
+    // Where the user left the pointer, so it can be put back: a ghost must not steal the mouse.
+    CGEventRef probe = CGEventCreate(NULL);
+    CGPoint origin = probe ? CGEventGetLocation(probe) : target;
+    if (probe) CFRelease(probe);
+
+    // A move first: many controls only arm themselves once the pointer is over them (hover state, tracking area).
+    BOOL ok = YES;
+    const CGEventType steps[] = { kCGEventMouseMoved, kCGEventLeftMouseDown, kCGEventLeftMouseUp };
+    for (NSUInteger i = 0; i < sizeof(steps) / sizeof(steps[0]) && ok; i++) {
+        CGEventRef event = CGEventCreateMouseEvent(_mouseSource, steps[i], target, kCGMouseButtonLeft);
+        if (!event) { ok = NO; break; }
+        if (steps[i] != kCGEventMouseMoved) CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
+        CGEventSetIntegerValueField(event, kCGEventSourceUserData, GHSyntheticEventUserData);
+        CGEventPost(kCGHIDEventTap, event);
+        CFRelease(event);
+    }
+    if (!CGPointEqualToPoint(origin, target)) {
+        CGEventRef back = CGEventCreateMouseEvent(_mouseSource, kCGEventMouseMoved, origin, kCGMouseButtonLeft);
+        if (back) {
+            CGEventSetIntegerValueField(back, kCGEventSourceUserData, GHSyntheticEventUserData);
+            CGEventPost(kCGHIDEventTap, back);
+            CFRelease(back);
+        }
+    }
+    return ok;
 }
 
 - (BOOL)dismissMenuOfPopup:(id<GHAXNode>)popup stillWanted:(BOOL (^)(void))stillWanted {
@@ -207,6 +269,7 @@ static pid_t GHPidOfNode(id<GHAXNode> node) {
 
 @implementation GHFakeAXActuator {
     NSMutableArray<id<GHAXNode>> *_pressed;
+    NSMutableArray<id<GHAXNode>> *_clicked;
     NSMutableArray<id<GHAXNode>> *_focusRequests;
     __weak GHFakeAXNode *_selectedAll;
 }
@@ -216,9 +279,12 @@ static pid_t GHPidOfNode(id<GHAXNode> node) {
         _valueSticks = YES;
         _typingSticks = YES;
         _pressWorks = YES;
+        _publishesPress = YES;
+        _clickWorks = YES;
         _focusWorks = YES;
         _scrollWorks = YES;
         _pressed = [NSMutableArray array];
+        _clicked = [NSMutableArray array];
         _focusRequests = [NSMutableArray array];
         _goneNodes = [NSMutableSet set];
     }
@@ -311,6 +377,21 @@ static pid_t GHPidOfNode(id<GHAXNode> node) {
     }
     return YES;
 }
+
+- (BOOL)nodeAcceptsPress:(id<GHAXNode>)node {
+    return [self fake:node] != nil && self.publishesPress;
+}
+
+- (BOOL)clickNode:(id<GHAXNode>)node {
+    GHFakeAXNode *fake = [self fake:node];
+    if (!fake) return NO;
+    [_clicked addObject:node];
+    if (!self.clickWorks) return NO;
+    // A real click reaches the app the same way a press would have, so the visible effect is the same.
+    return [self pressNode:node];
+}
+
+- (NSArray<id<GHAXNode>> *)clickedNodes { return [_clicked copy]; }
 
 - (BOOL)dismissMenuOfPopup:(id<GHAXNode>)popup stillWanted:(BOOL (^)(void))stillWanted {
     if (stillWanted && !stillWanted()) return NO;
@@ -564,10 +645,20 @@ static BOOL GHSameChoice(NSString *shown, GHGhost *ghost) {
     // type in). Nothing is typed and nothing is filled either way -- the click ghost carries no value.
     BOOL typeable = [node.role isEqualToString:kRoleTextField] || [node.role isEqualToString:kRoleTextArea] ||
                     [node.subrole isEqualToString:kRoleSearchField];
-    NSString *method = typeable ? GHWriteMethodFocus : GHWriteMethodPress;
-    BOOL ok = typeable ? [self.actuator focusNode:node] : [self.actuator pressNode:node];
-    if (!ok) { finish([GHWriteResult failure:GHWriteReasonDidNotHold method:method]); return; }
-    finish([GHWriteResult okWithMethod:method]);
+    if (typeable) {
+        if (![self.actuator focusNode:node]) { finish([GHWriteResult failure:GHWriteReasonDidNotHold method:GHWriteMethodFocus]); return; }
+        finish([GHWriteResult okWithMethod:GHWriteMethodFocus]);
+        return;
+    }
+    // AXPress is the app's own default action and the polite way in, but most of the desktop does not implement
+    // it: a Finder row, a Spotify tile, a Discord channel, anything custom-drawn. Ask whether the element
+    // publishes the action at all, and click it for real when it does not, or when the press was refused.
+    if ([self.actuator nodeAcceptsPress:node] && [self.actuator pressNode:node]) {
+        finish([GHWriteResult okWithMethod:GHWriteMethodPress]);
+        return;
+    }
+    if ([self.actuator clickNode:node]) { finish([GHWriteResult okWithMethod:GHWriteMethodClick]); return; }
+    finish([GHWriteResult failure:GHWriteReasonDidNotHold method:GHWriteMethodPress]);
 }
 
 #pragma mark upload, lazy select

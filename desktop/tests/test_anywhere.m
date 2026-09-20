@@ -645,9 +645,13 @@ GH_TEST(anywhere_vision_cache_key_changes_when_a_control_moves) {
 /// press path; nothing here can type, fill or drive a panel.
 @interface GHPressOnlyActuator : NSObject <GHAXActuating>
 @property (nonatomic) NSUInteger presses;
+@property (nonatomic) NSUInteger clicks;
+/// NO makes this element one of the many that publish no AXPress at all, so the writer must click it.
+@property (nonatomic) BOOL publishesPress;
 @end
 
 @implementation GHPressOnlyActuator
+- (instancetype)init { if ((self = [super init])) _publishesPress = YES; return self; }
 - (id<GHAXNode>)refreshedNode:(id<GHAXNode>)node { return node; }
 - (BOOL)focusNode:(id<GHAXNode>)node { return YES; }
 - (BOOL)setValue:(NSString *)value ofNode:(id<GHAXNode>)node { return NO; }
@@ -655,6 +659,8 @@ GH_TEST(anywhere_vision_cache_key_changes_when_a_control_moves) {
 - (BOOL)replaceSelectionWithText:(NSString *)text inNode:(id<GHAXNode>)node { return NO; }
 - (BOOL)typeText:(NSString *)text intoNode:(id<GHAXNode>)node { return NO; }
 - (BOOL)pressNode:(id<GHAXNode>)node { self.presses++; return YES; }
+- (BOOL)nodeAcceptsPress:(id<GHAXNode>)node { return self.publishesPress; }
+- (BOOL)clickNode:(id<GHAXNode>)node { self.clicks++; return YES; }
 - (BOOL)dismissMenuOfPopup:(id<GHAXNode>)popup stillWanted:(BOOL (^)(void))stillWanted { return NO; }
 - (BOOL)scrollToVisible:(id<GHAXNode>)node { return NO; }
 @end
@@ -708,6 +714,61 @@ GH_TEST(anywhere_an_unlocked_proposal_is_pressed_exactly_once_and_only_with_a_li
     field.locked = YES;
     GH_ASSERT_EQUAL_OBJECTS(WriteClick(writer, ghost, field, node).reason, GHWriteReasonLocked);
     GH_ASSERT_EQUAL_INT(actuator.presses, 1);
+}
+
+/// Most of the desktop does not implement AXPress: a Finder row, a Spotify tile, a Discord channel, anything
+/// custom-drawn. Before this, `press` was the only actuation Ghost had, and on all of those the accept did
+/// nothing at all -- and still reported ok, because kAXErrorCannotComplete was being counted as success.
+GH_TEST(anywhere_a_control_that_does_not_implement_press_is_really_clicked) {
+    GHFakeAXNode *node = Node(@"AXRow", nil, CGRectMake(0, 120, 300, 64));
+    GHField *field = [GHField fieldWithSignature:@"AXRow|tahseen|0" label:@"Tahseen Rayhan" kind:GHKindItem];
+    field.rect = node.frame;
+    GHGhost *ghost = [[GHGhost alloc] init];
+    ghost.signature = field.signature;
+    ghost.action = GHGhostActionClick;
+    ghost.displayText = field.label;
+    ghost.confidence = 0.8;
+
+    GHPressOnlyActuator *actuator = [[GHPressOnlyActuator alloc] init];
+    actuator.publishesPress = NO;   // the element lists no AXPress at all
+    GHWriter *writer = [[GHWriter alloc] initWithActuator:actuator];
+    writer.isNodeSensitive = ^BOOL(id<GHAXNode> n) { return NO; };
+    writer.isNodeLocked = ^BOOL(id<GHAXNode> n) { return NO; };
+    writer.after = ^(NSTimeInterval delay, dispatch_block_t block) { block(); };
+
+    GHWriteResult *clicked = WriteClick(writer, ghost, field, node);
+    GH_ASSERT(clicked.ok);
+    GH_ASSERT_EQUAL_OBJECTS(clicked.method, GHWriteMethodClick);
+    GH_ASSERT_EQUAL_INT(actuator.clicks, 1);
+    GH_ASSERT_EQUAL_INT(actuator.presses, 0);   // never pressed something that cannot be pressed
+
+    // And a locked row is still never touched, by either route.
+    field.locked = YES;
+    GH_ASSERT_EQUAL_OBJECTS(WriteClick(writer, ghost, field, node).reason, GHWriteReasonLocked);
+    GH_ASSERT_EQUAL_INT(actuator.clicks, 1);
+}
+
+/// The real click is the fallback, never the first choice: AXPress is the app's own default action, it needs
+/// no pointer, and it cannot land on whatever happens to be under the mouse.
+GH_TEST(anywhere_press_is_preferred_and_the_click_is_the_fallback) {
+    GHFakeAXNode *node = Node(@"AXButton", @"Play", CGRectMake(700, 400, 36, 36));
+    GHField *field = [GHField fieldWithSignature:@"AXButton|play|0" label:@"Play" kind:GHKindButton];
+    field.rect = node.frame;
+    GHGhost *ghost = [[GHGhost alloc] init];
+    ghost.signature = field.signature;
+    ghost.action = GHGhostActionClick;
+    ghost.displayText = field.label;
+
+    GHPressOnlyActuator *actuator = [[GHPressOnlyActuator alloc] init];
+    GHWriter *writer = [[GHWriter alloc] initWithActuator:actuator];
+    writer.isNodeSensitive = ^BOOL(id<GHAXNode> n) { return NO; };
+    writer.isNodeLocked = ^BOOL(id<GHAXNode> n) { return NO; };
+    writer.after = ^(NSTimeInterval delay, dispatch_block_t block) { block(); };
+
+    GHWriteResult *pressed = WriteClick(writer, ghost, field, node);
+    GH_ASSERT_EQUAL_OBJECTS(pressed.method, GHWriteMethodPress);
+    GH_ASSERT_EQUAL_INT(actuator.presses, 1);
+    GH_ASSERT_EQUAL_INT(actuator.clicks, 0);
 }
 
 GH_TEST(anywhere_a_search_box_proposal_moves_the_cursor_and_presses_nothing) {
