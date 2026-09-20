@@ -17,8 +17,18 @@ static const NSUInteger kMediaControlLift = 3;
 static const CGFloat kPriceMargin = 120.0;
 /// A repeated sibling structure needs at least this many members to be a list rather than a coincidence.
 static const NSUInteger kMinListMembers = 3;
-/// How far up from a control its list membership is looked for (the row itself, or the tile around it).
-static const NSUInteger kListLift = 4;
+/**
+ * How far up from a control its list membership is looked for (the row itself, or the tile around it).
+ *
+ * Four was enough for a native row and nowhere near enough for the web. Measured on a real video site: forty
+ * video links on screen, the grid detected, and not one link attached to it -- every tile buries its link
+ * under half a dozen wrapper elements, so the walk gave up before it got there, the links classified
+ * `unknown`, and the only thing left to propose was the search box.
+ *
+ * The walk stops at the FIRST ancestor that is in a list, so a deeper ceiling cannot attach a control to a
+ * list that something nearer already claimed; it only reaches lists that were previously out of range.
+ */
+static const NSUInteger kListLift = 10;
 /// A badge is a small number, not a year or a price.
 static const NSUInteger kMaxBadgeCount = 999;
 /// What one control is "worth" in characters when the page's text density is measured.
