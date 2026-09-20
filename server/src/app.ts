@@ -5,7 +5,6 @@ import { ALLOWED_ORIGIN, localOnly } from "./lib/guard";
 import { instrumentApp } from "./observability/index";
 import { registerCommandRoutes } from "./routes/command";
 import { registerExecuteRoutes } from "./routes/execute";
-import { registerFactsRoutes } from "./routes/facts";
 import { registerWalkTelemetryRoutes } from "./routes/walkTelemetry";
 import { registerLoopRoutes } from "./routes/loop";
 import { registerMetricsRoutes } from "./routes/metrics";
@@ -13,7 +12,6 @@ import { registerPredictRoutes } from "./routes/predict";
 import { registerPresenceRoutes } from "./routes/presence";
 import { registerTextRoutes } from "./routes/text";
 import { registerVisionRoutes } from "./routes/vision";
-import { registerWorkflowRoutes } from "./routes/workflows";
 
 export function createApp(config: ServerConfig = loadConfig()): Hono {
   const app = new Hono();
@@ -29,9 +27,7 @@ export function createApp(config: ServerConfig = loadConfig()): Hono {
   registerPresenceRoutes(app, config); // /v1/presence (extension and desktop heartbeats)
   registerLoopRoutes(app, config, observability.loop); // /v1/loop/synthesize
   registerExecuteRoutes(app, config); // /v1/executors, /v1/loop/compile, /v1/loop/preview, /v1/loop/execute (+ DELETE /v1/loop/execute/:runId)
-  registerWorkflowRoutes(app, config); // /v1/workflows/* + /v1/composio/*
   registerCommandRoutes(app, config); // /v1/predict/command (terminal ghost)
-  registerFactsRoutes(app, config); // /v1/facts, /v1/facts/scan (build the fact graph from the user's own sources)
   registerVisionRoutes(app, config, observability.vision); // /v1/vision, /v1/vision/label, /v1/vision/locate (OpenAI vision fallback, docs/openai.md)
   return app;
 }

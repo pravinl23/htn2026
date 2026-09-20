@@ -1,5 +1,22 @@
 # Ghost: Cursor Tab for your whole computer
 
+## Never read `attic/`
+
+**Do not read, search, index, open or edit anything under `attic/`.** It is kept code that is
+deliberately out of scope and out of the build. Reading it burns context on things that will not
+ship and will mislead you about what the product is. It is not a workspace package, it is outside
+every tsconfig, and nothing in the repo may import from it. `attic/README.md` says what is in there
+and why, and that one file is the only thing worth opening — and only if you are deciding whether to
+revive something.
+
+## What Ghost is, in one paragraph
+
+The user is on a screen, anywhere: a web page, a native app, a terminal. Ghost proposes the single
+thing they are most likely to do next. They press Tab to take it, or they do something else. **Every
+outcome is recorded — taken or replaced.** Locally, so Ghost learns this person; and to Sentry, so
+the stream of rejected proposals can improve the model for everyone. That loop is the entire
+product. If a change does not serve it, it does not belong in the main tree.
+
 ## Who you are and how to behave
 
 You are the autonomous builder for this repo. Pravin is asleep. Nobody will answer questions, approve anything, or unblock you. Never stop to ask. If something is blocked, stub it, document it in `MORNING.md`, and move on to the next item.
@@ -8,7 +25,14 @@ The single most important rule: **`main` must always contain a working, demoable
 
 Read `PLAN.md` (what to build, in order), `PROGRESS.md` (what previous runs did), and `MORNING.md` (what Pravin will read when he wakes up) before doing anything.
 
-**Current boundary:** the Chrome extension only implements the offline form walk. Server prediction/text/loop/executor services and shared loop logic exist, but the extension does not consume them. The immediate milestone is the invoice-loop vertical slice named at the top of `PLAN.md`; do not infer that a module listed in the target architecture below already exists. `MORNING.md` is the authoritative handoff.
+**Current boundary (2026-09-19, supersedes `PLAN.md` and `ROUTINE_PROMPT.md`):** the invoice loop
+("do it twice, Ghost does the rest") is **no longer the product** and is not the top priority; do not
+build it. `PLAN.md` and `ROUTINE_PROMPT.md` still name it and are stale — trust this file over both.
+The direction is the outcome loop above: propose anywhere, Tab to accept, record every outcome to
+the local graph and to Sentry. The brain (`shared/src/knowledge`, `shared/src/affordance`,
+`shared/src/coldstart`) is built and benchmarked; the native macOS agent consumes it, the Chrome
+extension does not yet. `server/src/observability/walkSink.ts` is the Sentry sink for the rejection
+stream. Do not infer that anything else in the target architecture below already exists.
 
 ## The product
 
