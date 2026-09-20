@@ -601,8 +601,12 @@ static const NSUInteger kUploadVerifyTries = 8;
     NSArray<NSDictionary *> *offline = (_orderedFields.count && [self windowLooksLikeAForm]) ? [_core mapFields:_orderedFields factKeys:factKeys] : @[];
     NSMutableArray<NSDictionary *> *answers = [NSMutableArray array];
     for (NSString *signature in _served) if (![_pinned containsObject:signature]) [answers addObject:_served[signature]];
+    // Nothing is filled in outside a form. Gating only the INPUTS was not enough: with no assignments at
+    // all the core still answered a select of its own accord, which is how an account menu in a chat client
+    // -- an AXPopUpButton whose two children look like options -- got a ghost reading "Max", and why taking
+    // it failed with `option-not-found`. There was never an option to find: it is a menu, not a question.
     NSArray<NSDictionary *> *ghostObjects = @[];
-    if (_orderedFields.count > 0) {
+    if (_orderedFields.count > 0 && [self windowLooksLikeAForm]) {
         ghostObjects = answers.count > 0
             ? [_core upgradeGhostsForFields:_orderedFields served:answers profile:profile settings:settings source:[self ghostSource] options:options]
             : [_core ghostsForFields:_orderedFields assignments:offline profile:profile settings:settings source:@"offline" options:options];
@@ -636,8 +640,15 @@ static const NSUInteger kUploadVerifyTries = 8;
     [self requestPredictionWithFactKeys:factKeys];
     [self askVisionToNameTheUnnamed];
 
-    NSString *summary = [NSString stringWithFormat:@"fields=%lu ghosts=%lu locked=%d source=%@", (unsigned long)_orderedFields.count,
-                         (unsigned long)_walk.ghosts.count, _walk.ghosts.lastObject.locked, [self ghostSource]];
+    // What the ghosts ARE, not just how many: an action and where it came from, per ghost. Codes only --
+    // never a label, never a value. Without this, working out which path produced a wrong ghost meant
+    // guessing, and guessing wrong three times is how this line came to exist.
+    NSMutableArray<NSString *> *shapes = [NSMutableArray array];
+    for (GHGhost *ghost in _walk.ghosts) {
+        [shapes addObject:[NSString stringWithFormat:@"%@/%@%@", ghost.action ?: @"?", ghost.source ?: @"?", ghost.locked ? @"/locked" : @""]];
+    }
+    NSString *summary = [NSString stringWithFormat:@"fields=%lu ghosts=%lu [%@] source=%@", (unsigned long)_orderedFields.count,
+                         (unsigned long)_walk.ghosts.count, [shapes componentsJoinedByString:@" "], [self ghostSource]];
     if (![summary isEqualToString:_lastRescanLog ?: @""]) {
         _lastRescanLog = summary;
         GHLog(@"controller: rescan %@ in %@ (%.0f ms)", summary, self.accessibility.frontmostBundleIdentifier ?: @"?", [_latencyMs doubleValue]);
