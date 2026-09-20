@@ -9,7 +9,7 @@ So Ghost uses **two** keys, and picks between them by evidence rather than by a 
 | Key | When it accepts | Why |
 | --- | --- | --- |
 | **Tab** | Only when the current ghost is a value for the field that currently has focus | This is the autocomplete case: Tab already means "take this and move on". Nothing is stolen, because Ghost is doing what the key would have done. Tried and reverted (2026-09-20): letting Tab also take a next-action proposal did make Tab work in Messages and Spotify, but Tab is the most overloaded key on the keyboard and a helper that takes it where an app has its own meaning for it is a bug, however convenient the good case looks. |
-| **The Ghost key** (`acceptKey` in settings.json: `right-option` by default, or `right-command`) | Always: clicks, media controls, list entries, cross-app suggestions, anything that is not a focused field | A key nobody's page or app binds. Only a LONE tap counts -- down and up inside 300 ms with no other key in between -- and the modifier event is never consumed, so holding it still behaves as a normal modifier and right Option still types accented characters. That is the whole of its conflict surface: none. |
+| **The Ghost key** (`acceptKey` in settings.json: `right-command` by default, or `right-option`) | Always: clicks, media controls, list entries, cross-app suggestions, anything that is not a focused field | A key nobody's page or app binds. Only a LONE tap counts -- down and up inside 300 ms with no other key in between -- and the modifier event is never consumed, so holding it still behaves as a normal modifier. |
 
 Escape always dismisses. Typing always wins. Holding the Ghost key accepts consecutive ghosts, and still stops at every guess and every locked action.
 
@@ -31,19 +31,31 @@ Ghost never assumes. It observes, per origin (browser) or per app (native), and 
 
 This is the same "observe, then remember" pattern as `docs/answers.md`: no hard-coded site knowledge, one correction teaches it.
 
-## 3. Why the right Option tap
+## 3. Why the right Command tap
 
-Requirements for the Ghost key: reachable with the hand already on the keyboard, unused by macOS and by common apps, harmless if pressed by accident, and capturable by a `CGEventTap` in the native agent and by a `keydown/keyup` pair in the extension.
+Requirements for the Ghost key: reachable with the hand already on the keyboard, unused by macOS and by common apps, harmless if pressed by accident, and capturable by a `CGEventTap`.
 
-The right Option key meets all of them: tapped alone (down and up within 300 ms, no other key in between, no drag) it produces nothing in macOS, and Ghost can consume the tap without ever swallowing a real modifier use. The extension sees the same tap as `Alt` keydown/keyup with no intervening key.
+**Right Option was the first choice and it was wrong**, which only showed up on a real machine, pressing it
+repeatedly rather than once:
 
-The one alternative built is `acceptKey: "right-command"`, for anyone who would rather keep the accept key
-away from the accent modifier entirely. It has the same shape and the same guard: a lone tap, never a chord.
+- macOS toggles **Mouse Keys** when Option is pressed five times. That is a system accessibility shortcut,
+  on by default, and spamming the accept key trips it.
+- Apps bind a **double tap of Option** as a global hotkey. Claude's own desktop app does, so the quick-entry
+  bar kept appearing over whatever Ghost was proposing.
+
+Neither shows up when you tap the key once, which is exactly why it survived the first round of testing.
+
+Right Command has neither problem: macOS answers nothing to a lone right Command tap, no count of them means
+anything, and it is not the accent modifier either. Right Option stays available as
+`acceptKey: "right-option"` for anyone who does not run into either. Both have the same guard -- a lone tap,
+never a chord -- so holding either one is untouched.
 
 Considered and rejected: `⌥Space` and `⌘'` are bound by real apps; `F19` does not exist on most keyboards;
-double-tapping `Shift` misfires when typing fast capitals. Every one of those has a conflict surface that a
-lone right-hand modifier tap does not.
+double-tapping `Shift` misfires when typing fast capitals.
 
 ## 4. Discoverability
 
-A ghost's hint chip names its key: "Tab" or "⌥ tap". The first three times the Ghost key is the accept key on a new machine, the HUD adds one line: "Press right ⌥ to accept". The options page and the menu bar show the current key and let the user change it in one click. Nothing about this is silent: a suggestion the user cannot accept is worse than no suggestion.
+The status line names the key that is actually set: "1 ghost in Spotify (right ⌘ accepts)". The ghost itself
+carries no keycap — it used to say "Tab", which stopped being true the moment Tab became form-only, and a
+label that lies is worse than no label. A ghost's ring is the whole of its on-screen vocabulary: purple means
+take it, amber means Ghost is guessing.

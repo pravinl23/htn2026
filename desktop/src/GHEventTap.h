@@ -38,15 +38,19 @@ extern const NSTimeInterval GHGhostKeyTapSeconds; // 0.3
  * produces nothing for either tap, no app binds one, and holding the key still works exactly as it always
  * did, accented characters included, because a chord is never a tap.
  *
- * Right Option is the default because it is the one people's hands already rest near. Right Command is
- * there for anyone who types accents with right Option and would rather keep the two apart entirely.
+ * Right COMMAND is the default, and right Option is not, which was learned the hard way on a real machine:
+ * a lone Option tap is not free after all. macOS toggles Mouse Keys when Option is pressed five times, and
+ * apps bind a double tap of it as a global hotkey -- Claude's own desktop app does. Spamming the accept key
+ * hit both. Nothing in macOS or in any common app answers a lone right Command tap.
+ *
+ * Right Option stays available for anyone who wants it and does not run into either.
  */
 typedef NS_ENUM(NSInteger, GHGhostKey) {
-    GHGhostKeyRightOption = 0,
-    GHGhostKeyRightCommand,
+    GHGhostKeyRightCommand = 0,
+    GHGhostKeyRightOption,
 };
 
-/// "right-option" / "right-command" from settings.json. Anything else is the default.
+/// "right-command" / "right-option" from settings.json. Anything else is the default.
 GHGhostKey GHGhostKeyFromName(NSString *_Nullable name);
 /// The key code a choice listens for, and the flag mask that says it is down.
 CGKeyCode GHGhostKeyCode(GHGhostKey key);

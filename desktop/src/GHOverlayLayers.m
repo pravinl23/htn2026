@@ -159,8 +159,12 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
     NSFont *font = [NSFont systemFontOfSize:item.fontSize weight:NSFontWeightMedium];
     CGColorRef ink = GHColor(88, 86, 104, item.streaming ? 0.7 : 0.95);
     NSAttributedString *text = GHAttributed(item.text ?: @"", font, ink, 0);  // for measuring only
-    CGFloat guessRoom = item.guess ? kCapGap + GHGuessChipSize.width : 0;
-    CGFloat tail = (item.showsKeycap ? kCapGap + kCap.width + kCapTrail : kPad) + guessRoom;
+    // No chips. A pill carried a "guess" pill and a "Tab" keycap inside it, which was two widgets of
+    // furniture around three words -- and the keycap had become a lie besides, since Tab is not the accept
+    // key outside a form. What a ghost has to say it says with the ring: solid means take it, dashed means
+    // Ghost is guessing (docs/answers.md section 3 -- a guess is still always visibly a guess).
+    (void)kCapGap; (void)kCap; (void)kCapTrail;
+    CGFloat tail = kPad;
     CGFloat labelWidth = MIN(GHTextSize(text).width + 1, MAX(0, item.frame.size.width - kPad - tail));
     CGRect frame = GHAnchoredFrame(item.frame, CGSizeMake(kPad + labelWidth + tail, kHeight), item.anchor, item.scale);
     GHSetLayerFrame(self, frame, NO);
@@ -168,8 +172,12 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
     self.cornerRadius = kHeight / 2;
     self.backgroundColor = GHColor(245, 244, 251, 1);
     self.borderWidth = 1;
-    self.borderColor = item.current ? GHAccent(NO, 0.45) : GHColor(120, 120, 135, 0.3);
-    self.shadowColor = item.current ? GHAccent(NO, 1) : GHColor(24, 16, 64, 1);
+    // The ring says everything the chips used to: purple means take it, amber means Ghost is guessing
+    // (docs/answers.md section 3 -- a guess is still always visibly a guess, with nothing added to the
+    // screen to say so).
+    self.borderColor = item.current ? (item.guess ? GHGuessColor(0.75) : GHAccent(NO, 0.45))
+                                    : GHColor(120, 120, 135, 0.3);
+    self.shadowColor = item.current ? (item.guess ? GHGuessColor(1) : GHAccent(NO, 1)) : GHColor(24, 16, 64, 1);
     self.shadowOpacity = item.current ? 0.45f : 0.08f;
     self.shadowRadius = item.current ? 6 : 1;
     self.shadowOffset = CGSizeMake(0, item.current ? -3 : -1);
@@ -189,20 +197,8 @@ CGRect GHAnchoredFrame(CGRect room, CGSize content, GHDrawAnchor anchor, CGFloat
 
     [_guess removeFromSuperlayer];
     _guess = nil;
-    CGFloat after = kPad + labelWidth;
-    if (item.guess) {
-        _guess = GHMakeGuessChip(item.scale);
-        _guess.position = CGPointMake(after + kCapGap, (kHeight - GHGuessChipSize.height) / 2);
-        [self addSublayer:_guess];
-        after += kCapGap + GHGuessChipSize.width;
-    }
     [_keycap removeFromSuperlayer];
     _keycap = nil;
-    if (item.showsKeycap) {
-        _keycap = GHMakeKeycap(@"Tab", kCap, item.scale);
-        _keycap.position = CGPointMake(after + kCapGap, (kHeight - kCap.height) / 2);
-        [self addSublayer:_keycap];
-    }
 }
 
 @end

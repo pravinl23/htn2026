@@ -299,9 +299,11 @@ GH_TEST(tab_is_never_taken_from_an_app_for_a_proposal) {
 GH_TEST(ghost_key_choice_maps_to_a_key_code_a_flag_and_a_name) {
     GH_ASSERT_EQUAL_INT(GHGhostKeyFromName(@"right-command"), GHGhostKeyRightCommand);
     GH_ASSERT_EQUAL_INT(GHGhostKeyFromName(@"right-option"), GHGhostKeyRightOption);
-    // Anything unknown leaves the default in place rather than turning the accept key off.
-    GH_ASSERT_EQUAL_INT(GHGhostKeyFromName(@"f19"), GHGhostKeyRightOption);
-    GH_ASSERT_EQUAL_INT(GHGhostKeyFromName(nil), GHGhostKeyRightOption);
+    // Anything unknown leaves the default in place rather than turning the accept key off. The default is
+    // right COMMAND: a lone Option tap turned out not to be free (macOS toggles Mouse Keys on five Option
+    // presses, and apps bind a double tap of it -- Claude's own desktop app does).
+    GH_ASSERT_EQUAL_INT(GHGhostKeyFromName(@"f19"), GHGhostKeyRightCommand);
+    GH_ASSERT_EQUAL_INT(GHGhostKeyFromName(nil), GHGhostKeyRightCommand);
 
     GH_ASSERT_EQUAL_INT(GHGhostKeyCode(GHGhostKeyRightOption), GHKeyCodeRightOption);
     GH_ASSERT_EQUAL_INT(GHGhostKeyCode(GHGhostKeyRightCommand), GHKeyCodeRightCommand);
@@ -577,6 +579,7 @@ GH_TEST(tap_hold_accepts_until_halted_and_key_up_ends_it) {
 GH_TEST(ghost_key_tap_accepts_the_current_ghost) {
     GHTapRecorder *recorder = [[GHTapRecorder alloc] init];
     GHEventTap *tap = Tap(recorder);
+    tap.ghostKey = GHGhostKeyRightOption;   // these press right Option; the default is right Command
     [tap publishSnapshot:Ready()];
     [tap handleFlagsChanged:kCGEventFlagMaskAlternate keyCode:GHKeyCodeRightOption];   // down
     [tap handleFlagsChanged:0 keyCode:GHKeyCodeRightOption];                            // up, straight away
@@ -587,15 +590,15 @@ GH_TEST(ghost_key_tap_accepts_the_current_ghost) {
 GH_TEST(ghost_key_follows_the_setting) {
     GHTapRecorder *recorder = [[GHTapRecorder alloc] init];
     GHEventTap *tap = Tap(recorder);
-    tap.ghostKey = GHGhostKeyRightCommand;
+    tap.ghostKey = GHGhostKeyRightOption;   // the non-default choice
     [tap publishSnapshot:Ready()];
-    // Right Option is no longer the key: tapping it does nothing at all.
-    [tap handleFlagsChanged:kCGEventFlagMaskAlternate keyCode:GHKeyCodeRightOption];
-    [tap handleFlagsChanged:0 keyCode:GHKeyCodeRightOption];
-    GH_ASSERT_EQUAL_INT(recorder.events.count, 0);
-    // Right Command is.
+    // Right Command is no longer the key: tapping it does nothing at all.
     [tap handleFlagsChanged:kCGEventFlagMaskCommand keyCode:GHKeyCodeRightCommand];
     [tap handleFlagsChanged:0 keyCode:GHKeyCodeRightCommand];
+    GH_ASSERT_EQUAL_INT(recorder.events.count, 0);
+    // Right Option is.
+    [tap handleFlagsChanged:kCGEventFlagMaskAlternate keyCode:GHKeyCodeRightOption];
+    [tap handleFlagsChanged:0 keyCode:GHKeyCodeRightOption];
     NSArray *expected = @[ @"ghost-key" ];
     GH_ASSERT_EQUAL_OBJECTS(recorder.events, expected);
 }
@@ -603,6 +606,7 @@ GH_TEST(ghost_key_follows_the_setting) {
 GH_TEST(ghost_key_does_nothing_when_no_ghost_is_on_screen) {
     GHTapRecorder *recorder = [[GHTapRecorder alloc] init];
     GHEventTap *tap = Tap(recorder);
+    tap.ghostKey = GHGhostKeyRightOption;   // these press right Option; the default is right Command
     GHWalkSnapshot none = Ready();
     none.hasCurrent = NO;
     [tap publishSnapshot:none];
@@ -614,6 +618,7 @@ GH_TEST(ghost_key_does_nothing_when_no_ghost_is_on_screen) {
 GH_TEST(ghost_key_held_with_another_key_is_a_chord_not_a_tap) {
     GHTapRecorder *recorder = [[GHTapRecorder alloc] init];
     GHEventTap *tap = Tap(recorder);
+    tap.ghostKey = GHGhostKeyRightOption;   // these press right Option; the default is right Command
     [tap publishSnapshot:Ready()];
     [tap handleFlagsChanged:kCGEventFlagMaskAlternate keyCode:GHKeyCodeRightOption];
     // Right Option plus a letter: an accented character, or somebody's shortcut. Never ours.
@@ -625,6 +630,7 @@ GH_TEST(ghost_key_held_with_another_key_is_a_chord_not_a_tap) {
 GH_TEST(ghost_key_ignores_the_left_option_and_other_modifiers) {
     GHTapRecorder *recorder = [[GHTapRecorder alloc] init];
     GHEventTap *tap = Tap(recorder);
+    tap.ghostKey = GHGhostKeyRightOption;   // these press right Option; the default is right Command
     [tap publishSnapshot:Ready()];
     [tap handleFlagsChanged:kCGEventFlagMaskAlternate keyCode:58];   // left Option
     [tap handleFlagsChanged:0 keyCode:58];

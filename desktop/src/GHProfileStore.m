@@ -155,8 +155,8 @@ static NSDictionary *GHCleanProfile(NSDictionary *raw) {
 
 static NSDictionary *GHFallbackSettings(void) {
     // Same values as DEFAULT_SETTINGS in shared/src/types.ts, for the case where the core did not load.
-    return @{ @"enabled": @YES, @"confidenceThreshold": @0.7, @"serverUrl": @"http://localhost:8787", @"showHud": @YES,
-              @"learningEnabled": @NO, @"answerProtectedWithDecline": @YES, @"acceptKey": @"right-option" };
+    return @{ @"enabled": @YES, @"confidenceThreshold": @0.7, @"serverUrl": @"http://localhost:8787", @"showHud": @NO,
+              @"learningEnabled": @NO, @"answerProtectedWithDecline": @YES, @"acceptKey": @"right-command" };
 }
 
 static BOOL GHIsPlainHTTPURL(NSString *string) {

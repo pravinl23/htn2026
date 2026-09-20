@@ -10,7 +10,7 @@ const CGKeyCode GHKeyCodeRightOption = 61;
 const CGKeyCode GHKeyCodeRightCommand = 54;
 
 GHGhostKey GHGhostKeyFromName(NSString *name) {
-    return [name isEqualToString:@"right-command"] ? GHGhostKeyRightCommand : GHGhostKeyRightOption;
+    return [name isEqualToString:@"right-option"] ? GHGhostKeyRightOption : GHGhostKeyRightCommand;
 }
 
 CGKeyCode GHGhostKeyCode(GHGhostKey key) {

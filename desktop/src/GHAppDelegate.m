@@ -217,6 +217,12 @@ static OSStatus GHHotKeyHandler(EventHandlerCallRef next, EventRef event, void *
 
 #pragma mark - enable, pause
 
+/// The provider / latency / cache readout along the bottom of the screen. It is a developer's instrument, not
+/// part of the product, so it is off unless somebody asks for it. The controller picks the change up live.
+- (void)toggleHud:(id)sender {
+    [self.store updateSettings:@{ @"showHud": @(!self.store.showHud) } error:NULL];
+}
+
 /// Two buttons that do the thing a second from now, so an accept that fails can be told apart from a key that
 /// never arrived (GHTestPanel). Off by default; nothing is installed until it is asked for.
 - (void)toggleTestPanel:(id)sender {
@@ -442,6 +448,9 @@ static OSStatus GHHotKeyHandler(EventHandlerCallRef next, EventRef event, void *
     [menu addItem:[self actionItem:@"Open settings.json" action:@selector(openSettings:)]];
     [menu addItem:[self actionItem:@"Open demo" action:@selector(openDemo:)]];
     [menu addItem:[self actionItem:@"Open log" action:@selector(openLog:)]];
+    NSMenuItem *hud = [self actionItem:@"Debug HUD" action:@selector(toggleHud:)];
+    hud.state = self.store.showHud ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:hud];
     NSMenuItem *test = [self actionItem:@"Test buttons" action:@selector(toggleTestPanel:)];
     test.state = _testPanel.visible ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:test];

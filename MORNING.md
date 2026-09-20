@@ -38,9 +38,14 @@ Ghost was a web form filler running on a desktop. Five separate causes:
   not publish `AXPress`, pointer put back where the user left it.
 - **Accepting works in native apps, and Tab is left alone.** Tab is form-only: where focus is not on the
   ghost's own field it goes straight to the app (`ghostctl autotab --frontmost Spotify` → `consumed: false`).
-  Everywhere else the accept key is the Ghost key, a LONE tap of a right-hand modifier — no app binds one,
-  and holding it still works normally because a chord is never a tap. `acceptKey` in `settings.json` picks
-  between `right-option` (default) and `right-command`; the HUD names whichever is set.
+  Everywhere else the accept key is the Ghost key, a LONE tap of a right-hand modifier — holding it still
+  works normally because a chord is never a tap. `acceptKey` in `settings.json` picks between
+  `right-command` (the default) and `right-option`; the status line names whichever is set.
+
+  **Right Option was the first default and it was wrong.** It only showed up when spamming the key rather
+  than tapping it once: macOS toggles Mouse Keys on five Option presses, and apps bind a double tap of it —
+  Claude's own desktop app does, so its quick-entry bar kept appearing over the ghost. Right Command has
+  neither problem and is the default now.
 
   Briefly Tab did take a proposal in native apps, which worked but was the wrong trade: Tab is the most
   overloaded key on the keyboard. Reverted, with the reasoning in `docs/accept-key.md`.
