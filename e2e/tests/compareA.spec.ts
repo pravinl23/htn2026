@@ -3,12 +3,9 @@
 //
 // It deliberately asserts nothing until the very end of each phase and prints a timing/verdict line, so a run
 // that stops early still says WHERE it stopped. Every wait is on a condition; there are no sleeps.
-import type { CDPSession, Page, Worker } from "@playwright/test";
+import type { Page, Worker } from "@playwright/test";
 import { DEMO_URL, E2E_SERVER_URL, HOST, expect, readHud, test } from "../fixtures";
-
-const LOOP_HOST = "#ghost-loop-host";
-const FIELDS = ["vendor", "number", "date", "total"] as const;
-const INVOICE_IDS = ["INV-1001", "INV-1002"] as const;
+import { INVOICE_IDS, LOOP_HOST, demonstrate, fresh, hostAttrs, panelEval, readPanel, repliedIds, sheetRows } from "../loop";
 
 interface SheetWindow {
   __sheet?: { rows: string[][]; filled: number };
@@ -22,91 +19,6 @@ interface TraceEventLite {
   pathPattern: string;
   synthetic?: boolean;
   target?: { label?: string; kind?: string; list?: { listSignature: string; index: number }; cell?: { row: number; colHeader: string } };
-}
-
-// ---------- the loop sheet's closed shadow root (same CDP trick as fixtures.overlayEval, other host id) ----------
-
-interface DomNode {
-  nodeId: number;
-  attributes?: string[];
-  children?: DomNode[];
-  shadowRoots?: DomNode[];
-}
-
-const sessions = new WeakMap<Page, Promise<CDPSession>>();
-
-function cdp(page: Page): Promise<CDPSession> {
-  let session = sessions.get(page);
-  if (!session) sessions.set(page, (session = page.context().newCDPSession(page)));
-  return session;
-}
-
-function findById(node: DomNode, id: string): DomNode | null {
-  const attrs = node.attributes ?? [];
-  for (let i = 0; i + 1 < attrs.length; i += 2) if (attrs[i] === "id" && attrs[i + 1] === id) return node;
-  for (const child of node.children ?? []) {
-    const found = findById(child, id);
-    if (found) return found;
-  }
-  return null;
-}
-
-async function panelEval<T>(page: Page, fn: (root: ShadowRoot) => T): Promise<T | null> {
-  const session = await cdp(page);
-  const { root } = (await session.send("DOM.getDocument", { depth: -1, pierce: true })) as { root: DomNode };
-  const shadowId = findById(root, LOOP_HOST.slice(1))?.shadowRoots?.[0]?.nodeId;
-  if (shadowId === undefined) return null;
-  const { object } = await session.send("DOM.resolveNode", { nodeId: shadowId });
-  if (!object.objectId) return null;
-  const { result, exceptionDetails } = await session.send("Runtime.callFunctionOn", {
-    objectId: object.objectId,
-    functionDeclaration: `function () { return (${fn.toString()})(this); }`,
-    returnByValue: true,
-  });
-  if (exceptionDetails) throw new Error(`panelEval failed: ${exceptionDetails.exception?.description ?? exceptionDetails.text}`);
-  return result.value as T;
-}
-
-interface PanelView {
-  headline: string;
-  name: string;
-  confirmLabel: string;
-  confirmDisabled: boolean;
-  effects: string[];
-  rows: Array<{ index: number; label: string; checked: boolean; disabled: boolean; vars: string[]; note: string }>;
-  confirmBox: { x: number; y: number } | null;
-}
-
-function readPanel(page: Page): Promise<PanelView | null> {
-  return panelEval(page, (root): PanelView => {
-    const text = (sel: string): string => root.querySelector(sel)?.textContent?.trim() ?? "";
-    const confirm = root.querySelector<HTMLButtonElement>(".foot .confirm, button.confirm");
-    const box = confirm?.getBoundingClientRect();
-    return {
-      headline: text(".headline"),
-      name: text(".name"),
-      confirmLabel: confirm?.textContent?.trim() ?? "",
-      confirmDisabled: confirm?.disabled ?? true,
-      effects: Array.from(root.querySelectorAll(".effects li"), (li) => li.textContent?.trim() ?? ""),
-      rows: Array.from(root.querySelectorAll<HTMLTableRowElement>("tbody tr"), (tr) => ({
-        index: Number(tr.dataset.index ?? "-1"),
-        label: tr.querySelector(".item")?.textContent?.trim() ?? "",
-        checked: tr.querySelector<HTMLInputElement>("input[type=checkbox]")?.checked ?? false,
-        disabled: tr.querySelector<HTMLInputElement>("input[type=checkbox]")?.disabled ?? true,
-        vars: Array.from(tr.querySelectorAll("td.val"), (td) => td.textContent?.trim() ?? ""),
-        note: tr.querySelector(".note")?.textContent?.trim() ?? "",
-      })),
-      confirmBox: box && box.width > 0 ? { x: box.x + box.width / 2, y: box.y + box.height / 2 } : null,
-    };
-  });
-}
-
-async function hostAttrs(page: Page): Promise<Record<string, string>> {
-  return page.evaluate((id) => {
-    const el = document.getElementById(id);
-    if (!el) return {};
-    return Object.fromEntries(Array.from(el.attributes, (a) => [a.name, a.value]));
-  }, LOOP_HOST.slice(1));
 }
 
 // ---------- the worker's own state, for the "why did nothing happen" answer ----------
@@ -145,59 +57,6 @@ async function dumpTrace(worker: Worker, why: string): Promise<void> {
   console.log(`loop.state: ${JSON.stringify(state)?.slice(0, 800)}`);
   console.log("===== END TRACE DUMP =====\n");
 }
-
-// ---------- the routine, done by hand ----------
-
-async function readInvoice(page: Page): Promise<string[]> {
-  return page.evaluate((fields) => fields.map((f) => document.querySelector(`[data-testid="invoice-fields"] dd[data-field="${f}"]`)?.textContent?.trim() ?? ""), [...FIELDS]);
-}
-
-/** Opens invoice `index` from the inbox with a real click on its row link. */
-async function openInvoice(page: Page, index: number): Promise<void> {
-  await expect(page).toHaveURL(/\/invoices$/);
-  const row = page.getByTestId("invoice-row").nth(index);
-  await row.scrollIntoViewIfNeeded();
-  await row.getByRole("link").click();
-  await expect(page).toHaveURL(new RegExp(`/invoices/${INVOICE_IDS[index] ?? "INV-"}$`));
-  await expect(page.getByTestId("invoice-fields")).toBeVisible();
-}
-
-/** Clicks each cell and types into it; the blur of the next click commits the previous edit. */
-async function typeRow(page: Page, row: number, values: string[]): Promise<void> {
-  for (let col = 0; col < values.length; col++) {
-    const cell = page.locator(`#cell-${row}-${col}`);
-    await cell.click();
-    await cell.pressSequentially(values[col] ?? "", { delay: 5 });
-  }
-  await page.locator(`#cell-${row}-${values.length - 1}`).press("Enter"); // native: moves down, committing the last cell
-  await expect(page.getByTestId("sheet-filled")).toHaveAttribute("data-filled", String(row + 1));
-}
-
-/** One full demonstration: open the invoice, copy its four fields into sheet row `index`, come back, reply. */
-async function demonstrate(page: Page, index: number): Promise<string[]> {
-  await openInvoice(page, index);
-  const values = await readInvoice(page);
-  await page.getByRole("link", { name: "Open spreadsheet" }).click();
-  await expect(page).toHaveURL(/\/sheet$/);
-  await typeRow(page, index, values);
-  await page.goBack(); // back to the invoice, exactly as docs/loops.md section 4 describes the routine
-  await expect(page).toHaveURL(new RegExp(`/invoices/${INVOICE_IDS[index] ?? "INV-"}$`));
-  await page.getByTestId("reply-received").click();
-  await expect(page.getByTestId("reply-confirmation")).toBeVisible();
-  await page.goBack();
-  await expect(page).toHaveURL(/\/invoices$/);
-  return values;
-}
-
-async function fresh(page: Page): Promise<void> {
-  await page.goto(`${DEMO_URL}/reset`);
-  await expect(page.getByTestId("reset-done")).toHaveAttribute("data-remaining", "0");
-  await page.goto(`${DEMO_URL}/invoices`);
-  await expect(page.getByTestId("invoice-row").first()).toBeVisible();
-}
-
-const sheetRows = (page: Page): Promise<string[][]> => page.evaluate(() => (window as SheetWindow).__sheet?.rows ?? []);
-const repliedIds = (page: Page): Promise<string[]> => page.evaluate(() => (window as SheetWindow).__invoices?.replied ?? []);
 
 // ============================================================================
 
