@@ -31,29 +31,23 @@ Press **Tab** to take a visible focused-field suggestion. Use a lone **right Com
 
 ## Watch it work
 
-Every video below is stored in this repository. Use the player for a quick walkthrough or open a clip in full size.
+Every preview below plays directly in GitHub. Select any preview to open its full MP4 walkthrough.
 
 ### Messages: draft a reply in place
 
-<video src="Messages.mp4" controls muted playsinline width="830">
-  <a href="Messages.mp4">Watch the Messages demo</a>
-</video>
+[<img src="docs/media/previews/messages.gif" alt="Animated Messages demo showing Shabang drafting a reply in place" width="830">](Messages.mp4)
 
 Shabang recognizes the conversation context, prepares a reply, and presents it right in the message composer.
 
 ### LinkedIn: move through a form with prepared answers
 
-<video src="Linkedin.mp4" controls muted playsinline width="830">
-  <a href="Linkedin.mp4">Watch the LinkedIn demo</a>
-</video>
+[<img src="docs/media/previews/linkedin.gif" alt="Animated LinkedIn demo showing Shabang preparing form answers" width="830">](Linkedin.mp4)
 
 A single batched AI decision maps the form to the profile facts Shabang already knows, so the next fields are ready as you move through them.
 
 ### OpenTable: a fast, focused interaction
 
-<video src="OpenTable_Fast.mp4" controls muted playsinline width="830">
-  <a href="OpenTable_Fast.mp4">Watch the OpenTable demo</a>
-</video>
+[<img src="docs/media/previews/opentable.gif" alt="Animated OpenTable demo showing Shabang guiding a fast interaction" width="830">](OpenTable_Fast.mp4)
 
 The ghost follows the current task, turning a multi-step interaction into a clear sequence of suggestions.
 
@@ -63,34 +57,69 @@ The ghost follows the current task, turning a multi-step interaction into a clea
   <tr>
     <td width="50%" valign="top">
       <strong>Logs</strong><br><br>
-      <video src="Sentry%20Logs.mp4" controls muted playsinline width="100%">
-        <a href="Sentry%20Logs.mp4">Watch the Logs demo</a>
-      </video>
+      <a href="Sentry%20Logs.mp4"><img src="docs/media/previews/sentry-logs.gif" alt="Animated Sentry Logs walkthrough" width="100%"></a>
     </td>
     <td width="50%" valign="top">
       <strong>Traces</strong><br><br>
-      <video src="Sentry%20Traces.mp4" controls muted playsinline width="100%">
-        <a href="Sentry%20Traces.mp4">Watch the Traces demo</a>
-      </video>
+      <a href="Sentry%20Traces.mp4"><img src="docs/media/previews/sentry-traces.gif" alt="Animated Sentry Traces walkthrough" width="100%"></a>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <strong>Profiles</strong><br><br>
-      <video src="Sentry%20Profiles.mp4" controls muted playsinline width="100%">
-        <a href="Sentry%20Profiles.mp4">Watch the Profiles demo</a>
-      </video>
+      <a href="Sentry%20Profiles.mp4"><img src="docs/media/previews/sentry-profiles.gif" alt="Animated Sentry Profiles walkthrough" width="100%"></a>
     </td>
     <td width="50%" valign="top">
       <strong>App metrics</strong><br><br>
-      <video src="Sentry%20App%20Metrics.mp4" controls muted playsinline width="100%">
-        <a href="Sentry%20App%20Metrics.mp4">Watch the App Metrics demo</a>
-      </video>
+      <a href="Sentry%20App%20Metrics.mp4"><img src="docs/media/previews/sentry-metrics.gif" alt="Animated Sentry App Metrics walkthrough" width="100%"></a>
     </td>
   </tr>
 </table>
 
 These views make the agent loop visible: each outcome becomes a value-free product signal that helps the team measure suggestion quality, speed, and learning over time.
+
+## Sentry turns feedback into agent improvement
+
+Every ghost is a small prediction. The person's response is the answer key. That creates a feedback loop that feels like training data, with no extra annotation work: accepting a ghost is a positive signal, while dismissing or typing over it is a clear correction signal.
+
+```mermaid
+flowchart LR
+    A[Ghost proposal] --> B{User verdict}
+    B -->|Accept| C[Positive outcome]
+    B -->|Dismiss or type over| D[Correction outcome]
+    C --> E[Local preference memory]
+    D --> E
+    C --> F[Value-free telemetry]
+    D --> F
+    F --> G[Sentry logs, metrics, and traces]
+    G --> H[Quality dashboard]
+    G --> I[Reviewable replay cases]
+    I --> J[Regression evaluation]
+    H --> K[Sharper ranking and prompts]
+    J --> K
+    K --> A
+
+    style A fill:#f3e8ff,stroke:#9333ea,color:#3b0764
+    style E fill:#dcfce7,stroke:#16a34a,color:#14532d
+    style G fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+    style J fill:#fef3c7,stroke:#d97706,color:#451a03
+    style K fill:#fae8ff,stroke:#c026d3,color:#701a75
+```
+
+### What Shabang records
+
+For every proposal, Shabang records a compact event with the **action class**, **suggestion source**, **provider**, **calibration flag**, **confidence bucket**, **latency bucket**, and the person's **verdict**. The payload uses closed categories and coarse counts, creating a durable, privacy-preserving feedback stream.
+
+`ghost.proposed` is counted for every suggestion. Shabang then records `ghost.accepted`, `ghost.corrected`, `ghost.dismissed`, or `ghost.skipped`, all tagged with `ghost.class`, `ghost.source`, `ghost.confidence.bucket`, and `ghost.surface`. That makes an acceptance rate, correction rate, and decision-time distribution immediately explorable in Sentry.
+
+### How that makes the agent better
+
+The loop runs at two speeds:
+
+1. **Personal learning, immediately.** Each verdict refines local answer and action memory, so the next suggestion better reflects that person's habits.
+2. **Product learning, continuously.** Sentry shows how suggestion quality changes by source, class, confidence, and surface. A calibrated high-confidence ghost that gets dismissed or typed over becomes a reviewable replay case. Reviewed cases feed `pnpm eval:walk-replays`, giving the team a living regression suite for improving ranking, prompts, and confidence behavior.
+
+This is training-like feedback with the user supplying the ground truth through natural interaction. It keeps the experience personal in the moment and makes the agent stronger through a measurable evaluation loop over time.
 
 ## How the agent works
 
@@ -107,6 +136,8 @@ flowchart LR
     F -->|Dismiss or replace| H[Record outcome]
     G --> H
     H --> I[Local preference memory]
+    H --> K[Value-free outcome telemetry]
+    K --> L[Sentry learning analytics]
 
     C -. optional form mapping or text draft .-> J[Loopback AI service]
     J -. validated suggestion .-> D
@@ -116,6 +147,7 @@ flowchart LR
     style F fill:#fef3c7,stroke:#d97706,color:#451a03
     style I fill:#dcfce7,stroke:#16a34a,color:#14532d
     style J fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+    style L fill:#fef3c7,stroke:#d97706,color:#451a03
 ```
 
 ### 1. Understand the current screen
@@ -132,7 +164,7 @@ Shabang displays a suggestion in place and waits for your explicit input. It per
 
 ### 4. Learn from the outcome
 
-Accepting, dismissing, or replacing a ghost creates a compact outcome signal. Local memory uses that signal to make future suggestions feel more personal, while the observability layer tracks aggregate product health through value-free signals.
+Accepting, dismissing, or replacing a ghost creates a compact outcome signal. Local memory uses that signal to make future suggestions feel more personal, while Sentry reveals the aggregate patterns that become replay evaluations and future product improvements.
 
 ## Built for a fast loop
 
