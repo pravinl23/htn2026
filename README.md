@@ -1,6 +1,8 @@
 <div align="center">
 
-# ✨ Shabang
+<img src="desktop/assets/icon-app.png" alt="Shabang logo" width="96">
+
+# Shabang
 
 ### Your next action, already waiting for you.
 
@@ -31,50 +33,43 @@ Press **Tab** to take a visible focused-field suggestion. Use a lone **right Com
 
 ## Watch it work
 
-Every preview below plays directly in GitHub. Select any preview to open its full MP4 walkthrough.
+Every clip below plays directly in GitHub. Each is a fast, H.264-optimized walkthrough.
 
 ### Messages: draft a reply in place
 
-[<img src="docs/media/previews/messages.gif" alt="Animated Messages demo showing Shabang drafting a reply in place" width="830">](Messages.mp4)
+https://github.com/user-attachments/assets/0343cb0f-0de3-44c3-8e12-cd39b1baa1cc
 
 Shabang recognizes the conversation context, prepares a reply, and presents it right in the message composer.
 
 ### LinkedIn: move through a form with prepared answers
 
-[<img src="docs/media/previews/linkedin.gif" alt="Animated LinkedIn demo showing Shabang preparing form answers" width="830">](Linkedin.mp4)
+https://github.com/user-attachments/assets/905ff6c4-3ff1-406e-9f81-8935da790976
 
 A single batched AI decision maps the form to the profile facts Shabang already knows, so the next fields are ready as you move through them.
 
 ### OpenTable: a fast, focused interaction
 
-[<img src="docs/media/previews/opentable.gif" alt="Animated OpenTable demo showing Shabang guiding a fast interaction" width="830">](OpenTable_Fast.mp4)
+https://github.com/user-attachments/assets/3923607a-5f73-4069-8db2-ab3a2276db76
 
 The ghost follows the current task, turning a multi-step interaction into a clear sequence of suggestions.
 
 ### The learning loop in Sentry
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>Logs</strong><br><br>
-      <a href="Sentry%20Logs.mp4"><img src="docs/media/previews/sentry-logs.gif" alt="Animated Sentry Logs walkthrough" width="100%"></a>
-    </td>
-    <td width="50%" valign="top">
-      <strong>Traces</strong><br><br>
-      <a href="Sentry%20Traces.mp4"><img src="docs/media/previews/sentry-traces.gif" alt="Animated Sentry Traces walkthrough" width="100%"></a>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>Profiles</strong><br><br>
-      <a href="Sentry%20Profiles.mp4"><img src="docs/media/previews/sentry-profiles.gif" alt="Animated Sentry Profiles walkthrough" width="100%"></a>
-    </td>
-    <td width="50%" valign="top">
-      <strong>App metrics</strong><br><br>
-      <a href="Sentry%20App%20Metrics.mp4"><img src="docs/media/previews/sentry-metrics.gif" alt="Animated Sentry App Metrics walkthrough" width="100%"></a>
-    </td>
-  </tr>
-</table>
+#### Logs
+
+https://github.com/user-attachments/assets/be47229c-bcfe-429e-b8db-3a6bf012a54e
+
+#### Traces
+
+https://github.com/user-attachments/assets/a29d044f-b727-47b4-91ab-820fcf8c42e0
+
+#### Profiles
+
+https://github.com/user-attachments/assets/41f17d28-3913-4d2b-ac98-b33b4b289464
+
+#### App metrics
+
+https://github.com/user-attachments/assets/86bf560a-ab78-43f9-a2ff-624c5d7d927d
 
 These views make the agent loop visible: each outcome becomes a value-free product signal that helps the team measure suggestion quality, speed, and learning over time.
 
