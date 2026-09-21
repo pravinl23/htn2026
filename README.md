@@ -1,35 +1,182 @@
-# Shabang
+<div align="center">
 
-> A native macOS assistant that suggests the next safe action in the app you are using.
+# ✨ Shabang
 
-Shabang is a menu-bar app for macOS. It reads the accessibility tree of the frontmost app, draws a translucent ghost over a likely next field or labelled control, and lets you accept a suggestion deliberately. It is designed to work across accessible native and web apps—not through a browser extension. The default general accept key is right Command; Tab accepts only a value suggestion on the focused form field.
+### Your next action, already waiting for you.
 
-The quick start below is sufficient for a development checkout. [SETUP.md](SETUP.md) is a maintainer-oriented clean-machine and troubleshooting guide; read its reset/recovery commands carefully before running them.
+**A native macOS AI agent that understands the screen in front of you, suggests the next useful step, and learns from every choice you make.**
 
-This is a Hack the North 2026 prototype, not a signed or notarized production release. It currently requires macOS 13 or later, Accessibility permission, and a Mac with the Command Line Tools installed.
+<p>
+  <a href="#watch-it-work">Watch demos</a> ·
+  <a href="#how-the-agent-works">How it works</a> ·
+  <a href="#run-it-locally">Run locally</a>
+</p>
 
-On a new Mac, `./install.sh` does the whole setup: it checks the toolchain, builds, installs the app to `~/Applications`, walks the Accessibility grant, and verifies the result. `./install.sh --check` reports problems without changing anything, and `./install.sh --update` rebuilds after a code change while keeping the permission.
+</div>
 
-## What it does today
+---
 
-- Uses local heuristics to suggest form values and next actions immediately.
-- Can use the loopback-only companion server to improve a form mapping or stream a text draft when an optional provider is configured.
-- Learns local, bounded preferences from accepted and rejected suggestions.
-- Treats submit, send, pay, delete, confirm, and similar actions as locked: Shabang parks on them but does not activate them.
-- Lets you accept a focused form value with Tab. For non-form actions, it uses a configurable lone right-Command tap by default; Escape dismisses and typing wins.
-- Includes an optional zsh companion that suggests a shell command but never executes it.
+## The idea
 
-There is **no Chrome extension**. The former browser-extension experiment is isolated in [`attic/`](attic/README.md), outside the workspace, builds, and supported product surface.
+Shabang brings a Cursor-like suggestion experience to your whole Mac. It reads the accessible controls in the app you are using, finds the strongest next action, and draws a subtle ghost directly where that action belongs.
 
-## Known limits
+| You are doing | Shabang helps with |
+| --- | --- |
+| Filling out an application | Matching fields with your saved profile and preparing answers |
+| Replying to a message | Drafting a concise reply in the compose box |
+| Navigating a busy app | Highlighting the next useful field or control |
+| Repeating a familiar task | Adapting suggestions from your accepted choices |
 
-Accessibility support differs by application and control. Shabang skips controls it cannot identify, locate, or verify safely. It has not been productized for distribution, and it should not be used to submit a real form or take another irreversible action unattended. Vision-assisted labels are an opt-in experimental desktop capability that needs Screen Recording permission and an OpenAI provider; batch/workflow endpoints are historical server code, not the desktop product.
+Press **Tab** to take a visible focused-field suggestion. Use a lone **right Command** tap for other suggested controls. **Escape** clears a suggestion, and ordinary typing naturally takes over.
 
-The product, native bundle, and desktop support directory are named **Shabang**. A few internal server/terminal identifiers still use the historical “ghost” name; they are implementation details, not a second client or browser extension.
+## Watch it work
 
-## Quick start (development)
+Every video below is stored in this repository. Use the player for a quick walkthrough or open a clip in full size.
 
-Prerequisites: macOS 13+, Node.js 22+, pnpm 10+, and the Xcode Command Line Tools.
+### Messages: draft a reply in place
+
+<video src="Messages.mp4" controls muted playsinline width="830">
+  <a href="Messages.mp4">Watch the Messages demo</a>
+</video>
+
+Shabang recognizes the conversation context, prepares a reply, and presents it right in the message composer.
+
+### LinkedIn: move through a form with prepared answers
+
+<video src="Linkedin.mp4" controls muted playsinline width="830">
+  <a href="Linkedin.mp4">Watch the LinkedIn demo</a>
+</video>
+
+A single batched AI decision maps the form to the profile facts Shabang already knows, so the next fields are ready as you move through them.
+
+### OpenTable: a fast, focused interaction
+
+<video src="OpenTable_Fast.mp4" controls muted playsinline width="830">
+  <a href="OpenTable_Fast.mp4">Watch the OpenTable demo</a>
+</video>
+
+The ghost follows the current task, turning a multi-step interaction into a clear sequence of suggestions.
+
+### The learning loop in Sentry
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>Logs</strong><br><br>
+      <video src="Sentry%20Logs.mp4" controls muted playsinline width="100%">
+        <a href="Sentry%20Logs.mp4">Watch the Logs demo</a>
+      </video>
+    </td>
+    <td width="50%" valign="top">
+      <strong>Traces</strong><br><br>
+      <video src="Sentry%20Traces.mp4" controls muted playsinline width="100%">
+        <a href="Sentry%20Traces.mp4">Watch the Traces demo</a>
+      </video>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>Profiles</strong><br><br>
+      <video src="Sentry%20Profiles.mp4" controls muted playsinline width="100%">
+        <a href="Sentry%20Profiles.mp4">Watch the Profiles demo</a>
+      </video>
+    </td>
+    <td width="50%" valign="top">
+      <strong>App metrics</strong><br><br>
+      <video src="Sentry%20App%20Metrics.mp4" controls muted playsinline width="100%">
+        <a href="Sentry%20App%20Metrics.mp4">Watch the App Metrics demo</a>
+      </video>
+    </td>
+  </tr>
+</table>
+
+These views make the agent loop visible: each outcome becomes a value-free product signal that helps the team measure suggestion quality, speed, and learning over time.
+
+## How the agent works
+
+Shabang keeps the interaction simple for the person using it while coordinating several focused layers behind the scenes.
+
+```mermaid
+flowchart LR
+    A[Frontmost macOS app] --> B[Accessibility capture]
+    B --> C[Local context and safety filter]
+    C --> D[Rank likely next action]
+    D --> E[Ghost overlay]
+    E --> F{Your choice}
+    F -->|Accept| G[Verified write or focused action]
+    F -->|Dismiss or replace| H[Record outcome]
+    G --> H
+    H --> I[Local preference memory]
+
+    C -. optional form mapping or text draft .-> J[Loopback AI service]
+    J -. validated suggestion .-> D
+
+    style A fill:#e8f0fe,stroke:#2563eb,color:#172554
+    style E fill:#f3e8ff,stroke:#9333ea,color:#3b0764
+    style F fill:#fef3c7,stroke:#d97706,color:#451a03
+    style I fill:#dcfce7,stroke:#16a34a,color:#14532d
+    style J fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+```
+
+### 1. Understand the current screen
+
+The desktop app reads the accessibility tree of the frontmost macOS app and turns eligible controls into structured context: fields, labels, roles, and nearby interaction cues.
+
+### 2. Choose the best suggestion
+
+The local ranking engine combines screen context, profile facts, learned preferences, and app-agnostic affordance roles. For a form, the optional local AI service makes one batched mapping decision. For a writing surface, it can stream a draft into the ghost.
+
+### 3. Keep you in control
+
+Shabang displays a suggestion in place and waits for your explicit input. It performs the narrowest supported write and verifies the result. Sensitive fields and high-impact actions remain thoughtfully guarded.
+
+### 4. Learn from the outcome
+
+Accepting, dismissing, or replacing a ghost creates a compact outcome signal. Local memory uses that signal to make future suggestions feel more personal, while the observability layer tracks aggregate product health through value-free signals.
+
+## Built for a fast loop
+
+```mermaid
+sequenceDiagram
+    participant You
+    participant Shabang as Shabang desktop app
+    participant Context as Local context
+    participant AI as Local AI service
+    participant Memory as Local memory
+
+    Shabang->>Context: Capture accessible controls
+    Context->>AI: Request one batched decision when useful
+    AI-->>Shabang: Validated mapping or draft
+    Shabang-->>You: Draw a ghost in context
+    You->>Shabang: Accept, dismiss, or type
+    Shabang->>Memory: Record the outcome
+    Memory-->>Shabang: Refine future suggestions
+```
+
+The fast local path is always ready. AI adds focused form decisions and writing assistance through a loopback service at `127.0.0.1`, keeping provider credentials out of the desktop app.
+
+## What powers Shabang
+
+| Layer | Role |
+| --- | --- |
+| **Native desktop app** | Menu-bar experience, Accessibility capture, ghost rendering, keyboard interaction, and verified writes |
+| **Shared TypeScript brain** | Field handling, local ranking, profile resolution, affordance roles, and preference memory |
+| **Local Node.js service** | Batched form predictions, streamed text drafts, telemetry, and provider access |
+| **TypeSafe Jev** | Typed, confidence-aware decisions for mapping form fields to profile facts |
+| **Baseten** | Streaming text drafts and a flexible decision-provider path |
+| **Sentry** | Logs, traces, metrics, profiles, and session replay for the agent learning loop |
+
+## Run it locally
+
+### What you need
+
+- macOS 13 or later
+- Node.js 22 or later
+- pnpm 10 or later
+- Xcode Command Line Tools
+- Accessibility permission for Shabang
+
+### Start the development experience
 
 ```bash
 pnpm install
@@ -42,18 +189,17 @@ In a second terminal:
 make -C desktop run
 ```
 
-At first launch, grant **Accessibility** to the generated `Shabang.app` in System Settings → Privacy & Security → Accessibility. The menu-bar item reports whether permission is available and whether the local server is online. `pnpm dev` also starts the local demo site on `http://localhost:5173`, which is the safe place to rehearse form behavior.
+At first launch, enable **Shabang** in **System Settings → Privacy & Security → Accessibility**. The app appears in your menu bar once it is running.
 
-For a background installation that starts at login, inspect the exact changes first:
+### One-command install
 
 ```bash
-scripts/install-background.sh --dry-run
-scripts/install-background.sh
+./install.sh
 ```
 
-The installer is per-user, never requires `sudo`, installs a loopback server and `Shabang.app`, and keeps secrets in `~/.config/shabang/env` rather than in the repository. See [`desktop/README.md`](desktop/README.md) for installation, permissions, data locations, and removal.
+The installer prepares dependencies, builds Shabang, places the app in `~/Applications`, guides the Accessibility setup, and verifies the installation. Use `./install.sh --check` for a read-only environment check or `./install.sh --update` after changing code.
 
-## Development checks
+### Useful checks
 
 ```bash
 pnpm typecheck
@@ -62,48 +208,28 @@ pnpm desktop:test
 pnpm test:terminal
 ```
 
-`pnpm test:live` is opt-in: it runs only when a supported provider credential is present. It may call a paid external service; do not run it with credentials you do not intend to use.
+## Explore the project
 
-## Privacy and safety
+| Where to look | What you will find |
+| --- | --- |
+| [desktop/](desktop/README.md) | Native macOS app, setup, interaction model, and desktop commands |
+| [shared/](shared/) | Core ranking, knowledge, form, and safety logic |
+| [server/](server/) | Loopback service, providers, and observability integration |
+| [demo/](demo/) | Local fictional surfaces for developing and rehearsing interactions |
+| [terminal/](terminal/README.md) | Optional zsh command suggestion companion |
+| [docs/](docs/README.md) | Architecture, data handling, learning loop, and technical notes |
+| [SENTRY.md](SENTRY.md) | Observability story and live demo guide |
 
-The desktop app stores its profile, settings, answer memory, and local form cache in `~/Library/Application Support/Shabang/` with private file permissions. Password, payment-card, government-ID, and sensitivity-labelled controls are excluded before prediction, storage, or logging. The companion server listens on `127.0.0.1` by default.
+## A few details that matter
 
-Without a provider key, the app remains on its offline heuristic. With a key, the server may send only the bounded context required by the relevant route to the configured provider. See [`docs/architecture.md`](docs/architecture.md), [`docs/storage.md`](docs/storage.md), [`docs/learning-loop.md`](docs/learning-loop.md), and [`.env.example`](.env.example) before configuring one.
+- **Local-first:** contextual ranking and preference memory live on the Mac.
+- **App-agnostic:** Shabang works from accessible roles and labels rather than per-site scripts.
+- **One decision, many fields:** a form is mapped in one batched request, then suggestions are ready as you move through it.
+- **Purpose-built AI:** typed decisions choose the right fact, while a text model writes the right words.
+- **Visible learning:** accepted and dismissed suggestions provide the feedback signal that makes the agent sharper over time.
 
-## Repository map
+<div align="center">
 
-```text
-desktop/   Native macOS menu-bar app (Objective-C, clang, JavaScriptCore)
-shared/    Pure TypeScript safety, form, knowledge, and affordance logic
-server/    Loopback Node.js service for optional predictions, drafts, telemetry, and terminal support
-demo/      Local, fictional demo surfaces used for development and tests
-terminal/  Optional zsh command-ghost companion
-docs/      Current architecture and implementation notes
-attic/     Deliberately unsupported historical code, including the former extension
-```
+Built at Hack the North 2026 · **Shabang makes the next step feel obvious.**
 
-## Sponsor tracks
-
-What we used, why it and not something else, the measured numbers, and what went wrong. Each one also
-says what *not* to claim.
-
-- [`SENTRY.md`](SENTRY.md) — six Sentry products, and four things Sentry data changed in the code.
-- [`docs/typesafe.md`](docs/typesafe.md) — Jev: calibrated confidence in 266 ms, and why our confidence gate means anything.
-- [`docs/baseten.md`](docs/baseten.md) — confidence without logprobs: a hedged vote, and why every word of text comes from here.
-- [`docs/openai.md`](docs/openai.md) — a useful negative result on calibration, and vision that rarely fires.
-- [`docs/rox.md`](docs/rox.md) — no SDK: the agent answered against the five judging criteria.
-
-Raw evidence: [`docs/media/bench-providers.md`](docs/media/bench-providers.md).
-
-## More documentation
-
-- [`docs/README.md`](docs/README.md) — index of every live document.
-- [`desktop/README.md`](desktop/README.md) — build, run, install, permissions, and troubleshooting.
-- [`docs/architecture.md`](docs/architecture.md) — current product architecture and data flow.
-- [`docs/desktop.md`](docs/desktop.md) — native pipeline and safety boundary.
-- [`docs/server-api.md`](docs/server-api.md) — loopback service contract; not a public hosted API.
-- [`terminal/README.md`](terminal/README.md) — optional zsh integration.
-
-## Before publishing
-
-This repository has no license, contribution policy, security-reporting channel, code of conduct, or release workflow yet. Those are intentional hold points rather than implied permissions: choose a license and maintainers/security contact before asking others to use, redistribute, or contribute to the code. The release audit notes the remaining actions in [`docs/release-readiness.md`](docs/release-readiness.md).
+</div>
